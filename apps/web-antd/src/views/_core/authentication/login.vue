@@ -2,9 +2,10 @@
 import type { VbenFormSchema } from '@vben/common-ui';
 import type { BasicOption } from '@vben/types';
 
-import { computed, markRaw } from 'vue';
+import { computed, h, markRaw } from 'vue';
 
 import { AuthenticationLogin, SliderCaptcha, z } from '@vben/common-ui';
+import { LockKeyhole, UserRoundPen } from '@vben/icons';
 import { $t } from '@vben/locales';
 
 import { useAuthStore } from '#/store';
@@ -13,42 +14,36 @@ defineOptions({ name: 'Login' });
 
 const authStore = useAuthStore();
 
-const MOCK_USER_OPTIONS: BasicOption[] = [
-  {
-    label: 'Super',
-    value: 'vben',
-  },
-  {
-    label: 'Admin',
-    value: 'admin',
-  },
-  {
-    label: 'User',
-    value: 'jack',
-  },
-];
+const MOCK_USER_OPTIONS: BasicOption[] = [];
 
 const formSchema = computed((): VbenFormSchema[] => {
   return [
+    // {
+    //   component: 'VbenSelect',
+    //   componentProps: {
+    //     options: MOCK_USER_OPTIONS,
+    //     placeholder: $t('authentication.selectAccount'),
+    //   },
+    //   fieldName: 'selectAccount',
+    //   label: $t('authentication.selectAccount'),
+    //   rules: z
+    //     .string()
+    //     .min(1, { message: $t('authentication.selectAccount') })
+    //     .optional()
+    //     .default('vben'),
+    // },
     {
-      component: 'VbenSelect',
+      component: 'Input',
       componentProps: {
-        options: MOCK_USER_OPTIONS,
-        placeholder: $t('authentication.selectAccount'),
-      },
-      fieldName: 'selectAccount',
-      label: $t('authentication.selectAccount'),
-      rules: z
-        .string()
-        .min(1, { message: $t('authentication.selectAccount') })
-        .optional()
-        .default('vben'),
-    },
-    {
-      component: 'VbenInput',
-      componentProps: {
+        size: 'large',
         placeholder: $t('authentication.usernameTip'),
       },
+      renderComponentContent: () => ({
+        prefix: () =>
+          h(UserRoundPen, {
+            class: 'size-4 text-muted-foreground',
+          }),
+      }),
       dependencies: {
         trigger(values, form) {
           if (values.selectAccount) {
@@ -70,8 +65,15 @@ const formSchema = computed((): VbenFormSchema[] => {
       rules: z.string().min(1, { message: $t('authentication.usernameTip') }),
     },
     {
-      component: 'VbenInputPassword',
+      component: 'InputPassword',
+      renderComponentContent: () => ({
+        prefix: () =>
+          h(LockKeyhole, {
+            class: 'size-4 text-muted-foreground',
+          }),
+      }),
       componentProps: {
+        size: 'large',
         placeholder: $t('authentication.password'),
       },
       fieldName: 'password',
@@ -94,5 +96,11 @@ const formSchema = computed((): VbenFormSchema[] => {
     :form-schema="formSchema"
     :loading="authStore.loginLoading"
     @submit="authStore.authLogin"
+    :show-code-login="false"
+    :show-forget-password="false"
+    :show-qrcode-login="false"
+    :show-register="false"
+    :show-remember-me="false"
+    :show-third-party-login="false"
   />
 </template>

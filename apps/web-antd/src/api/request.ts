@@ -51,13 +51,53 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
   async function doRefreshToken() {
     const accessStore = useAccessStore();
     const resp = await refreshTokenApi();
-    const newToken = resp.data;
+    if (!resp.isRefresh) {
+      return resp.token;
+    }
+    const newToken = resp.token;
     accessStore.setAccessToken(newToken);
     return newToken;
   }
 
   function formatToken(token: null | string) {
     return token ? `Bearer ${token}` : null;
+  }
+
+  // 生成 UUID v4 的小型回退实现（当环境没有 crypto.randomUUID 时使用）
+  function generateTraceId() {
+    // 浏览器或 Node 的 crypto.randomUUID 优先
+    const rndUUID = (globalThis as any)?.crypto?.randomUUID?.();
+    if (rndUUID) return rndUUID;
+
+    // 优先使用 crypto.getRandomValues 生成更安全的随机字节
+    const getRandomBytes = (n: number) => {
+      const bytes = new Uint8Array(n);
+      if ((globalThis as any)?.crypto?.getRandomValues) {
+        (globalThis as any).crypto.getRandomValues(bytes);
+      } else {
+        for (let i = 0; i < n; i++) {
+          bytes[i] = Math.trunc(Math.random() * 256);
+        }
+      }
+      return bytes;
+    };
+
+    const bytes = getRandomBytes(16);
+    // Per RFC 4122 v4
+    const b6 = bytes[6] ?? 0;
+    const b8 = bytes[8] ?? 0;
+    // 0x0f => 15, 0x40 => 64, 0x3f => 63, 0x80 => 128
+    bytes[6] = (b6 & 15) | 64;
+    bytes[8] = (b8 & 63) | 128;
+
+    const hex: string[] = [];
+    for (let i = 0; i < 16; i++) {
+      const v = bytes[i] ?? 0;
+      hex.push(v.toString(16).padStart(2, '0'));
+    }
+
+    // format xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+    return `${hex.slice(0, 4).join('')}${hex[4]}${hex[5]}-${hex[6]}${hex[7]}-${hex[8]}${hex[9]}-${hex[10]}${hex[11]}-${hex.slice(12, 16).join('')}`;
   }
 
   // 请求头处理
@@ -67,6 +107,11 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
 
       config.headers.Authorization = formatToken(accessStore.accessToken);
       config.headers['Accept-Language'] = preferences.app.locale;
+      // 为每个请求添加 X-Trace-Id，用于链路/请求追踪
+      // 如果调用方已传入，则保留原值
+      if (!config.headers['X-Trace-Id'] && !config.headers['x-trace-id']) {
+        config.headers['X-Trace-Id'] = generateTraceId();
+      }
       return config;
     },
   });
@@ -74,9 +119,11 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
   // 处理返回的响应数据格式
   client.addResponseInterceptor(
     defaultResponseInterceptor({
-      codeField: 'code',
+      // 后端返回格式: { status: true, code: 1, message: '成功', data: {...} }
+      // 使用 `status` 字段作为成功标识，successCode 为 true
+      codeField: 'status',
       dataField: 'data',
-      successCode: 0,
+      successCode: (v: any) => v === true,
     }),
   );
 
@@ -97,8 +144,20 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
       // 这里可以根据业务进行定制,你可以拿到 error 内的信息进行定制化处理，根据不同的 code 做不同的提示，而不是直接使用 message.error 提示 msg
       // 当前mock接口返回的错误字段是 error 或者 message
       const responseData = error?.response?.data ?? {};
-      const errorMessage = responseData?.error ?? responseData?.message ?? '';
-      // 如果没有错误信息，则会根据状态码进行提示
+      const respCode = responseData?.code ?? '';
+      const respMessage = responseData?.message ?? responseData?.error ?? '';
+
+      // 拼接 code 与 message
+      let errorMessage = '';
+      if (respCode && respMessage) {
+        errorMessage = `code: ${respCode} ${respMessage}`;
+      } else if (respMessage) {
+        errorMessage = respMessage;
+      } else if (respCode) {
+        errorMessage = `code: ${respCode}`;
+      }
+
+      // 如果没有任何后端错误信息，则使用通用 msg
       message.error(errorMessage || msg);
     }),
   );
