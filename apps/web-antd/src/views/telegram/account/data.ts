@@ -77,9 +77,11 @@ export function useFormSchema(): VbenFormSchema[] {
       componentProps: { style: { width: '100%' } },
     },
     {
-      component: 'Input',
+      component: 'InputNumber',
       fieldName: 'apiID',
       label: 'API ID',
+      formItemClass: 'col-span-1',
+      componentProps: { style: { width: '100%' } },
     },
     {
       component: 'Input',
@@ -127,22 +129,55 @@ export function useFormSchema(): VbenFormSchema[] {
 // 搜索表单schema
 export function useGridFormSchema(): VbenFormSchema[] {
   return [
-    { component: 'Input', fieldName: 'userID', label: '用户ID' },
-    { component: 'Input', fieldName: 'username', label: '用户名' },
-    { component: 'Input', fieldName: 'phoneNumber', label: '手机号' },
+    {
+      component: 'Input',
+      fieldName: 'userID',
+      label: '用户ID',
+      componentProps: {
+        placeholder: '请输入用户ID',
+        allowClear: true, // 显示清除按钮
+      },
+    },
+    {
+      component: 'Input',
+      fieldName: 'username',
+      label: '用户名',
+      componentProps: {
+        placeholder: '请输入用户名',
+        allowClear: true, // 显示清除按钮
+      },
+    },
+    {
+      component: 'Input',
+      fieldName: 'phoneNumber',
+      label: '手机号',
+      componentProps: {
+        placeholder: '请输入手机号',
+        allowClear: true, // 显示清除按钮
+      },
+    },
     {
       component: 'Select',
       fieldName: 'status',
       label: '状态',
       componentProps: {
         allowClear: true,
+        placeholder: '全部',
         options: [
           { label: '已启用', value: 1 },
           { label: '已禁用', value: 0 },
         ],
       },
     },
-    { component: 'Input', fieldName: 'webhook', label: 'Webhook' },
+    {
+      component: 'Input',
+      fieldName: 'webhook',
+      label: 'Webhook',
+      componentProps: {
+        placeholder: '请输入Webhook',
+        allowClear: true, // 显示清除按钮
+      },
+    },
     {
       component: 'RangePicker',
       fieldName: 'createTime',

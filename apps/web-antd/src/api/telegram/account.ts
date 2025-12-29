@@ -1,10 +1,12 @@
+import type { CommonApi } from '#/api/telegram/common';
+
 // TG账号管理相关API封装
 // 代码风格参考 playground/src/api/system/role.ts
 import { requestClient } from '#/api/request';
 
 export namespace TgAccountApi {
   // TG账号类型定义
-  export interface TgAccountItem {
+  export interface Item {
     id: number; // 账号ID（主键）
     userID: number; // 所属用户ID
     phoneNumber: string; // 手机号码
@@ -29,7 +31,7 @@ export namespace TgAccountApi {
   }
 
   // 分页查询参数
-  export interface TgAccountListParams {
+  export interface ListParams {
     userID?: number; // TG账号ID，非必填
     username?: string; // TG用户名，非必填
     phoneNumber?: string; // 手机号码，非必填
@@ -42,67 +44,48 @@ export namespace TgAccountApi {
   }
 
   // 新增/编辑参数
-  export type TgAccountFormParams = Partial<TgAccountItem>;
-
-  // 分页响应
-  export interface TgAccountListResult {
-    list: TgAccountItem[];
-    total: number;
-  }
+  export type FormParams = Partial<Item>;
 }
 // 1. 分页获取TG账号列表
-async function fetchTgAccountList(params: TgAccountApi.TgAccountListParams) {
+export async function fetchTgAccountList(params: TgAccountApi.ListParams) {
   // 强制 userID 为 number 类型，防止字符串传递
   const fixedParams = {
     ...params,
     userID: params.userID === undefined ? undefined : Number(params.userID),
   };
   // GET请求参数需拼接到params属性下
-  return requestClient.get<{
-    code: number;
-    data: TgAccountApi.TgAccountListResult;
-    message: string;
-  }>('/tg_account', { params: fixedParams });
+  return requestClient.get<CommonApi.ListResult<TgAccountApi.Item>>(
+    '/tg_account',
+    {
+      params: fixedParams,
+    },
+  );
 }
 
 // 2. 获取TG账号详情
-async function fetchTgAccountDetail(id: number) {
-  return requestClient.get<TgAccountApi.TgAccountItem>(`/tg_account/${id}`);
+export async function fetchTgAccountDetail(id: number) {
+  return requestClient.get<TgAccountApi.Item>(`/tg_account/${id}`);
 }
 
 // 3. 新增TG账号
-async function createTgAccount(data: TgAccountApi.TgAccountFormParams) {
+export async function createTgAccount(data: TgAccountApi.FormParams) {
   return requestClient.post('/tg_account', data);
 }
 
 // 4. 编辑TG账号
-async function updateTgAccount(
+export async function updateTgAccount(
   id: number,
-  data: TgAccountApi.TgAccountFormParams,
+  data: TgAccountApi.FormParams,
 ) {
   return requestClient.patch(`/tg_account/${id}`, data);
 }
 
 // 6. 删除TG账号
-async function deleteTgAccount(id: number) {
-  return requestClient.delete<{ code: number; message: string }>(
-    `/tg_account/${id}`,
-  );
+export async function deleteTgAccount(id: number) {
+  return requestClient.delete(`/tg_account/${id}`);
 }
 
 // 7. 切换账号状态
-async function toggleTgAccountStatus(id: number, status: number) {
-  return requestClient.patch<{ code: number; message: string }>(
-    `/tg_account/status/${id}`,
-    { status },
-  );
+export async function toggleTgAccountStatus(id: number, status: number) {
+  return requestClient.patch(`/tg_account/status/${id}`, { status });
 }
-
-export {
-  createTgAccount,
-  deleteTgAccount,
-  fetchTgAccountDetail,
-  fetchTgAccountList,
-  toggleTgAccountStatus,
-  updateTgAccount,
-};

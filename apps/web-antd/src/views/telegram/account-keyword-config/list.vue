@@ -2,8 +2,8 @@
 // ================= 类型与依赖引入 =================
 // 表格操作事件类型
 import type { OnActionClickParams } from '#/adapter/vxe-table';
-// TG账号API类型
-import type { TgAccountApi } from '#/api/telegram/account';
+// 关键词配置API类型
+import type { TgAccountKeywordConfigApi } from '#/api/telegram/account-keyword-config';
 
 // Vben Admin 通用页面、抽屉、按钮组件
 import { Page, useVbenDrawer, VbenButton } from '@vben/common-ui';
@@ -15,12 +15,12 @@ import { message, Modal } from 'ant-design-vue';
 
 // Vben Admin 表格适配器
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
-// TG账号相关API
+// 关键词配置相关API
 import {
-  deleteTgAccount, // 删除账号API
-  fetchTgAccountList, // 获取账号列表API
-  toggleTgAccountStatus, // 切换账号状态API
-} from '#/api/telegram/account';
+  deleteTgAccountKeywordConfig, // 删除关键词配置API
+  fetchTgAccountKeywordConfigList, // 获取关键词配置列表API
+  updateTgAccountKeywordConfigStatus, // 切换关键词配置状态API
+} from '#/api/telegram/account-keyword-config';
 
 // 表格列、搜索表单schema
 import { useColumns, useGridFormSchema } from './data';
@@ -28,7 +28,7 @@ import { useColumns, useGridFormSchema } from './data';
 import Form from './modules/form.vue';
 
 // ================= 抽屉表单配置 =================
-// 配置抽屉表单，支持新增/编辑账号
+// 配置抽屉表单，支持新增/编辑关键词配置
 const [FormDrawer, formDrawerApi] = useVbenDrawer({
   connectedComponent: Form,
   destroyOnClose: true,
@@ -38,7 +38,6 @@ const [FormDrawer, formDrawerApi] = useVbenDrawer({
 // 配置Vben Admin表格，支持分页、搜索、操作等
 const [Grid, gridApi] = useVbenVxeGrid({
   formOptions: {
-    fieldMappingTime: [['createTime', ['startTime', 'endTime']]], // 时间字段映射
     schema: useGridFormSchema(), // 搜索表单schema
     submitOnChange: false, // 搜索表单变更自动提交
   },
@@ -48,9 +47,9 @@ const [Grid, gridApi] = useVbenVxeGrid({
     keepSource: true,
     proxyConfig: {
       ajax: {
-        // 分页查询TG账号列表
+        // 分页查询关键词配置列表
         query: async ({ page }: { page: any }, formValues: any) => {
-          return await fetchTgAccountList({
+          return await fetchTgAccountKeywordConfigList({
             page: page.currentPage,
             pageSize: page.pageSize,
             ...formValues,
@@ -76,32 +75,26 @@ const [Grid, gridApi] = useVbenVxeGrid({
 });
 
 // ================= 操作事件 =================
-// 操作列点击事件（详情、编辑、删除等）
-function onActionClick(e: OnActionClickParams<TgAccountApi.Item>) {
+// 操作列点击事件（编辑、删除等）
+function onActionClick(e: OnActionClickParams<TgAccountKeywordConfigApi.Item>) {
   switch (e.code) {
-    // 删除
     case 'delete': {
       onDelete(e.row);
       break;
     }
-    // 编辑
     case 'edit': {
       onEdit(e.row);
       break;
     }
-    // 详情（可扩展）
-    // case 'detail':
-    //   onDetail(e.row);
-    //   break;
   }
 }
 
-// 编辑账号，弹出抽屉
-function onEdit(row: TgAccountApi.Item) {
+// 编辑关键词配置，弹出抽屉
+function onEdit(row: TgAccountKeywordConfigApi.Item) {
   formDrawerApi.setData(row).open();
 }
 
-// 新增账号，弹出抽屉
+// 新增关键词配置，弹出抽屉
 function onCreate() {
   formDrawerApi.setData({}).open();
 }
@@ -111,21 +104,43 @@ function onRefresh() {
   gridApi.query();
 }
 
-// 切换账号状态（启用/禁用）
-async function onStatusChange(newStatus: number, row: TgAccountApi.Item) {
+// 删除关键词配置操作
+function onDelete(row: TgAccountKeywordConfigApi.Item) {
+  const hideLoading = message.loading({
+    content: `正在删除关键词 ${row.keyword}...`,
+    duration: 0,
+    key: 'action_process_msg',
+  });
+  deleteTgAccountKeywordConfig(row.id)
+    .then(() => {
+      message.success({
+        content: `关键词 ${row.keyword} 删除成功`,
+        key: 'action_process_msg',
+      });
+      onRefresh();
+    })
+    .catch(() => {
+      hideLoading();
+    });
+}
+
+// 切换关键词配置状态（启用/禁用）
+async function onStatusChange(
+  newStatus: number,
+  row: TgAccountKeywordConfigApi.Item,
+) {
   const status: Record<number, string> = { 0: '禁用', 1: '启用' };
   try {
     await confirm(
-      `你要将${row.username}的状态切换为 【${status[newStatus as keyof typeof status]}】 吗？`,
+      `你要将${row.keyword}的状态切换为 【${status[newStatus as keyof typeof status]}】 吗？`,
       `切换状态`,
     );
-    await toggleTgAccountStatus(row.id, newStatus);
+    await updateTgAccountKeywordConfigStatus(row.id, newStatus);
     return true;
   } catch {
     return false;
   }
 }
-
 // 通用确认弹窗
 function confirm(content: string, title: string) {
   return new Promise((resolve, reject) => {
@@ -141,34 +156,14 @@ function confirm(content: string, title: string) {
     });
   });
 }
-
-// 删除账号操作
-function onDelete(row: TgAccountApi.Item) {
-  const hideLoading = message.loading({
-    content: `正在删除账号 ${row.username}...`,
-    duration: 0,
-    key: 'action_process_msg',
-  });
-  deleteTgAccount(row.id)
-    .then(() => {
-      message.success({
-        content: `账号 ${row.username} 删除成功`,
-        key: 'action_process_msg',
-      });
-      onRefresh();
-    })
-    .catch(() => {
-      hideLoading();
-    });
-}
 </script>
 <template>
   <Page auto-content-height>
     <FormDrawer @success="onRefresh" />
-    <Grid table-title="TG账号列表">
+    <Grid table-title="TG账号关键词配置列表">
       <template #toolbar-tools>
         <VbenButton type="primary" @click="onCreate">
-          <Plus class="size-5" /> 新增账号
+          <Plus class="size-5" /> 新增关键词配置
         </VbenButton>
       </template>
     </Grid>

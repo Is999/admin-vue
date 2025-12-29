@@ -5,22 +5,33 @@ import type { RouteRecordRaw } from 'vue-router';
 
 const routes: RouteRecordRaw[] = [
   {
-    path: '/tgAccountManagement',
-    name: 'TgAccountManagement',
+    path: '/tg-account',
+    name: 'TgAccount',
     meta: {
       icon: 'ant-design:user-outlined',
+      keepAlive: true,
       order: 1000,
       title: 'TG账号管理', // 如需国际化可用 $t('telegram.title')
     },
     children: [
       {
-        path: '/tgAccount',
-        name: 'TgAccount',
+        path: '/tg-account/list',
+        name: 'TgAccountList',
         meta: {
           icon: 'ant-design:user-outlined',
           title: '账号列表', // 如需国际化可用 $t('telegram.account.title')
         },
         component: () => import('#/views/telegram/account/list.vue'),
+      },
+      {
+        path: '/tg-account/keyword-config',
+        name: 'TgAccountKeywordConfig',
+        meta: {
+          icon: 'ant-design:key-outlined',
+          title: '关键词配置',
+        },
+        component: () =>
+          import('#/views/telegram/account-keyword-config/list.vue'),
       },
       // 预留后续子路由
     ],

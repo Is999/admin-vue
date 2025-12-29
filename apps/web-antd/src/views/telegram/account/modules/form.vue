@@ -1,32 +1,38 @@
 <script lang="ts" setup>
+// 引入TG账号API类型
 import type { TgAccountApi } from '#/api/telegram/account';
 
+// Vue响应式工具
 import { computed, ref } from 'vue';
 
+// Vben抽屉组件
 import { useVbenDrawer } from '@vben/common-ui';
 
+// Ant Design消息提示
 import { message } from 'ant-design-vue';
 
+// Vben表单工具
 import { useVbenForm } from '#/adapter/form';
+// TG账号相关API
 import {
-  createTgAccount,
-  fetchTgAccountDetail,
-  updateTgAccount,
+  createTgAccount, // 创建账号API
+  fetchTgAccountDetail, // 获取账号详情API
+  updateTgAccount, // 更新账号API
 } from '#/api/telegram/account';
 
+// 表单schema定义
 import { useFormSchema } from '../data';
 
+// 定义事件emit类型
 const emit = defineEmits<{ success: [] }>();
-
-const formData = ref<Partial<TgAccountApi.TgAccountItem>>();
+// 账号表单数据
+const formData = ref<Partial<TgAccountApi.Item>>();
+// 加载状态
 const loading = ref(false);
-
 // 响应式表单schema
 const schema = useFormSchema();
-
-// 响应式表单布局
-const isHorizontal = ref(true); // 可根据breakpoint自适应
-
+// 响应式表单布局（可根据breakpoint自适应）
+const isHorizontal = ref(true);
 // Vben表单实例
 const [Form, formApi] = useVbenForm({
   commonConfig: {
@@ -43,10 +49,12 @@ const [Drawer, drawerApi] = useVbenDrawer({
   onConfirm: onSubmit,
   onOpenChange(isOpen) {
     if (isOpen) {
-      const data = drawerApi.getData<Partial<TgAccountApi.TgAccountItem>>();
+      // 获取抽屉传入的数据
+      const data = drawerApi.getData<Partial<TgAccountApi.Item>>();
       if (data && data.id) {
         // 编辑，回填数据
         loading.value = true;
+        // 调用获取账号详情API
         fetchTgAccountDetail(data.id)
           .then((res) => {
             if (res) {
@@ -73,19 +81,17 @@ const getDrawerTitle = computed(() =>
   formData.value?.id ? '编辑TG账号' : '新增TG账号',
 );
 
-// 表单提交
+// 表单提交逻辑
 async function onSubmit() {
   const { valid } = await formApi.validate();
   if (valid) {
     // 锁定抽屉，防止重复提交
     drawerApi.lock();
     // 获取表单值
-    const values =
-      await formApi.getValues<Partial<TgAccountApi.TgAccountItem>>();
-
+    const values = await formApi.getValues<Partial<TgAccountApi.Item>>();
     // 根据是否有id决定调用创建或更新接口
     (formData.value?.id
-      ? updateTgAccount(formData.value.id, { ...values, id: formData.value.id })
+      ? updateTgAccount(formData.value.id, values)
       : createTgAccount(values)
     )
       .then(() => {
