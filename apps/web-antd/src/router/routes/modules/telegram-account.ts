@@ -1,0 +1,30 @@
+import type { RouteRecordRaw } from 'vue-router';
+
+// 如有国际化需求可引入 $t
+// import { $t } from '#/locales';
+
+const routes: RouteRecordRaw[] = [
+  {
+    path: '/tgAccountManagement',
+    name: 'TgAccountManagement',
+    meta: {
+      icon: 'ant-design:user-outlined',
+      order: 1000,
+      title: 'TG账号管理', // 如需国际化可用 $t('telegram.title')
+    },
+    children: [
+      {
+        path: '/tgAccount',
+        name: 'TgAccount',
+        meta: {
+          icon: 'ant-design:user-outlined',
+          title: '账号列表', // 如需国际化可用 $t('telegram.account.title')
+        },
+        component: () => import('#/views/telegram/account/list.vue'),
+      },
+      // 预留后续子路由
+    ],
+  },
+];
+
+export default routes;
