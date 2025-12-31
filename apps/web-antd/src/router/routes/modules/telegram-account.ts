@@ -40,7 +40,7 @@ const routes: RouteRecordRaw[] = [
           icon: 'ant-design:setting-outlined',
           title: '账号配置',
         },
-        component: () => import('#/views/telegram/account-config/basic.vue'),
+        component: () => import('#/views/telegram/account-config/config.vue'),
       },
       // 预留后续子路由
     ],

@@ -6,7 +6,7 @@ import { Spin } from 'ant-design-vue';
 
 import { fetchTgAccountConfigDropdown } from '#/api/telegram/account-config';
 
-import DynamicTimeRangeList from './components/DynamicTimeRangeList.vue';
+import DynamicTimeRangeList from './components/dynamic-time-range-list.vue';
 
 /**
  * 账号配置表单schema（新增 / 编辑）
