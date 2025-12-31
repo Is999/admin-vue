@@ -33,6 +33,15 @@ const routes: RouteRecordRaw[] = [
         component: () =>
           import('#/views/telegram/account-keyword-config/list.vue'),
       },
+      {
+        path: '/tg-account/config',
+        name: 'TgAccountConfi',
+        meta: {
+          icon: 'ant-design:setting-outlined',
+          title: '账号配置',
+        },
+        component: () => import('#/views/telegram/account-config/basic.vue'),
+      },
       // 预留后续子路由
     ],
   },
