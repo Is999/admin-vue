@@ -60,7 +60,14 @@ const addDefaultFormParams = ref<TgAccountConfigApi.FormParams>({
 });
 
 // 存储配置项详情，方便提交时使用
-const items = ref<Record<string, TgAccountConfigApi.Item>>({});
+function buildDefaultItems(): Record<string, TgAccountConfigApi.Item> {
+  const record: Record<string, TgAccountConfigApi.Item> = {};
+  for (const item of addDefaultFormParams.value.list) {
+    record[item.key] = item;
+  }
+  return record;
+}
+const items = ref<Record<string, TgAccountConfigApi.Item>>(buildDefaultItems());
 // 账号表单数据
 const formData = ref<Record<string, any>>({
   group: addDefaultFormParams.value.group,
@@ -217,6 +224,64 @@ const [Form, formApi] = useVbenForm({
   handleSubmit: onSubmit,
 });
 
+// 拉取分组配置并同步到表单
+async function loadConfig(values: Record<string, any>) {
+  if (values.group && values.group !== addDefaultFormParams.value.group) {
+    // 编辑模式，拉取数据
+    loading.value = true;
+    await fetchTgAccountConfigByGroup(values.group)
+      .then((res) => {
+        if (res) {
+          formApi.resetForm();
+          const { group, groupTitle, list } = res;
+          for (const item of list) {
+            items.value[item.key] = item;
+          }
+          // 回填数据
+          const configValues = Object.fromEntries(
+            list.map((item) => [item.key, item.value]),
+          );
+          formData.value = {
+            group,
+            groupTitle,
+          };
+          for (const configValuesKey in configValues) {
+            formData.value[configValuesKey] = configValues[configValuesKey];
+          }
+          formApi.setValues(formData.value);
+        } else {
+          message.error(`获取${values.groupTitle}配置详情失败`);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        loading.value = false;
+      });
+  } else {
+    // 新增模式，清空所有数据
+    await formApi.resetForm();
+
+    const { group, groupTitle, list } = addDefaultFormParams.value;
+
+    // 重新构建 items
+    for (const item of list) {
+      items.value[item.key] = item;
+    }
+    // 回填数据
+    const configValues = Object.fromEntries(
+      list.map((item) => [item.key, item.value]),
+    );
+    formData.value = {
+      group,
+      groupTitle,
+    };
+    for (const configValuesKey in configValues) {
+      formData.value[configValuesKey] = configValues[configValuesKey];
+    }
+    await formApi.setValues(formData.value);
+  }
+}
+
 // 表单提交逻辑
 async function onSubmit(values: Record<string, any>) {
   // 验证表单
@@ -297,64 +362,6 @@ async function onSubmit(values: Record<string, any>) {
     .finally(() => {
       loading.value = false;
     });
-}
-
-// 拉取分组配置并同步到表单
-async function loadConfig(values: Record<string, any>) {
-  if (values.group && values.group !== addDefaultFormParams.value.group) {
-    // 编辑模式，拉取数据
-    loading.value = true;
-    await fetchTgAccountConfigByGroup(values.group)
-      .then((res) => {
-        if (res) {
-          formApi.resetForm();
-          const { group, groupTitle, list } = res;
-          for (const item of list) {
-            items.value[item.key] = item;
-          }
-          // 回填数据
-          const configValues = Object.fromEntries(
-            list.map((item) => [item.key, item.value]),
-          );
-          formData.value = {
-            group,
-            groupTitle,
-          };
-          for (const configValuesKey in configValues) {
-            formData.value[configValuesKey] = configValues[configValuesKey];
-          }
-          formApi.setValues(formData.value);
-        } else {
-          message.error(`获取${values.groupTitle}配置详情失败`);
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        loading.value = false;
-      });
-  } else {
-    // 新增模式，清空所有数据
-    await formApi.resetForm();
-
-    const { group, groupTitle, list } = addDefaultFormParams.value;
-
-    // 重新构建 items
-    for (const item of list) {
-      items.value[item.key] = item;
-    }
-    // 回填数据
-    const configValues = Object.fromEntries(
-      list.map((item) => [item.key, item.value]),
-    );
-    formData.value = {
-      group,
-      groupTitle,
-    };
-    for (const configValuesKey in configValues) {
-      formData.value[configValuesKey] = configValues[configValuesKey];
-    }
-    await formApi.setValues(formData.value);
-  }
 }
 
 // 在提交前验证时间范围

@@ -32,6 +32,8 @@ export function useConfigItemsSchema(): VbenFormSchema[] {
       component: markRaw(DynamicTimeRangeList),
       fieldName: 'dailyOnlineTimeRanges',
       label: '每天上线时间段',
+      defaultValue: [{ start: '18:00', end: '22:00' }],
+      rules: 'required',
     },
     {
       component: 'Switch',
@@ -41,6 +43,8 @@ export function useConfigItemsSchema(): VbenFormSchema[] {
         checkedValue: 1,
         unCheckedValue: 0,
       },
+      defaultValue: 1,
+      rules: 'required',
     },
     {
       component: 'Switch',
@@ -50,6 +54,8 @@ export function useConfigItemsSchema(): VbenFormSchema[] {
         checkedValue: 1,
         unCheckedValue: 0,
       },
+      defaultValue: 1,
+      rules: 'required',
     },
     {
       component: 'InputNumber',
@@ -59,6 +65,8 @@ export function useConfigItemsSchema(): VbenFormSchema[] {
         min: 0,
         addonAfter: '秒',
       },
+      defaultValue: 30,
+      rules: 'required',
     },
     {
       component: 'InputNumber',
@@ -68,6 +76,8 @@ export function useConfigItemsSchema(): VbenFormSchema[] {
         min: 0,
         addonAfter: '条',
       },
+      defaultValue: 60,
+      rules: 'required',
     },
   ];
 }
