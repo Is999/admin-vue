@@ -1,10 +1,6 @@
 import type { VbenFormSchema } from '#/adapter/form';
 
-import { h, markRaw, ref } from 'vue';
-
-import { Spin } from 'ant-design-vue';
-
-import { fetchTgAccountConfigDropdown } from '#/api/telegram/account-config';
+import { markRaw } from 'vue';
 
 import DynamicTimeRangeList from './components/dynamic-time-range-list.vue';
 
@@ -13,7 +9,6 @@ import DynamicTimeRangeList from './components/dynamic-time-range-list.vue';
  */
 export function useFormSchema(): VbenFormSchema[] {
   return [
-    ...useGroupFormSchema(),
     {
       component: 'Input',
       fieldName: 'groupTitle',
@@ -27,84 +22,7 @@ export function useFormSchema(): VbenFormSchema[] {
     ...useConfigItemsSchema(),
   ];
 }
-const fetching = ref(false);
-export function useGroupFormSchema(): VbenFormSchema[] {
-  return [
-    {
-      component: 'ApiSelect',
-      fieldName: 'group',
-      label: '选择分组',
-      componentProps: {
-        /**
-         * 接口转 options（这里只放真实分组）
-         */
-        afterFetch: (
-          data: {
-            id: number | string;
-            label: string;
-            value: number | string;
-          }[],
-        ) => {
-          return [
-            {
-              label: h(
-                'span',
-                { style: { color: '#52c41a' } },
-                '＋＋ 新增分组 ＋＋',
-              ),
-              value: '__add__',
-            },
-            ...data.map((item) => ({
-              label: item.label,
-              value: item.value,
-              id: item.id,
-            })),
-          ];
-        },
 
-        api: () => {
-          if (fetching.value === true) {
-            return Promise.resolve([]);
-          }
-          fetching.value = true;
-          // 模拟延时
-          return new Promise((resolve, reject) => {
-            return fetchTgAccountConfigDropdown()
-              .then(resolve, reject)
-              .finally(() => {
-                fetching.value = false;
-              });
-          });
-        },
-        optionFilterProp: 'label',
-        autoSelect: 'first',
-        labelField: 'label',
-        valueField: 'value',
-        showSearch: true,
-        // 如果正在获取数据，使用插槽显示一个loading
-        notFoundContent: fetching.value ? undefined : null,
-        class: 'w-full',
-      },
-      renderComponentContent: () => {
-        return {
-          notFoundContent: fetching.value ? h(Spin) : undefined,
-        };
-      },
-      rules: 'required',
-    },
-    {
-      component: 'Input',
-      fieldName: '__isReload__',
-      componentProps: {
-        hidden: true,
-      },
-      dependencies: {
-        // show: false,
-        triggerFields: ['group'],
-      },
-    },
-  ];
-}
 /**
  * 配置项 schema
  */
