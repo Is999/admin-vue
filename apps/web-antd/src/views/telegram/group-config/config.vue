@@ -1,106 +1,156 @@
 <script setup lang="ts">
 import type { VbenFormSchema } from '#/adapter/form';
-import type { TgAccountConfigApi } from '#/api/telegram/account-config';
+import type { TgGroupConfigApi } from '#/api/telegram/group-config';
 
 import { h, ref } from 'vue';
 
-// Vben Admin 通用页面、抽屉、按钮组件
 import { Page, VbenButton } from '@vben/common-ui';
 
 import { Card, message, Spin } from 'ant-design-vue';
 
 import { useVbenForm } from '#/adapter/form';
 import {
-  fetchTgAccountConfigByGroup,
-  fetchTgAccountConfigDropdown,
-  saveTgAccountConfig,
-} from '#/api/telegram/account-config';
+  fetchTgGroupConfigByGroup,
+  fetchTgGroupConfigDropdown,
+  saveTgGroupConfig,
+} from '#/api/telegram/group-config';
 
 import { useFormSchema } from './data';
 
-// 添加默认表单参数
-const addDefaultFormParams = ref<TgAccountConfigApi.FormParams>({
+// 默认表单参数，严格对齐 tg_group_config_api_examples.md
+const addDefaultFormParams = ref<TgGroupConfigApi.FormParams>({
   group: '__add__',
   groupTitle: '',
   list: [
     {
-      title: '每天上线时间段',
-      key: 'dailyOnlineTimeRanges',
-      value: [
-        { start: '09:00', end: '12:00' },
-        { start: '15:00', end: '20:00' },
-      ],
+      title: '群聊高峰时间段（HH:MM）',
+      key: 'schedulePeakTime',
+      value: [{ start: '18:00', end: '23:00' }],
       id: 0,
     },
     {
-      title: '关键词触发',
-      key: 'keywordTriggersEnabled',
+      title: '高峰时段调度（1启用，0禁用）',
+      key: 'schedulePeakEnabled',
       value: true,
       id: 0,
     },
     {
-      title: '@触发',
-      key: 'mentionTriggerEnabled',
+      title: '关键词触发（1启用，0禁用）',
+      key: 'triggerKeywordEnabled',
       value: true,
       id: 0,
     },
     {
-      title: '连续发言最小间隔（秒）',
-      key: 'minMessageIntervalSec',
-      value: 30,
+      title: '@mention 触发（1启用，0禁用）',
+      key: 'triggerMentionEnabled',
+      value: true,
       id: 0,
     },
     {
-      title: '每小时发言上限',
-      key: 'maxMessagesPerHour',
-      value: 60,
+      title: '群沉默检测（1启用，0禁用）',
+      key: 'triggerSilenceEnabled',
+      value: true,
+      id: 0,
+    },
+    {
+      title: '轮询式 AI 发言（1启用，0禁用）',
+      key: 'interactionRoundRobinEnabled',
+      value: false,
+      id: 0,
+    },
+    {
+      title: '自动冷却机制（1启用，0禁用）',
+      key: 'cooldownEnabled',
+      value: true,
+      id: 0,
+    },
+    {
+      title: '单 AI 账号每日最大发言数',
+      key: 'limitAccountDailyMessageLimit',
+      value: 120,
+      id: 0,
+    },
+    {
+      title: '群内所有 AI 每日消息总上限',
+      key: 'limitGroupDailyMessageLimit',
+      value: 800,
+      id: 0,
+    },
+    {
+      title: 'AI 连续两条消息的最小间隔（秒）',
+      key: 'limitMessageMinIntervalSec',
+      value: 180,
+      id: 0,
+    },
+    {
+      title: 'AI 与 AI 之间每小时互动次数上限',
+      key: 'interactionAiHourlyLimit',
+      value: 20,
+      id: 0,
+    },
+    {
+      title: '冷却触发阈值（1 小时内触发次数）',
+      key: 'cooldownTriggerThresholdPerHour',
+      value: 20,
+      id: 0,
+    },
+    {
+      title: '轻度沉默触发阈值（秒）',
+      key: 'triggerSilenceLightThresholdSec',
+      value: 120,
+      id: 0,
+    },
+    {
+      title: '强沉默触发阈值（秒）',
+      key: 'triggerSilenceStrongThresholdSec',
+      value: 300,
+      id: 0,
+    },
+    {
+      title: '主动触发消息占比（百分比 0~100）',
+      key: 'triggerActiveMessageRatio',
+      value: 80,
+      id: 0,
+    },
+    {
+      title: '冷却状态下的降频比例（0~1）',
+      key: 'cooldownReductionRatio',
+      value: 0.5,
       id: 0,
     },
   ],
 });
 
-// 存储配置项详情，方便提交时使用
 function buildItemsFromList(
-  list: TgAccountConfigApi.Item[],
-): Record<string, TgAccountConfigApi.Item> {
-  const record: Record<string, TgAccountConfigApi.Item> = {};
-  for (const item of list) {
-    record[item.key] = item;
-  }
+  list: TgGroupConfigApi.Item[],
+): Record<string, TgGroupConfigApi.Item> {
+  const record: Record<string, TgGroupConfigApi.Item> = {};
+  for (const item of list) record[item.key] = item;
   return record;
 }
 
-// 账号配置项详情
-const items = ref<Record<string, TgAccountConfigApi.Item>>(
-  buildItemsFromList(addDefaultFormParams.value.list),
-);
-
-// 将TgAccountConfigApi.FormParams 转换成表单数据格式
 function buildFormDataFromParams(
-  params: TgAccountConfigApi.FormParams,
+  params: TgGroupConfigApi.FormParams,
 ): Record<string, any> {
   const record: Record<string, any> = {
     group: params.group,
     groupTitle: params.groupTitle,
   };
-  for (const item of params.list) {
-    record[item.key] = item.value;
-  }
+  for (const item of params.list) record[item.key] = item.value;
   return record;
 }
 
-// 账号表单数据
+const items = ref<Record<string, TgGroupConfigApi.Item>>(
+  buildItemsFromList(addDefaultFormParams.value.list),
+);
 const formData = ref<Record<string, any>>(
   buildFormDataFromParams(addDefaultFormParams.value),
 );
-
 const loading = ref(false);
-// 时间戳用于强制刷新
 const reloadTimestamp = ref(Date.now());
-// 添加 ref 引用时间范围组件
 const timeRangeRef = ref();
-// 控制是否正在获取分组列表
 const fetching = ref(false);
+
 function useGroupFormSchema(): VbenFormSchema[] {
   return [
     {
@@ -108,77 +158,58 @@ function useGroupFormSchema(): VbenFormSchema[] {
       fieldName: 'group',
       label: '选择分组',
       componentProps: {
-        // 动态控制是否立即加载
-        // immediate: true,
-        params: {
-          // type: 'user',
-          _t: reloadTimestamp.value, // 添加时间戳参数
-        },
-        /**
-         * 接口转 options（这里只放真实分组）
-         */
+        params: { _t: reloadTimestamp.value },
         afterFetch: (
           data: {
             id: number | string;
             label: string;
             value: number | string;
           }[],
-        ) => {
-          return [
-            {
-              label: h(
-                'span',
-                { style: { color: '#52c41a' } },
-                '＋＋ 新增分组 ＋＋',
-              ),
-              value: '__add__',
-            },
-            ...data.map((item) => ({
-              label: item.label,
-              value: item.value,
-              id: item.id,
-            })),
-          ];
-        },
-
+        ) => [
+          {
+            label: h(
+              'span',
+              { style: { color: '#52c41a' } },
+              '＋＋ 新增分组 ＋＋',
+            ),
+            value: '__add__',
+          },
+          ...data.map((item) => ({
+            label: item.label,
+            value: item.value,
+            id: item.id,
+          })),
+        ],
         api: () => {
-          if (fetching.value === true) {
-            return Promise.resolve([]);
-          }
+          if (fetching.value) return Promise.resolve([]);
           fetching.value = true;
-          // 模拟延时
-          return new Promise((resolve, reject) => {
-            return fetchTgAccountConfigDropdown()
+          return new Promise((resolve, reject) =>
+            fetchTgGroupConfigDropdown()
               .then(resolve, reject)
               .finally(() => {
                 fetching.value = false;
-              });
-          });
+              }),
+          );
         },
         optionFilterProp: 'label',
         autoSelect: 'first',
         labelField: 'label',
         valueField: 'value',
         showSearch: true,
-        // 如果正在获取数据，使用插槽显示一个loading
         notFoundContent: fetching.value ? undefined : null,
         class: 'w-full',
       },
-      renderComponentContent: () => {
-        return {
-          notFoundContent: fetching.value ? h(Spin) : undefined,
-        };
-      },
+      renderComponentContent: () => ({
+        notFoundContent: fetching.value ? h(Spin) : undefined,
+      }),
       rules: 'required',
     },
   ];
 }
 
-// 修改表单 schema，添加验证相关配置
 const getFormSchemaWithValidation = (): VbenFormSchema[] => {
-  const schemas = [...useGroupFormSchema(), ...useFormSchema()].map((item) => {
-    // "每天上线时间段" 占满两列
-    if (item.fieldName === 'dailyOnlineTimeRanges') {
+  return [...useGroupFormSchema(), ...useFormSchema()].map((item) => {
+    if (item.fieldName === 'schedulePeakTime') {
       return {
         ...item,
         componentProps: {
@@ -186,54 +217,27 @@ const getFormSchemaWithValidation = (): VbenFormSchema[] => {
           ref: (el: any) => {
             timeRangeRef.value = el;
           },
-          // onValidate: (isValid: boolean, errorMessages: string[]) => {
-          //   // console.log('时间范围验证状态:', isValid, errorMessages);
-          // },
-          maxCount: 8, // 设置最大时间段数量
+          maxCount: 8,
         },
         formItemClass: 'col-span-2',
         labelClass: 'w-1/6',
       };
     }
-    // 关键词触发、@触发并排
-    if (
-      ['keywordTriggersEnabled', 'mentionTriggerEnabled'].includes(
-        item.fieldName,
-      )
-    ) {
-      return { ...item, formItemClass: '' };
-    }
-    // 连续发言最小间隔、每小时发言上限并排
-    if (
-      ['maxMessagesPerHour', 'minMessageIntervalSec'].includes(item.fieldName)
-    ) {
-      return { ...item, formItemClass: '' };
-    }
     return item;
   });
-
-  return schemas.map((schema) => {
-    return schema;
-  });
 };
-// useVbenForm
+
 const [Form, formApi] = useVbenForm({
   commonConfig: {
-    // 在label后显示一个冒号
     colon: true,
-    // 所有表单项
-    componentProps: {
-      class: 'w-full',
-    },
+    componentProps: { class: 'w-full' },
     labelClass: 'w-2/6',
   },
   layout: 'horizontal',
   showDefaultActions: false,
   schema: getFormSchemaWithValidation(),
-  // 新增自定义布局
   wrapperClass: 'grid grid-cols-2 gap-x-6 gap-y-4',
   handleValuesChange(values, fieldsChanged) {
-    // 只要 group 字段变化就同步
     if (
       fieldsChanged.includes('group') &&
       values.group &&
@@ -245,18 +249,14 @@ const [Form, formApi] = useVbenForm({
   handleSubmit: onSubmit,
 });
 
-// 拉取分组配置并同步到表单
 async function loadConfig(values: Record<string, any>) {
   if (values.group && values.group !== addDefaultFormParams.value.group) {
-    // 编辑模式，拉取数据
     loading.value = true;
-    await fetchTgAccountConfigByGroup(values.group)
+    await fetchTgGroupConfigByGroup(values.group)
       .then((res) => {
         if (res) {
           formApi.resetForm();
-          // 回填数据,构建 formData
           formData.value = buildFormDataFromParams(res);
-          // 重新构建 items
           items.value = buildItemsFromList(res.list);
           formApi.setValues(formData.value);
         } else {
@@ -268,42 +268,30 @@ async function loadConfig(values: Record<string, any>) {
         loading.value = false;
       });
   } else {
-    // 新增模式，清空所有数据
     await formApi.resetForm();
-
-    // 回填数据,构建 formData
     formData.value = buildFormDataFromParams(addDefaultFormParams.value);
-    // 重新构建 items
     items.value = buildItemsFromList(addDefaultFormParams.value.list);
     await formApi.setValues(formData.value);
   }
 }
 
-// 表单提交逻辑
 async function onSubmit(values: Record<string, any>) {
-  // 验证表单
-  const isValid = await validateForm();
-  if (!isValid) return;
+  const ok = await validateForm();
+  if (!ok) return;
 
-  // 校验时间范围
-  const timeRanges = values.dailyOnlineTimeRanges;
-  if (!timeRanges || !Array.isArray(timeRanges) || timeRanges.length === 0) {
-    message.error('请至少添加一个上线时间段');
+  const peak = values.schedulePeakTime;
+  if (!peak || !Array.isArray(peak) || peak.length === 0) {
+    message.error('请至少添加一个高峰时间段');
     return;
   }
 
-  // 防止重复提交
   loading.value = true;
 
-  // 将值进行反向转换，变成接口需要的格式
-  const params: TgAccountConfigApi.FormParams = {
+  const params: TgGroupConfigApi.FormParams = {
     group: values.group,
     groupTitle: values.groupTitle,
     list: Object.keys(values)
-      .filter(
-        (key) =>
-          key !== 'group' && key !== 'groupTitle' && key !== '__isReload__',
-      )
+      .filter((key) => !['__isReload__', 'group', 'groupTitle'].includes(key))
       .map((key) => ({
         key,
         value: values[key],
@@ -312,20 +300,16 @@ async function onSubmit(values: Record<string, any>) {
       })),
   };
 
-  // 提交保存
-  await saveTgAccountConfig(params)
+  await saveTgGroupConfig(params)
     .then((res) => {
-      const newGroup = res.group; // 后端返回的新分组 key
+      const newGroup = res.group;
       const newGroupTitle = res.groupTitle;
       message.success('保存配置成功');
-      //  如果是新增分组或者分组标题修改，更新下拉框
       if (
         values.group === '__add__' ||
         formData.value.groupTitle !== newGroupTitle
       ) {
-        //  提交成功后重新加载下拉框
         reloadTimestamp.value = Date.now();
-        // 更新 schema 触发重新加载
         formApi.updateSchema(
           useGroupFormSchema().map((item) => {
             if (item.fieldName === 'group') {
@@ -333,25 +317,17 @@ async function onSubmit(values: Record<string, any>) {
                 ...item,
                 componentProps: {
                   ...item.componentProps,
-                  params: {
-                    // type: 'user',
-                    _t: reloadTimestamp.value, // 添加时间戳参数
-                  },
+                  params: { _t: reloadTimestamp.value },
                 },
               };
             }
             return item;
           }),
         );
-        // 更新本地 formData
         formData.value.group = newGroup;
         formData.value.groupTitle = newGroupTitle;
-        // 延迟后 更新表单中的 group 和 groupTitle
         setTimeout(() => {
-          formApi.setValues({
-            group: newGroup,
-            groupTitle: newGroupTitle,
-          });
+          formApi.setValues({ group: newGroup, groupTitle: newGroupTitle });
         }, 500);
       }
     })
@@ -361,9 +337,7 @@ async function onSubmit(values: Record<string, any>) {
     });
 }
 
-// 在提交前验证时间范围
 const validateForm = async () => {
-  // 1. 先验证时间范围组件
   if (timeRangeRef.value) {
     const result = timeRangeRef.value.validate();
     if (!result.isValid) {
@@ -371,12 +345,9 @@ const validateForm = async () => {
       return false;
     }
   }
-
-  // 2. 进行表单验证
   return await formApi.validate();
 };
 
-// 重置表单时也重置时间范围验证
 const handleReset = () => {
   if (timeRangeRef.value) {
     timeRangeRef.value.resetValidation();
@@ -385,8 +356,9 @@ const handleReset = () => {
   formApi.setValues(formData.value);
 };
 </script>
+
 <template>
-  <Page title="账号配置管理">
+  <Page title="群组配置管理">
     <Spin :spinning="loading">
       <Card>
         <div class="mb-4 mt-0 flex justify-end gap-2">

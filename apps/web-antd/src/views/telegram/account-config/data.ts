@@ -40,21 +40,21 @@ export function useConfigItemsSchema(): VbenFormSchema[] {
       fieldName: 'keywordTriggersEnabled',
       label: '关键词触发',
       componentProps: {
-        checkedValue: 1,
-        unCheckedValue: 0,
+        checkedValue: true,
+        unCheckedValue: false,
       },
-      defaultValue: 1,
+      defaultValue: true,
       rules: 'required',
     },
     {
       component: 'Switch',
       fieldName: 'mentionTriggerEnabled',
-      label: '@触发',
+      label: '@mention 触发',
       componentProps: {
-        checkedValue: 1,
-        unCheckedValue: 0,
+        checkedValue: true,
+        unCheckedValue: false,
       },
-      defaultValue: 1,
+      defaultValue: true,
       rules: 'required',
     },
     {
