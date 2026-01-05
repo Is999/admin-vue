@@ -19,7 +19,7 @@ import { useFormSchema } from '../data';
 const emit = defineEmits<{ success: [] }>();
 const formData = ref<Partial<AccountKeywordConfigRelItem>>({});
 const loading = ref(false);
-const schema = useFormSchema();
+const schema = useFormSchema({});
 const isHorizontal = ref(true);
 const isEdit = ref(false);
 
@@ -33,39 +33,22 @@ const [Form, formApi] = useVbenForm({
   wrapperClass: 'grid-cols-2 gap-x-4',
 });
 
-// 根据是否编辑状态，切换主键字段的禁用状态
-const userSelect = schema.find((f) => f.fieldName === 'userID');
-const keywordSelect = schema.find((f) => f.fieldName === 'keywordID');
-function toggleKeyFields(disabled: boolean) {
-  formApi.updateSchema([
-    {
-      ...userSelect,
-      componentProps: (prev: Record<string, any> = {}) => ({
-        ...userSelect?.componentProps,
-        ...prev,
-        disabled,
-      }),
-    },
-    {
-      ...keywordSelect,
-      componentProps: (prev: Record<string, any> = {}) => ({
-        ...keywordSelect?.componentProps,
-        ...prev,
-        disabled,
-      }),
-    },
-  ]);
-}
-
 const [Drawer, drawerApi] = useVbenDrawer({
   onConfirm: onSubmit,
   onOpenChange(isOpen) {
     if (!isOpen) return;
-    const data = drawerApi.getData<Partial<AccountKeywordConfigRelItem>>();
-    if (data?.userID && data.keywordID) {
+    const data = drawerApi.getData<
+      Partial<AccountKeywordConfigRelItem> & {
+        isEdit?: boolean;
+        lockUser?: boolean;
+      }
+    >();
+    isEdit.value = !!data?.isEdit;
+    const schema = useFormSchema(data);
+    formApi.updateSchema(schema); // 或在创建 form 时就传 schema: useFormSchema(...)
+    // 根据是否编辑状态，切换主键字段的禁用状态
+    if (isEdit.value && data?.userID && data?.keywordID) {
       loading.value = true;
-      isEdit.value = Boolean(data?.userID && data.keywordID);
-      toggleKeyFields(isEdit.value);
       fetchAccountKeywordConfigRelDetail(data.userID, data.keywordID)
         .then((res) => {
           if (res) {
@@ -82,19 +65,16 @@ const [Drawer, drawerApi] = useVbenDrawer({
           loading.value = false;
         });
     } else {
-      formData.value = {};
       formApi.resetForm();
-      toggleKeyFields(isEdit.value);
     }
   },
 });
 
 const getDrawerTitle = computed(() =>
-  formData.value?.userID && formData.value?.keywordID
-    ? '编辑账号与关键词关系'
-    : '新增账号与关键词关系',
+  isEdit.value ? '编辑账号与关键词关系' : '新增账号与关键词关系',
 );
 
+// 提交表单
 async function onSubmit() {
   const { valid } = await formApi.validate();
   if (!valid) return;
@@ -119,7 +99,7 @@ async function onSubmit() {
           userID: values.userID,
         }));
     message.success(formData.value?.userID ? '关系更新成功' : '关系创建成功');
-    drawerApi.close();
+    await drawerApi.close();
     emit('success');
   } catch {
     // 错误提示统一在拦截器处理

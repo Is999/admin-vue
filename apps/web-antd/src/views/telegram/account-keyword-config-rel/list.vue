@@ -2,6 +2,8 @@
 import type { OnActionClickParams } from '#/adapter/vxe-table';
 import type { AccountKeywordConfigRelItem } from '#/api/telegram/account-keyword-config-rel';
 
+import { computed, onMounted, watch } from 'vue';
+
 import { Page, useVbenDrawer, VbenButton } from '@vben/common-ui';
 import { Plus } from '@vben/icons';
 
@@ -17,6 +19,14 @@ import {
 import { useColumns, useGridFormSchema } from './data';
 import Form from './modules/form.vue';
 
+const props = defineProps<{
+  lockUser?: boolean;
+  userId?: number;
+  userID?: number;
+}>();
+
+const resolvedUserId = computed(() => props.userID ?? props.userId);
+
 const [FormDrawer, formDrawerApi] = useVbenDrawer({
   connectedComponent: Form,
   destroyOnClose: true,
@@ -24,7 +34,10 @@ const [FormDrawer, formDrawerApi] = useVbenDrawer({
 
 const [Grid, gridApi] = useVbenVxeGrid({
   formOptions: {
-    schema: useGridFormSchema(),
+    schema: useGridFormSchema({
+      userID: resolvedUserId.value,
+      lockUser: props.lockUser,
+    }),
     submitOnChange: false,
   },
   gridOptions: {
@@ -38,6 +51,7 @@ const [Grid, gridApi] = useVbenVxeGrid({
             page: page.currentPage,
             pageSize: page.pageSize,
             ...formValues,
+            userID: resolvedUserId.value ?? formValues?.userID,
           });
         },
       },
@@ -73,11 +87,19 @@ function onActionClick(e: OnActionClickParams<AccountKeywordConfigRelItem>) {
 }
 
 function onEdit(row: AccountKeywordConfigRelItem) {
-  formDrawerApi.setData(row).open();
+  formDrawerApi
+    .setData({ ...row, lockUser: props.lockUser, isEdit: true })
+    .open();
 }
 
 function onCreate() {
-  formDrawerApi.setData({}).open();
+  formDrawerApi
+    .setData({
+      userID: resolvedUserId.value,
+      lockUser: props.lockUser,
+      isEdit: false,
+    })
+    .open();
 }
 
 function onRefresh() {
@@ -134,6 +156,19 @@ function onDelete(row: AccountKeywordConfigRelItem) {
     })
     .catch(() => hide());
 }
+
+// auto query when userID is preset
+onMounted(() => {
+  if (resolvedUserId.value) {
+    gridApi.query();
+  }
+});
+
+watch(resolvedUserId, (val) => {
+  if (val) {
+    gridApi.query();
+  }
+});
 </script>
 
 <template>

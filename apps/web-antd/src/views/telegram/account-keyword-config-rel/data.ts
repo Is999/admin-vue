@@ -4,16 +4,23 @@ import type { OnActionClickFn, VxeTableGridOptions } from '#/adapter/vxe-table';
 import { fetchTgAccountKeywordConfigDropdown } from '#/api/telegram/account-keyword-config';
 
 // 表单schema（新增/编辑绑定关系）
-export function useFormSchema(): VbenFormSchema[] {
+export function useFormSchema(options?: {
+  isEdit?: boolean;
+  lockUser?: boolean;
+  userID?: number;
+}): VbenFormSchema[] {
+  const { userID, lockUser, isEdit } = options || {};
   return [
     {
       component: 'InputNumber',
       fieldName: 'userID',
       label: '账号',
       rules: 'required',
+      defaultValue: userID,
       componentProps: {
         allowClear: true,
         style: { width: '100%' },
+        disabled: Boolean(lockUser || isEdit),
       },
       formItemClass: 'col-span-1',
     },
@@ -32,6 +39,7 @@ export function useFormSchema(): VbenFormSchema[] {
         style: { width: '100%' },
       },
       formItemClass: 'col-span-2',
+      disabled: isEdit,
     },
     {
       component: 'Select',
@@ -62,16 +70,22 @@ export function useFormSchema(): VbenFormSchema[] {
 }
 
 // 搜索表单schema
-export function useGridFormSchema(): VbenFormSchema[] {
+export function useGridFormSchema(options?: {
+  lockUser?: boolean;
+  userID?: number;
+}): VbenFormSchema[] {
+  const { userID, lockUser } = options || {};
   return [
     {
       component: 'InputNumber',
       fieldName: 'userID',
       label: '账号',
+      defaultValue: userID,
       componentProps: {
         allowClear: true,
         showSearch: true,
         style: { width: '100%' },
+        disabled: Boolean(lockUser && userID),
       },
     },
     {

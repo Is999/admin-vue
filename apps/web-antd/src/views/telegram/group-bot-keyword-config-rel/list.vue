@@ -87,12 +87,18 @@ function onActionClick(e: OnActionClickParams<GroupBotKeywordConfigRelItem>) {
 }
 
 function onEdit(row: GroupBotKeywordConfigRelItem) {
-  formDrawerApi.setData({ ...row, lockChat: props.lockChat }).open();
+  formDrawerApi
+    .setData({ ...row, lockChat: props.lockChat, isEdit: true })
+    .open();
 }
 
 function onCreate() {
   formDrawerApi
-    .setData({ chatID: resolvedChatId.value, lockChat: props.lockChat })
+    .setData({
+      chatID: resolvedChatId.value,
+      lockChat: props.lockChat,
+      isEdit: false,
+    })
     .open();
 }
 

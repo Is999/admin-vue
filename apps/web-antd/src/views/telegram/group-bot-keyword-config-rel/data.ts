@@ -5,13 +5,19 @@ import { fetchTgGroupDropdown } from '#/api/telegram/group';
 import { fetchTgGroupBotKeywordConfigDropdown } from '#/api/telegram/group-bot-keyword-config';
 
 // 表单schema（新增/编辑绑定关系）
-export function useFormSchema(): VbenFormSchema[] {
+export function useFormSchema(options?: {
+  chatID?: number;
+  isEdit?: boolean;
+  lockChat?: boolean;
+}): VbenFormSchema[] {
+  const { chatID, lockChat, isEdit } = options || {};
   return [
     {
       component: 'ApiSelect',
       fieldName: 'chatID',
       label: '群组',
       rules: 'required',
+      defaultValue: chatID,
       componentProps: {
         api: fetchTgGroupDropdown,
         labelField: 'label',
@@ -21,6 +27,7 @@ export function useFormSchema(): VbenFormSchema[] {
         style: { width: '100%' },
       },
       formItemClass: 'col-span-1',
+      disabled: isEdit || lockChat,
     },
     {
       component: 'ApiSelect',
@@ -37,6 +44,7 @@ export function useFormSchema(): VbenFormSchema[] {
         style: { width: '100%' },
       },
       formItemClass: 'col-span-2',
+      disabled: isEdit,
     },
     {
       component: 'Select',

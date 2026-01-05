@@ -5,8 +5,10 @@ import type { OnActionClickParams } from '#/adapter/vxe-table';
 // TG账号API类型
 import type { TgAccountApi } from '#/api/telegram/account';
 
+import { ref } from 'vue';
+
 // Vben Admin 通用页面、抽屉、按钮组件
-import { Page, useVbenDrawer, VbenButton } from '@vben/common-ui';
+import { Page, useVbenDrawer, useVbenModal, VbenButton } from '@vben/common-ui';
 // 新增按钮图标
 import { Plus } from '@vben/icons';
 
@@ -22,6 +24,8 @@ import {
   toggleTgAccountStatus, // 切换账号状态API
 } from '#/api/telegram/account';
 
+import AccountGroupRelList from '../account-group-rel/list.vue';
+import AccountKeywordConfigRelList from '../account-keyword-config-rel/list.vue';
 // 表格列、搜索表单schema
 import { useColumns, useGridFormSchema } from './data';
 // 抽屉表单组件
@@ -89,11 +93,97 @@ function onActionClick(e: OnActionClickParams<TgAccountApi.Item>) {
       onEdit(e.row);
       break;
     }
-    // 详情（可扩展）
-    // case 'detail':
-    //   onDetail(e.row);
-    //   break;
+    // 关键词配置
+    case '关键词配置': {
+      onKeyword(e.row);
+      break;
+    }
+    // 群组管理
+    case '群组管理': {
+      onAccountGroup(e.row);
+      break;
+    }
   }
+}
+
+// ================ 账号关键词配置弹窗 =================
+const keywordModalData = ref<{
+  lockUser?: boolean;
+  userID?: number;
+  username?: string;
+}>({});
+
+const [KeywordModal, keywordModalApi] = useVbenModal({
+  destroyOnClose: true,
+  appendToMain: true,
+  fullscreenButton: true,
+  showConfirmButton: false,
+  showCancelButton: false,
+  draggable: true,
+  footer: false,
+  closable: true,
+  class: 'w-[1200px]',
+  title: '账号关键词配置',
+  onOpenChange(isOpen) {
+    if (isOpen) {
+      const data = keywordModalData.value;
+      if (data.userID) {
+        keywordModalApi.setState({
+          title: `账号 ${data.username ?? ''}【${data.userID}】关键词配置`,
+        });
+      }
+    }
+  },
+});
+
+// ================ 账号群组关系弹窗 =================
+const groupModalData = ref<{
+  lockUser?: boolean;
+  userID?: number;
+  username?: string;
+}>({});
+
+const [GroupModal, groupModalApi] = useVbenModal({
+  destroyOnClose: true,
+  appendToMain: true,
+  fullscreenButton: true,
+  showConfirmButton: false,
+  showCancelButton: false,
+  draggable: true,
+  footer: false,
+  closable: true,
+  class: 'w-[1200px]',
+  title: '账号群组关系',
+  onOpenChange(isOpen) {
+    if (isOpen) {
+      const data = groupModalData.value;
+      if (data.userID) {
+        groupModalApi.setState({
+          title: `账号 ${data.username ?? ''}【${data.userID}】群组关系`,
+        });
+      }
+    }
+  },
+});
+
+// 账号关键词配置
+function onKeyword(row: TgAccountApi.Item) {
+  keywordModalData.value = {
+    userID: row.userID,
+    username: row.username,
+    lockUser: true,
+  };
+  keywordModalApi.setData(keywordModalData.value).open();
+}
+
+// 账号群组管理
+function onAccountGroup(row: TgAccountApi.Item) {
+  groupModalData.value = {
+    userID: row.userID,
+    username: row.username,
+    lockUser: true,
+  };
+  groupModalApi.setData(groupModalData.value).open();
 }
 
 // 编辑账号，弹出抽屉
@@ -164,6 +254,18 @@ function onDelete(row: TgAccountApi.Item) {
 </script>
 <template>
   <Page auto-content-height>
+    <KeywordModal>
+      <AccountKeywordConfigRelList
+        :user-id="keywordModalData.userID"
+        :lock-user="keywordModalData.lockUser"
+      />
+    </KeywordModal>
+    <GroupModal>
+      <AccountGroupRelList
+        :user-id="groupModalData.userID"
+        :lock-user="groupModalData.lockUser"
+      />
+    </GroupModal>
     <FormDrawer @success="onRefresh" />
     <Grid table-title="TG账号列表">
       <template #toolbar-tools>

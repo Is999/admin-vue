@@ -284,6 +284,8 @@ export function useColumns<T = any>(
         options: [
           'edit', // 默认的编辑按钮
           'delete', // 默认的删除按钮
+          '群组管理',
+          '关键词配置',
         ],
       },
       field: 'operation',
@@ -291,7 +293,7 @@ export function useColumns<T = any>(
       headerAlign: 'center',
       showOverflow: false,
       title: '操作',
-      width: 130,
+      width: 260,
     },
   ];
 }

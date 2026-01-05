@@ -127,13 +127,13 @@ export function useColumns<T = any>(
           onClick: onActionClick, // 操作事件
         },
         name: 'CellOperation', // 操作列
-        options: ['edit', 'delete', '配置'], // 编辑、删除
+        options: ['edit', 'delete', '关键词配置'], // 编辑、删除
       },
       field: 'operation',
       headerAlign: 'center',
       showOverflow: false,
       title: '操作',
-      width: 130,
+      width: 180,
     },
   ];
 }

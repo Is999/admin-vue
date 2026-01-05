@@ -19,7 +19,7 @@ import { useFormSchema } from '../data';
 const emit = defineEmits<{ success: [] }>();
 const formData = ref<Partial<GroupBotKeywordConfigRelItem>>({});
 const loading = ref(false);
-const schema = useFormSchema();
+const schema = useFormSchema({});
 const isHorizontal = ref(true);
 const isEdit = ref(false);
 
@@ -33,49 +33,27 @@ const [Form, formApi] = useVbenForm({
   wrapperClass: 'grid-cols-2 gap-x-4',
 });
 
-// 根据是否编辑状态，切换主键字段的禁用状态
-const chatSelect = schema.find((f) => f.fieldName === 'chatID');
-const keywordSelect = schema.find((f) => f.fieldName === 'keywordID');
-function toggleKeyFields(chatDisabled: boolean, keywordDisabled?: boolean) {
-  formApi.updateSchema([
-    {
-      ...chatSelect,
-      componentProps: (prev: Record<string, any> = {}) => ({
-        ...chatSelect?.componentProps,
-        ...prev,
-        disabled: chatDisabled,
-      }),
-    },
-    {
-      ...keywordSelect,
-      componentProps: (prev: Record<string, any> = {}) => ({
-        ...keywordSelect?.componentProps,
-        ...prev,
-        disabled: keywordDisabled,
-      }),
-    },
-  ]);
-}
-
 const [Drawer, drawerApi] = useVbenDrawer({
   onConfirm: onSubmit,
   onOpenChange(isOpen) {
     if (!isOpen) return;
     const data = drawerApi.getData<
-      Partial<GroupBotKeywordConfigRelItem> & { lockChat?: boolean }
+      Partial<GroupBotKeywordConfigRelItem> & {
+        isEdit?: boolean;
+        lockChat?: boolean;
+      }
     >();
-    isEdit.value = Boolean(data?.chatID && data.keywordID);
-    if (isEdit.value) {
-      toggleKeyFields(true, true);
-    } else if (data?.lockChat) {
-      toggleKeyFields(true, false);
-    } else {
-      toggleKeyFields(false, false);
-    }
-    if (data?.chatID && !isEdit.value) {
+    isEdit.value = !!data.isEdit;
+    const schema = useFormSchema(data);
+    formApi.updateSchema(schema); // 或在创建 form 时就传 schema: useFormSchema(...)
+
+    // 其余逻辑...
+    if (data?.chatID) {
       formApi.setValues({ chatID: data.chatID });
+      formData.value = { chatID: data.chatID };
     }
-    if (isEdit.value && data?.chatID && data.keywordID) {
+
+    if (isEdit.value && data?.chatID && data?.keywordID) {
       loading.value = true;
       fetchGroupBotKeywordConfigRelDetail(data.chatID, data.keywordID)
         .then((res) => {
@@ -94,21 +72,18 @@ const [Drawer, drawerApi] = useVbenDrawer({
         .finally(() => {
           loading.value = false;
         });
-    } else if (data?.lockChat && data?.chatID) {
-      formApi.setValues({ chatID: data.chatID });
     } else {
-      formData.value = {};
       formApi.resetForm();
     }
   },
 });
 
+// 抽屉标题
 const getDrawerTitle = computed(() =>
-  formData.value?.chatID && formData.value?.keywordID
-    ? '编辑群组与关键词配置关系'
-    : '新增群组与关键词配置关系',
+  isEdit.value ? '编辑群组与关键词配置关系' : '新增群组与关键词配置关系',
 );
 
+// 提交表单
 async function onSubmit() {
   const { valid } = await formApi.validate();
   if (!valid) return;

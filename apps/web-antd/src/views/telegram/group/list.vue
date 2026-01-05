@@ -36,6 +36,9 @@ const [FormDrawer, formDrawerApi] = useVbenDrawer({
   connectedComponent: Form,
   destroyOnClose: true,
 });
+
+// ================= 关键词配置弹窗 =================
+// 配置关键词配置弹窗，支持群组关键词配置
 const [ConfigModal, configModalApi] = useVbenModal({
   destroyOnClose: true,
   appendToMain: true,
@@ -46,7 +49,7 @@ const [ConfigModal, configModalApi] = useVbenModal({
   footer: false,
   closable: true,
   class: 'w-[1200px]',
-  title: '群组配置',
+  title: '关键词配置',
   onOpenChange(isOpen) {
     if (isOpen) {
       handleUpdate();
@@ -54,22 +57,25 @@ const [ConfigModal, configModalApi] = useVbenModal({
   },
 });
 
+// 关键词配置数据
 const configData = ref<{
   chatID?: number;
   chatTitle?: string;
   lockChat?: boolean;
 }>({});
 
+// 处理弹窗打开时的逻辑
 function handleUpdate() {
   configModalApi.setState({ loading: true });
   const data = configData.value;
   if (data?.chatID) {
     configModalApi.setState({
-      title: `群组 ${data.chatTitle}【${data.chatID}】配置`,
+      title: `群组 ${data.chatTitle}【${data.chatID}】关键词配置`,
     });
   }
   configModalApi.setState({ loading: false });
 }
+
 // ================= 表格配置 =================
 // 配置Vben Admin表格，支持分页、搜索、操作等
 const [Grid, gridApi] = useVbenVxeGrid({
@@ -122,15 +128,15 @@ function onActionClick(e: OnActionClickParams<TgGroupApi.Item>) {
       onEdit(e.row);
       break;
     }
-    case '配置': {
-      onGroupConfig(e.row);
+    case '关键词配置': {
+      onKeyword(e.row);
       break;
     }
   }
 }
 
 // 加载群组配置页面
-function onGroupConfig(row: TgGroupApi.Item) {
+function onKeyword(row: TgGroupApi.Item) {
   configData.value = {
     chatID: row.chatID,
     chatTitle: row.chatTitle,

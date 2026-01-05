@@ -19,8 +19,9 @@ import { useFormSchema } from '../data';
 const emit = defineEmits<{ success: [] }>();
 const formData = ref<Partial<AccountGroupRelItem>>({});
 const loading = ref(false);
-const schema = useFormSchema();
+const schema = useFormSchema({});
 const isHorizontal = ref(true);
+const isEdit = ref(false);
 
 const [Form, formApi] = useVbenForm({
   commonConfig: {
@@ -36,7 +37,17 @@ const [Drawer, drawerApi] = useVbenDrawer({
   onConfirm: onSubmit,
   onOpenChange(isOpen) {
     if (!isOpen) return;
-    const data = drawerApi.getData<Partial<AccountGroupRelItem>>();
+    const data = drawerApi.getData<
+      Partial<AccountGroupRelItem> & { isEdit?: boolean; lockUser?: boolean }
+    >();
+    isEdit.value = !!data.isEdit;
+    const schema = useFormSchema(data);
+    formApi.updateSchema(schema); // 或在创建 form 时就传 schema: useFormSchema(...)
+    // 其余逻辑...
+    if (data?.userID) {
+      formApi.setValues({ userID: data.userID });
+      formData.value = { userID: data.userID };
+    }
     if (data?.userID && data.chatID) {
       loading.value = true;
       fetchAccountGroupRelDetail(data.userID, data.chatID)
@@ -52,18 +63,17 @@ const [Drawer, drawerApi] = useVbenDrawer({
           loading.value = false;
         });
     } else {
-      formData.value = {};
       formApi.resetForm();
     }
   },
 });
 
+// 抽屉标题
 const getDrawerTitle = computed(() =>
-  formData.value?.userID && formData.value?.chatID
-    ? '编辑账号与群组关系'
-    : '新增账号与群组关系',
+  isEdit.value ? '编辑账号与群组关系' : '新增账号与群组关系',
 );
 
+// 提交表单
 async function onSubmit() {
   const { valid } = await formApi.validate();
   if (!valid) return;
@@ -74,7 +84,7 @@ async function onSubmit() {
       status: number;
       userID: number;
     }>();
-    await (formData.value?.userID && formData.value?.chatID
+    await (isEdit.value
       ? updateAccountGroupRelStatus(values.userID, values.chatID, {
           status: values.status as 0 | 1,
         })
@@ -84,7 +94,7 @@ async function onSubmit() {
           userID: Number(values.userID),
         }));
     message.success(formData.value?.userID ? '关系更新成功' : '关系创建成功');
-    drawerApi.close();
+    await drawerApi.close();
     emit('success');
   } catch {
     // 错误提示统一在拦截器处理
