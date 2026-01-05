@@ -32,8 +32,12 @@ export interface UpdateAccountGroupStatusParams {
 export interface AccountGroupRelItem {
   /** TG账号ID */
   userID: number;
+  /** TG账号用户名 */
+  username: string;
   /** 群组ID */
   chatID: number;
+  /** 群组名称 */
+  chatTitle: string;
   /** 在线状态: 1在线 0离线 */
   online: 0 | 1;
   /** 上线时间 */

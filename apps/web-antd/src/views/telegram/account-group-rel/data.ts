@@ -113,19 +113,23 @@ export function useColumns<T = any>(
 ): VxeTableGridOptions['columns'] {
   return [
     { field: 'userID', title: '账号ID', width: 120, fixed: 'left' },
+    { field: 'username', title: 'TG名称', width: 120 },
     { field: 'chatID', title: '群组ID', width: 120 },
+    { field: 'chatTitle', title: 'TG群名称', width: 120 },
     { field: 'onlineAt', title: '上线时间', width: 180 },
     { field: 'offlineAt', title: '下线时间', width: 180 },
     { field: 'createdAt', title: '创建时间', width: 180 },
     { field: 'updatedAt', title: '更新时间', width: 180 },
     {
-      cellRender: {
-        attrs: { beforeChange: onStatusChange },
-        name: onStatusChange ? 'CellSwitch' : 'CellTag',
-      },
       field: 'online',
       title: '在线状态',
       width: 120,
+      cellRender: {
+        attrs: {
+          beforeChange: onStatusChange,
+        },
+        name: onStatusChange ? 'CellSwitch' : 'CellTag',
+      },
     },
     {
       align: 'right',

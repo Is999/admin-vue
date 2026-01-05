@@ -66,8 +66,14 @@ export function updateAccountKeywordConfigRelStatus(
 export interface AccountKeywordConfigRelItem {
   /** TG账号ID */
   userID: number;
+  /** TG账号用户名 */
+  username: string;
   /** 关键词配置ID */
   keywordID: number;
+  /** 关键词 */
+  keyword: string;
+  /** 行为类型 */
+  actionType: string;
   /** 行为参数(JSON字符串) */
   actionPayload?: string;
   /** 状态: 1启用 0禁用 */

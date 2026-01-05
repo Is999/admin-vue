@@ -111,8 +111,11 @@ export function useColumns<T = any>(
   onStatusChange?: (newStatus: any, row: T) => PromiseLike<boolean | undefined>,
 ): VxeTableGridOptions['columns'] {
   return [
-    { field: 'userID', title: '账号ID', width: 120 },
+    { field: 'userID', title: 'TG账号ID', width: 120 },
+    { field: 'username', title: 'TG名称', width: 120 },
     { field: 'keywordID', title: '关键词配置ID', width: 140 },
+    { field: 'keyword', title: '关键词', width: 140 },
+    { field: 'actionType', title: '行为类型', width: 140 },
     { field: 'actionPayload', title: '行为参数', minWidth: 200 },
     {
       cellRender: {
