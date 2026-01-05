@@ -30,6 +30,16 @@ const routes: RouteRecordRaw[] = [
           import('#/views/telegram/group-bot-keyword-config/list.vue'),
       },
       {
+        path: '/tg-group/bot-keyword-config-rel',
+        name: 'TgGroupBotKeywordConfigRel',
+        meta: {
+          icon: 'ant-design:link-outlined',
+          title: '群组-关键词关系',
+        },
+        component: () =>
+          import('#/views/telegram/group-bot-keyword-config-rel/list.vue'),
+      },
+      {
         path: '/tg-group/config',
         name: 'TgGroupConfig',
         meta: {

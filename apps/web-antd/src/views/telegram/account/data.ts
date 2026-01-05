@@ -1,6 +1,9 @@
 import type { VbenFormSchema } from '#/adapter/form';
 import type { OnActionClickFn, VxeTableGridOptions } from '#/adapter/vxe-table';
 
+import { fetchAiPromptTemplateDropdown } from '#/api/telegram';
+import { fetchTgAccountConfigDropdown } from '#/api/telegram/account-config';
+
 // 表单schema（新增/编辑）
 export function useFormSchema(): VbenFormSchema[] {
   return [
@@ -89,9 +92,63 @@ export function useFormSchema(): VbenFormSchema[] {
       label: 'API Hash',
     },
     {
-      component: 'InputNumber',
+      component: 'ApiSelect',
+      fieldName: 'configGroup',
+      label: '配置组',
+      componentProps: {
+        api: fetchTgAccountConfigDropdown,
+        labelField: 'label',
+        valueField: 'value',
+        allowClear: true,
+        showSearch: true,
+        optionFilterProp: 'label',
+        style: { width: '100%' },
+      },
+      formItemClass: 'col-span-1',
+    },
+    {
+      component: 'Input',
+      fieldName: 'webhook',
+      label: 'Webhook',
+    },
+    {
+      component: 'ApiSelect',
       fieldName: 'promptTemplateID',
-      label: '模板ID',
+      label: 'AI提示词模板',
+      componentProps: {
+        api: fetchAiPromptTemplateDropdown,
+        labelField: 'label',
+        valueField: 'value',
+        allowClear: true,
+        showSearch: true,
+        optionFilterProp: 'label',
+        style: { width: '100%' },
+        onChange: (value: any, option: { meta: any }) => {
+          if (value && option && option.meta) {
+            option.meta;
+          }
+        },
+        afterFetch: (
+          data: {
+            id: number | string;
+            label: string;
+            meta: any;
+            value: number | string;
+          }[],
+        ) =>
+          data.map((item) => ({
+            label: item.label,
+            value: item.value,
+            id: item.id,
+            meta: item.meta,
+          })),
+      },
+      formItemClass: 'col-span-1',
+    },
+    {
+      component: 'Textarea',
+      fieldName: 'promptTemplateContent',
+      label: '模板内容',
     },
     {
       component: 'Switch',
@@ -110,18 +167,8 @@ export function useFormSchema(): VbenFormSchema[] {
     },
     {
       component: 'Input',
-      fieldName: 'webhook',
-      label: 'Webhook',
-    },
-    {
-      component: 'Input',
       fieldName: 'remark',
       label: '备注',
-    },
-    {
-      component: 'Textarea',
-      fieldName: 'promptTemplateContent',
-      label: '模板内容',
     },
   ];
 }

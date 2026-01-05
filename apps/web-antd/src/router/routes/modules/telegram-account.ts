@@ -42,6 +42,34 @@ const routes: RouteRecordRaw[] = [
         },
         component: () => import('#/views/telegram/account-config/config.vue'),
       },
+      {
+        path: '/tg-account/ai-prompt-template',
+        name: 'AiPromptTemplate',
+        meta: {
+          icon: 'ant-design:bulb-outlined',
+          title: 'AI提示词模板',
+        },
+        component: () => import('#/views/telegram/ai-prompt-template/list.vue'),
+      },
+      {
+        path: '/tg-account/group-rel',
+        name: 'TgAccountGroupRel',
+        meta: {
+          icon: 'ant-design:link-outlined',
+          title: '账号-群组关系',
+        },
+        component: () => import('#/views/telegram/account-group-rel/list.vue'),
+      },
+      {
+        path: '/tg-account/keyword-config-rel',
+        name: 'TgAccountKeywordConfigRel',
+        meta: {
+          icon: 'ant-design:link-outlined',
+          title: '账号-关键词关系',
+        },
+        component: () =>
+          import('#/views/telegram/account-keyword-config-rel/list.vue'),
+      },
       // 预留后续子路由
     ],
   },

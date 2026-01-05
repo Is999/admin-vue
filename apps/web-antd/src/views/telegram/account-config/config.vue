@@ -146,7 +146,6 @@ function useGroupFormSchema(): VbenFormSchema[] {
             return Promise.resolve([]);
           }
           fetching.value = true;
-          // 模拟延时
           return new Promise((resolve, reject) => {
             return fetchTgAccountConfigDropdown()
               .then(resolve, reject)

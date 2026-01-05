@@ -82,8 +82,7 @@ export async function fetchTgGroupBotKeywordConfigList(
 }
 
 /** 群组机器人关键词下拉框 */
-
-export async function fetchTgAccountDropdown() {
+export async function fetchTgGroupBotKeywordConfigDropdown() {
   return requestClient.get<CommonApi.DropdownItem[]>(
     '/tg_group_bot_keyword_config/dropdown',
   );

@@ -1,6 +1,9 @@
 import type { VbenFormSchema } from '#/adapter/form';
 import type { OnActionClickFn, VxeTableGridOptions } from '#/adapter/vxe-table';
 
+import { fetchTgGroupBotKeywordConfigDropdown } from '#/api/telegram/group-bot-keyword-config';
+import { fetchTgGroupConfigDropdown } from '#/api/telegram/group-config';
+
 // ================= 表单schema（新增/编辑） =================
 // 群组管理的表单字段
 export function useFormSchema(): VbenFormSchema[] {
@@ -40,6 +43,59 @@ export function useFormSchema(): VbenFormSchema[] {
       component: 'Input', // 输入框组件
       fieldName: 'remark', // 字段名：备注
       label: '备注',
+    },
+    {
+      component: 'ApiSelect',
+      fieldName: 'configGroup',
+      label: '配置组',
+      componentProps: {
+        api: fetchTgGroupConfigDropdown,
+        labelField: 'label',
+        valueField: 'value',
+        allowClear: true,
+        showSearch: true,
+        style: { width: '100%' },
+      },
+      formItemClass: 'col-span-1',
+    },
+    {
+      component: 'ApiSelect',
+      fieldName: 'keywordIDs',
+      label: '关键词配置',
+      componentProps: {
+        api: fetchTgGroupBotKeywordConfigDropdown,
+        labelField: 'label',
+        valueField: 'value',
+        mode: 'multiple',
+        allowClear: true,
+        showSearch: true,
+        style: { width: '100%' },
+      },
+      formItemClass: 'col-span-2',
+    },
+    {
+      component: 'Select',
+      fieldName: 'keywordRelStatus',
+      label: '关键词关系状态',
+      componentProps: {
+        options: [
+          { label: '启用', value: 1 },
+          { label: '禁用', value: 0 },
+        ],
+        style: { width: '100%' },
+      },
+      defaultValue: 1,
+      formItemClass: 'col-span-1',
+    },
+    {
+      component: 'Textarea',
+      fieldName: 'actionPayload',
+      label: '行为参数(JSON字符串)',
+      componentProps: {
+        autoSize: { minRows: 2, maxRows: 4 },
+        placeholder: '{"reply":"自动回复内容"}',
+      },
+      formItemClass: 'col-span-2',
     },
   ];
 }

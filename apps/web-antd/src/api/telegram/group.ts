@@ -9,6 +9,7 @@ export namespace TgGroupApi {
     chatID: number; // 群组唯一标识
     chatTitle: string; // 群组名称
     status: 0 | 1; // 状态 1启用 0禁用
+    configGroup: string; // 配置组
     remark?: string; // 备注
     createdAt: string; // 创建时间
     updatedAt: string; // 更新时间

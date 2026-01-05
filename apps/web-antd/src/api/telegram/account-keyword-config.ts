@@ -81,3 +81,10 @@ export async function updateTgAccountKeywordConfigStatus(
 export async function fetchTgAccountDropdown() {
   return requestClient.get<CommonApi.DropdownItem[]>('/tg_account/dropdown');
 }
+
+// 8. 获取关键词配置下拉框
+export async function fetchTgAccountKeywordConfigDropdown() {
+  return requestClient.get<CommonApi.DropdownItem[]>(
+    '/tg_account_keyword_config/dropdown',
+  );
+}

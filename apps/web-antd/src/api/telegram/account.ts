@@ -14,7 +14,6 @@ export namespace TgAccountApi {
     firstName: string; // 名
     lastName: string; // 姓
     languageCode: string; // 语言代码
-    prompt: string; // 交互提示词
     webhook: string; // 回调地址
     status: 0 | 1; // 账号状态
     screenX: number; // 屏幕宽度
@@ -28,6 +27,8 @@ export namespace TgAccountApi {
     updatedAt: string; // 更新时间
     promptTemplateID: number; // 绑定的AI提示词模板ID
     promptTemplateContent: string; // 绑定AI提示词模板内容
+    prompt: string; // 交互提示词
+    configGroup: string; // 配置组
   }
 
   // 分页查询参数

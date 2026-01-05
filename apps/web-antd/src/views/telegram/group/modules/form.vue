@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 // 引入TG群组API类型
 import type { TgGroupApi } from '#/api/telegram/group';
+import type { BindGroupBotKeywordConfigRelParams } from '#/api/telegram/group-bot-keyword-config-rel';
 
 // Vue响应式工具
 import { computed, ref } from 'vue';
@@ -19,6 +20,8 @@ import {
   fetchTgGroupDetail, // 获取群组详情API
   updateTgGroup, // 更新群组API
 } from '#/api/telegram/group';
+import { bindGroupBotKeywordConfigRel } from '#/api/telegram/group-bot-keyword-config-rel';
+import { bindGroupConfigRel } from '#/api/telegram/group-config-rel';
 
 // 表单schema定义
 import { useFormSchema } from '../data';
@@ -81,25 +84,70 @@ const getDrawerTitle = computed(() =>
 // 表单提交逻辑
 async function onSubmit() {
   const { valid } = await formApi.validate();
-  if (valid) {
-    // 锁定抽屉，防止重复提交
-    drawerApi.lock();
-    // 获取表单值
-    const values = await formApi.getValues<Partial<TgGroupApi.Item>>();
-    // 根据是否有id决定调用创建或更新接口
-    (formData.value?.id
+  if (!valid) return;
+  drawerApi.lock();
+  try {
+    const values = await formApi.getValues<
+      Partial<TgGroupApi.Item> & {
+        actionPayload?: string;
+        configGroup?: string;
+        keywordIDs?: Array<number | string>;
+        keywordRelStatus?: number;
+      }
+    >();
+
+    const submitPromise = formData.value?.id
       ? updateTgGroup(formData.value.id, values as TgGroupApi.FormParams)
-      : createTgGroup(values as TgGroupApi.FormParams)
-    )
-      .then(() => {
-        message.success(formData.value?.id ? '群组更新成功' : '群组创建成功');
-        drawerApi.close();
-        emit('success');
-      })
-      .catch(() => {})
-      .finally(() => {
-        drawerApi.unlock();
-      });
+      : createTgGroup(values as TgGroupApi.FormParams);
+    await submitPromise;
+
+    await saveRelations(values);
+
+    message.success(formData.value?.id ? '群组更新成功' : '群组创建成功');
+    drawerApi.close();
+    emit('success');
+  } catch {
+    // 错误提示在 api 拦截器内统一处理
+  } finally {
+    drawerApi.unlock();
+  }
+}
+
+async function saveRelations(values: {
+  actionPayload?: string;
+  chatID?: number;
+  configGroup?: string;
+  keywordIDs?: Array<number | string>;
+  keywordRelStatus?: number;
+}) {
+  const chatID = Number(values.chatID);
+  if (chatID <= 0) return;
+
+  const tasks: Promise<unknown>[] = [];
+
+  if (values.configGroup) {
+    tasks.push(
+      bindGroupConfigRel({
+        chatID,
+        configGroup: values.configGroup,
+      }),
+    );
+  }
+
+  if (values.keywordIDs && values.keywordIDs.length > 0) {
+    tasks.push(
+      bindGroupBotKeywordConfigRel({
+        actionPayload: values.actionPayload,
+        chatID,
+        keywordIDs: values.keywordIDs.map(Number),
+        status: (values.keywordRelStatus ??
+          1) as BindGroupBotKeywordConfigRelParams['status'],
+      }),
+    );
+  }
+
+  if (tasks.length > 0) {
+    await Promise.all(tasks);
   }
 }
 </script>
