@@ -5,6 +5,8 @@ import type { OnActionClickParams } from '#/adapter/vxe-table';
 // TG群组API类型
 import type { TgGroupApi } from '#/api/telegram/group';
 
+import { ref } from 'vue';
+
 // Vben Admin 通用页面、抽屉、按钮组件
 import { Page, useVbenDrawer, useVbenModal, VbenButton } from '@vben/common-ui';
 // 新增按钮图标
@@ -35,12 +37,39 @@ const [FormDrawer, formDrawerApi] = useVbenDrawer({
   destroyOnClose: true,
 });
 const [ConfigModal, configModalApi] = useVbenModal({
-  connectedComponent: ConfigList,
   destroyOnClose: true,
   appendToMain: true,
   fullscreenButton: true,
+  showConfirmButton: false,
+  showCancelButton: false,
+  draggable: true,
+  footer: false,
+  closable: true,
+  class: 'w-[1200px]',
+  title: '群组配置',
+  onOpenChange(isOpen) {
+    if (isOpen) {
+      handleUpdate();
+    }
+  },
 });
 
+const configData = ref<{
+  chatID?: number;
+  chatTitle?: string;
+  lockChat?: boolean;
+}>({});
+
+function handleUpdate() {
+  configModalApi.setState({ loading: true });
+  const data = configData.value;
+  if (data?.chatID) {
+    configModalApi.setState({
+      title: `群组 ${data.chatTitle}【${data.chatID}】配置`,
+    });
+  }
+  configModalApi.setState({ loading: false });
+}
 // ================= 表格配置 =================
 // 配置Vben Admin表格，支持分页、搜索、操作等
 const [Grid, gridApi] = useVbenVxeGrid({
@@ -102,12 +131,12 @@ function onActionClick(e: OnActionClickParams<TgGroupApi.Item>) {
 
 // 加载群组配置页面
 function onGroupConfig(row: TgGroupApi.Item) {
-  configModalApi
-    .setData({
-      chatID: row.chatID,
-      lockChat: true,
-    })
-    .open();
+  configData.value = {
+    chatID: row.chatID,
+    chatTitle: row.chatTitle,
+    lockChat: true,
+  };
+  configModalApi.setData(configData.value).open();
 }
 
 // 编辑群组，弹出抽屉
@@ -181,6 +210,13 @@ function onDelete(row: TgGroupApi.Item) {
 
 <template>
   <Page auto-content-height>
+    <ConfigModal>
+      <ConfigList
+        :chat-id="configData.chatID"
+        :chat-title="configData.chatTitle"
+        :lock-chat="configData.lockChat"
+      />
+    </ConfigModal>
     <FormDrawer @success="onRefresh" />
     <Grid table-title="TG群组列表">
       <template #toolbar-tools>
@@ -189,6 +225,5 @@ function onDelete(row: TgGroupApi.Item) {
         </VbenButton>
       </template>
     </Grid>
-    <ConfigModal />
   </Page>
 </template>

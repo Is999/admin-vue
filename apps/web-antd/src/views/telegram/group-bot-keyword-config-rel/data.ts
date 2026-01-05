@@ -67,12 +67,17 @@ export function useFormSchema(): VbenFormSchema[] {
 }
 
 // 搜索表单schema
-export function useGridFormSchema(): VbenFormSchema[] {
+export function useGridFormSchema(options?: {
+  chatID?: number;
+  lockChat?: boolean;
+}): VbenFormSchema[] {
+  const { chatID, lockChat } = options || {};
   return [
     {
       component: 'ApiSelect',
       fieldName: 'chatID',
       label: '群组',
+      defaultValue: chatID,
       componentProps: {
         api: fetchTgGroupDropdown,
         labelField: 'label',
@@ -80,6 +85,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
         allowClear: true,
         showSearch: true,
         style: { width: '100%' },
+        disabled: Boolean(lockChat && chatID),
       },
     },
     {

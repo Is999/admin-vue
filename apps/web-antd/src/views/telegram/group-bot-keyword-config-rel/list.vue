@@ -2,6 +2,8 @@
 import type { OnActionClickParams } from '#/adapter/vxe-table';
 import type { GroupBotKeywordConfigRelItem } from '#/api/telegram/group-bot-keyword-config-rel';
 
+import { onMounted, ref, watch } from 'vue';
+
 import { Page, useVbenDrawer, VbenButton } from '@vben/common-ui';
 import { Plus } from '@vben/icons';
 
@@ -17,14 +19,25 @@ import {
 import { useColumns, useGridFormSchema } from './data';
 import Form from './modules/form.vue';
 
+const props = defineProps<{
+  chatId?: number;
+  chatID?: number;
+  lockChat?: boolean;
+}>();
+
 const [FormDrawer, formDrawerApi] = useVbenDrawer({
   connectedComponent: Form,
   destroyOnClose: true,
 });
 
+const resolvedChatId = ref(props.chatID ?? props.chatId);
+
 const [Grid, gridApi] = useVbenVxeGrid({
   formOptions: {
-    schema: useGridFormSchema(),
+    schema: useGridFormSchema({
+      chatID: resolvedChatId.value,
+      lockChat: props.lockChat,
+    }),
     submitOnChange: false,
   },
   gridOptions: {
@@ -38,6 +51,7 @@ const [Grid, gridApi] = useVbenVxeGrid({
             page: page.currentPage,
             pageSize: page.pageSize,
             ...formValues,
+            chatID: resolvedChatId.value ?? formValues?.chatID,
           });
         },
       },
@@ -73,11 +87,13 @@ function onActionClick(e: OnActionClickParams<GroupBotKeywordConfigRelItem>) {
 }
 
 function onEdit(row: GroupBotKeywordConfigRelItem) {
-  formDrawerApi.setData(row).open();
+  formDrawerApi.setData({ ...row, lockChat: props.lockChat }).open();
 }
 
 function onCreate() {
-  formDrawerApi.setData({}).open();
+  formDrawerApi
+    .setData({ chatID: resolvedChatId.value, lockChat: props.lockChat })
+    .open();
 }
 
 function onRefresh() {
@@ -134,6 +150,19 @@ function onDelete(row: GroupBotKeywordConfigRelItem) {
     })
     .catch(() => hide());
 }
+
+// auto query when chatID is preset
+onMounted(() => {
+  if (resolvedChatId.value) {
+    gridApi.query();
+  }
+});
+
+watch(resolvedChatId, (val) => {
+  if (val) {
+    gridApi.query();
+  }
+});
 </script>
 
 <template>

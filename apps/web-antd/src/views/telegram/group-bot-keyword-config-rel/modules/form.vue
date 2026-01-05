@@ -36,14 +36,14 @@ const [Form, formApi] = useVbenForm({
 // 根据是否编辑状态，切换主键字段的禁用状态
 const chatSelect = schema.find((f) => f.fieldName === 'chatID');
 const keywordSelect = schema.find((f) => f.fieldName === 'keywordID');
-function toggleKeyFields(disabled: boolean) {
+function toggleKeyFields(chatDisabled: boolean, keywordDisabled?: boolean) {
   formApi.updateSchema([
     {
       ...chatSelect,
       componentProps: (prev: Record<string, any> = {}) => ({
         ...chatSelect?.componentProps,
         ...prev,
-        disabled,
+        disabled: chatDisabled,
       }),
     },
     {
@@ -51,7 +51,7 @@ function toggleKeyFields(disabled: boolean) {
       componentProps: (prev: Record<string, any> = {}) => ({
         ...keywordSelect?.componentProps,
         ...prev,
-        disabled,
+        disabled: keywordDisabled,
       }),
     },
   ]);
@@ -61,9 +61,20 @@ const [Drawer, drawerApi] = useVbenDrawer({
   onConfirm: onSubmit,
   onOpenChange(isOpen) {
     if (!isOpen) return;
-    const data = drawerApi.getData<Partial<GroupBotKeywordConfigRelItem>>();
+    const data = drawerApi.getData<
+      Partial<GroupBotKeywordConfigRelItem> & { lockChat?: boolean }
+    >();
     isEdit.value = Boolean(data?.chatID && data.keywordID);
-    toggleKeyFields(isEdit.value);
+    if (isEdit.value) {
+      toggleKeyFields(true, true);
+    } else if (data?.lockChat) {
+      toggleKeyFields(true, false);
+    } else {
+      toggleKeyFields(false, false);
+    }
+    if (data?.chatID && !isEdit.value) {
+      formApi.setValues({ chatID: data.chatID });
+    }
     if (isEdit.value && data?.chatID && data.keywordID) {
       loading.value = true;
       fetchGroupBotKeywordConfigRelDetail(data.chatID, data.keywordID)
@@ -83,10 +94,11 @@ const [Drawer, drawerApi] = useVbenDrawer({
         .finally(() => {
           loading.value = false;
         });
+    } else if (data?.lockChat && data?.chatID) {
+      formApi.setValues({ chatID: data.chatID });
     } else {
       formData.value = {};
       formApi.resetForm();
-      toggleKeyFields(false);
     }
   },
 });
