@@ -1,7 +1,6 @@
 import type { VbenFormSchema } from '#/adapter/form';
 import type { OnActionClickFn, VxeTableGridOptions } from '#/adapter/vxe-table';
 
-import { fetchTgGroupBotKeywordConfigDropdown } from '#/api/telegram/group-bot-keyword-config';
 import { fetchTgGroupConfigDropdown } from '#/api/telegram/group-config';
 
 // ================= 表单schema（新增/编辑） =================
@@ -57,45 +56,6 @@ export function useFormSchema(): VbenFormSchema[] {
         style: { width: '100%' },
       },
       formItemClass: 'col-span-1',
-    },
-    {
-      component: 'ApiSelect',
-      fieldName: 'keywordIDs',
-      label: '关键词配置',
-      componentProps: {
-        api: fetchTgGroupBotKeywordConfigDropdown,
-        labelField: 'label',
-        valueField: 'value',
-        mode: 'multiple',
-        allowClear: true,
-        showSearch: true,
-        style: { width: '100%' },
-      },
-      formItemClass: 'col-span-2',
-    },
-    {
-      component: 'Select',
-      fieldName: 'keywordRelStatus',
-      label: '关键词关系状态',
-      componentProps: {
-        options: [
-          { label: '启用', value: 1 },
-          { label: '禁用', value: 0 },
-        ],
-        style: { width: '100%' },
-      },
-      defaultValue: 1,
-      formItemClass: 'col-span-1',
-    },
-    {
-      component: 'Textarea',
-      fieldName: 'actionPayload',
-      label: '行为参数(JSON字符串)',
-      componentProps: {
-        autoSize: { minRows: 2, maxRows: 4 },
-        placeholder: '{"reply":"自动回复内容"}',
-      },
-      formItemClass: 'col-span-2',
     },
   ];
 }
@@ -167,7 +127,7 @@ export function useColumns<T = any>(
           onClick: onActionClick, // 操作事件
         },
         name: 'CellOperation', // 操作列
-        options: ['edit', 'delete'], // 编辑、删除
+        options: ['edit', 'delete', '配置'], // 编辑、删除
       },
       field: 'operation',
       headerAlign: 'center',
