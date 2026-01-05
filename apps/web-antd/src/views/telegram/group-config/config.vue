@@ -23,6 +23,30 @@ const addDefaultFormParams = ref<TgGroupConfigApi.FormParams>({
   groupTitle: '',
   list: [
     {
+      title: 'Telegram Bot Token',
+      key: 'telegramBotToken',
+      value: '',
+      id: 0,
+    },
+    {
+      title: 'Telegram Bot Name',
+      key: 'telegramBotName',
+      value: '',
+      id: 0,
+    },
+    {
+      title: 'OpenAI API Key',
+      key: 'openaiApiKey',
+      value: '',
+      id: 0,
+    },
+    {
+      title: 'OpenAI Model',
+      key: 'openaiModel',
+      value: 'gpt-4o-mini',
+      id: 0,
+    },
+    {
       title: '群聊高峰时间段（HH:MM）',
       key: 'schedulePeakTime',
       value: [{ start: '18:00', end: '23:00' }],

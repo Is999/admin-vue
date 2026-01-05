@@ -24,6 +24,34 @@ export function useFormSchema(): VbenFormSchema[] {
 export function useConfigItemsSchema(): VbenFormSchema[] {
   return [
     {
+      component: 'Input',
+      fieldName: 'telegramBotToken',
+      label: 'Telegram Bot Token',
+      defaultValue: '',
+      rules: 'required',
+    },
+    {
+      component: 'Input',
+      fieldName: 'telegramBotName',
+      label: 'Telegram Bot Name',
+      defaultValue: '',
+      rules: 'required',
+    },
+    {
+      component: 'Input',
+      fieldName: 'openaiApiKey',
+      label: 'OpenAI API Key',
+      defaultValue: '',
+      rules: 'required',
+    },
+    {
+      component: 'Input',
+      fieldName: 'openaiModel',
+      label: 'OpenAI Model',
+      defaultValue: '',
+      rules: 'required',
+    },
+    {
       component: markRaw(DynamicTimeRangeList),
       fieldName: 'schedulePeakTime',
       label: '群聊高峰时间段（HH:MM）',
