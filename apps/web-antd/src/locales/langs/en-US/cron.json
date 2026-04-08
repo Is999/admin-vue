@@ -1,0 +1,33 @@
+{
+  "route": {
+    "cronAdmin": "Cron Center",
+    "collector": "Collector Jobs",
+    "taskConsole": "Task Console",
+    "taskWorkflowStatus": "Workflow Status",
+    "configReload": "Config Reload",
+    "taskQueue": "Task Queues",
+    "taskItem": "Task Items",
+    "userTag": "User Tags",
+    "profileManage": "Profile",
+    "profile": "Profile",
+    "message": "Messages",
+    "mfa": "MFA Binding",
+    "systemManage": "System",
+    "admin": "Admins",
+    "role": "Roles",
+    "permission": "Permissions",
+    "config": "Dictionaries",
+    "cache": "Cache",
+    "log": "Audit Logs",
+    "secretKey": "Secret Keys",
+    "tools": "Tools",
+    "apiDocs": "API Docs",
+    "securityDebug": "Security Debug"
+  },
+  "apiDocs": {
+    "loading": "Opening API docs",
+    "loadFailedTitle": "Failed to open API docs",
+    "loadFailedDesc": "Make sure your account is signed in and has API docs permission, then retry.",
+    "retry": "Retry"
+  }
+}
