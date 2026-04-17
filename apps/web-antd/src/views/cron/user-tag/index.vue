@@ -8,7 +8,7 @@ import { useRouter } from 'vue-router';
 
 import { Page, VbenButton } from '@vben/common-ui';
 
-import { Button, message, Modal, Space } from 'ant-design-vue';
+import { Button, Card, message, Modal, Space } from 'ant-design-vue';
 
 import { useVbenForm } from '#/adapter/form';
 import { fetchTaskQueues } from '#/api/cron/task';
@@ -213,6 +213,7 @@ type WorkflowReferenceValues = {
   batchSize: string;
   dryRun: string;
   queue: string;
+  retry: string;
   shardTotal: string;
   syncSnapshotOnly: string;
   tagTypesText: string;
@@ -236,6 +237,7 @@ const currentWorkflowReferenceRows = computed<ReferenceRow[]>(() => {
     batchSize: '1000',
     dryRun: $t('business.message.disabled'),
     queue: getSuggestedQueue(),
+    retry: '2',
     shardTotal: '10',
     syncSnapshotOnly: $t('business.message.disabled'),
     tagTypesText: $t('business.message.emptyValue'),
@@ -264,7 +266,7 @@ const currentWorkflowReferenceRows = computed<ReferenceRow[]>(() => {
     }
     case 'targeted': {
       Object.assign(reference, {
-        shardTotal: '2',
+        shardTotal: '1',
         tagTypesText: '2,3,5,30',
         uidsText: '10001,10002,10003',
         uniqueKey: $t('business.message.emptyValue'),
@@ -296,6 +298,10 @@ const currentWorkflowReferenceRows = computed<ReferenceRow[]>(() => {
     {
       label: $t('business.message.uniqueTtlSeconds'),
       value: reference.uniqueTTLSeconds,
+    },
+    {
+      label: $t('business.message.retryCount'),
+      value: reference.retry,
     },
     {
       label: $t('business.message.timeoutSeconds'),
@@ -335,7 +341,7 @@ const userTagWorkflowFieldGuides: FieldGuideRow[] = [
     description: $t('business.message.userTagGuideUniqueDesc'),
   },
   {
-    label: $t('business.message.userTagGuideTimeoutLabel'),
+    label: $t('business.message.guideRetryTimeoutLabel'),
     description: $t('business.message.userTagGuideTimeoutDesc'),
   },
 ];
@@ -355,7 +361,7 @@ const userTagRecalculateFieldGuides: FieldGuideRow[] = [
     description: $t('business.message.userTagRecalculateDryRunDesc'),
   },
   {
-    label: $t('business.message.userTagRecalculateUniqueTimeoutLabel'),
+    label: $t('business.message.userTagRecalculateUniqueRetryTimeoutLabel'),
     description: $t('business.message.userTagRecalculateUniqueTimeoutDesc'),
   },
 ];
@@ -434,6 +440,7 @@ async function applyWorkflowModeDefaults(
     shardTotal: 10,
     workerCount: 4,
     uniqueTTLSeconds: 1800,
+    retry: 2,
     timeoutSeconds: 1800,
     uniqueKey,
   };
@@ -460,7 +467,7 @@ async function applyWorkflowModeDefaults(
       Object.assign(values, {
         tagTypesText: '2,3,5,30',
         uidsText: '10001,10002,10003',
-        shardTotal: 2,
+        shardTotal: 1,
         workerCount: 2,
       });
       break;
@@ -504,6 +511,7 @@ async function applyRecalculateDefaults() {
       workerCount: 4,
       dryRun: false,
       uniqueTTLSeconds: 1800,
+      retry: 2,
       timeoutSeconds: 1800,
     },
     true,
@@ -718,6 +726,7 @@ async function handleTriggerUserTagWorkflow() {
       syncSnapshotOnly: mode === 'full' ? syncSnapshotOnly : false,
       uniqueKey: values.uniqueKey || undefined,
       uniqueTTLSeconds: normalizeOptionalNumber(values.uniqueTTLSeconds),
+      retry: normalizeOptionalNumber(values.retry),
       timeoutSeconds: normalizeOptionalNumber(values.timeoutSeconds),
     };
     const responseData = await triggerUserTagWorkflow(requestPayload);
@@ -760,6 +769,7 @@ async function handleRecalculateUserTag() {
       worker_count: normalizeOptionalNumber(values.workerCount),
       dry_run: !!values.dryRun,
       unique_ttl_seconds: normalizeOptionalNumber(values.uniqueTTLSeconds),
+      retry: normalizeOptionalNumber(values.retry),
       timeout_seconds: normalizeOptionalNumber(values.timeoutSeconds),
     };
     const responseData = await recalculateUserTagByTypes(requestPayload);

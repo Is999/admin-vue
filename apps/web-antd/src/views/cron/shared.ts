@@ -11,17 +11,17 @@ export function splitTextToItems(text: string) {
 // TASK_QUEUE_OPTIONS 定义 cron 当前约定的内置队列说明。
 export const TASK_QUEUE_OPTIONS = [
   {
-    label: 'critical',
+    label: $t('business.message.queueCriticalLabel'),
     value: 'critical',
     description: $t('business.message.queueCriticalDesc'),
   },
   {
-    label: 'default',
+    label: $t('business.message.queueDefaultLabel'),
     value: 'default',
     description: $t('business.message.queueDefaultDesc'),
   },
   {
-    label: 'maintenance',
+    label: $t('business.message.queueMaintenanceLabel'),
     value: 'maintenance',
     description: $t('business.message.queueMaintenanceDesc'),
   },

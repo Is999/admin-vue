@@ -45,7 +45,14 @@ import {
   safePrettyJson,
   TASK_QUEUE_OPTIONS,
 } from '../shared';
-import { TASK_STATE_OPTIONS, useColumns } from './data';
+import {
+  formatTraceCount,
+  getTaskExecutionTrace,
+  getTaskWorkflowId,
+  hasTaskExecutionTrace,
+  TASK_STATE_OPTIONS,
+  useColumns,
+} from './data';
 
 type TableActionParams<T = any> = {
   code: string;
@@ -82,9 +89,9 @@ const currentQueryGroup = ref('');
 // currentQueryTaskName 保存本次列表实际使用的任务名称筛选条件，用于结果摘要回显。
 const currentQueryTaskName = ref('');
 const currentQueryWorkflowId = ref('');
-// currentQueryTimeStart/End 保存本次实际查询的时间边界，用于摘要回显。
-const currentQueryTimeStart = ref('');
-const currentQueryTimeEnd = ref('');
+// currentQueryStartTime/EndTime 保存本次实际查询的时间边界，用于摘要回显。
+const currentQueryStartTime = ref('');
+const currentQueryEndTime = ref('');
 const currentTaskRows = ref<TaskApi.TaskItem[]>([]);
 // currentStateTotals 保存后端返回的状态总数快照，用于空状态聚合时显示其它可切换状态。
 const currentStateTotals = ref<TaskStateTotals>({});
@@ -161,9 +168,8 @@ const taskListOverviewCards = computed(() => {
   let workflowCardLabel = $t('business.message.linkedWorkflow');
   // workflowCardValue 展示当前筛选链路或当前页已关联链路的任务数量。
   let workflowCardValue = String(
-    currentTaskRows.value.filter((item) =>
-      Boolean(item.workflowId || getTaskHeaderValue(item, 'x-app-workflow-id')),
-    ).length,
+    currentTaskRows.value.filter((item) => Boolean(getTaskWorkflowId(item)))
+      .length,
   );
   if (currentQueryWorkflowId.value) {
     workflowCardLabel = $t('business.message.filteredWorkflow');
@@ -214,8 +220,9 @@ const currentTaskSummaryRows = computed(() => {
   const failedCount = rows.filter((item) =>
     Boolean(String(item.lastErr || '').trim()),
   ).length;
+  const traceTotalCount = sumTaskTraceTotalCount(rows);
   const workflowLinkedCount = rows.filter((item) =>
-    Boolean(getTaskHeaderValue(item, 'x-app-workflow-id')),
+    Boolean(getTaskWorkflowId(item)),
   ).length;
   return [
     {
@@ -233,6 +240,10 @@ const currentTaskSummaryRows = computed(() => {
       value: String(workflowLinkedCount),
     },
     {
+      label: $t('business.message.taskTraceTotalCount'),
+      value: formatTraceCount(traceTotalCount),
+    },
+    {
       label: $t('business.message.taskNameFilter'),
       value: currentQueryTaskName.value || $t('business.message.notFiltered'),
     },
@@ -245,11 +256,11 @@ const currentTaskSummaryRows = computed(() => {
 
 // currentQueryTimeRangeLabel 格式化当前查询时间范围，未筛选时保持明确提示。
 const currentQueryTimeRangeLabel = computed(() => {
-  if (!currentQueryTimeStart.value && !currentQueryTimeEnd.value) {
+  if (!currentQueryStartTime.value && !currentQueryEndTime.value) {
     return $t('business.message.notFiltered');
   }
-  return `${formatTaskQueryTime(currentQueryTimeStart.value)} ~ ${formatTaskQueryTime(
-    currentQueryTimeEnd.value,
+  return `${formatTaskQueryTime(currentQueryStartTime.value)} ~ ${formatTaskQueryTime(
+    currentQueryEndTime.value,
   )}`;
 });
 
@@ -425,12 +436,12 @@ const [Grid, gridApi] = useVbenVxeGrid({
         query: async ({ page }: { page: any }) => {
           const timeRange = buildTaskTimeRangeParams();
           const result = await queryTasksByFilters({
+            endTime: timeRange.endTime,
             group: searchGroup.value || undefined,
             page: page.currentPage,
             pageSize: page.pageSize,
             stateValue: searchState.value,
-            timeEnd: timeRange.timeEnd,
-            timeStart: timeRange.timeStart,
+            startTime: timeRange.startTime,
           });
           aggregateMode.value = result.aggregateMode;
           currentQueryQueue.value = searchQueue.value;
@@ -438,8 +449,8 @@ const [Grid, gridApi] = useVbenVxeGrid({
           currentQueryGroup.value = searchGroup.value;
           currentQueryTaskName.value = searchTaskName.value.trim();
           currentQueryWorkflowId.value = searchWorkflowId.value;
-          currentQueryTimeStart.value = timeRange.timeStart || '';
-          currentQueryTimeEnd.value = timeRange.timeEnd || '';
+          currentQueryStartTime.value = timeRange.startTime || '';
+          currentQueryEndTime.value = timeRange.endTime || '';
           currentTaskRows.value = result.list;
           currentStateTotals.value = result.stateTotals;
           await tryAutoOpenTaskDetail();
@@ -475,8 +486,8 @@ function normalizeRouteQueryValue(value: unknown) {
 
 // normalizeRouteTimeRange 从路由参数恢复时间范围，非法或缺边界时忽略。
 function normalizeRouteTimeRange(): TaskTimeRangeValue {
-  const start = normalizeRouteQueryValue(route.query.timeStart);
-  const end = normalizeRouteQueryValue(route.query.timeEnd);
+  const start = normalizeRouteQueryValue(route.query.startTime);
+  const end = normalizeRouteQueryValue(route.query.endTime);
   if (!start || !end) {
     return undefined;
   }
@@ -542,14 +553,14 @@ async function loadQueueOptions() {
 }
 
 async function queryTasksByFilters(queryParams: {
+  endTime?: string;
   group?: string;
   page: number;
   pageSize: number;
+  startTime?: string;
   stateValue: TaskStateFilterValue;
-  timeEnd?: string;
-  timeStart?: string;
 }) {
-  const { group, page, pageSize, stateValue, timeEnd, timeStart } = queryParams;
+  const { endTime, group, page, pageSize, startTime, stateValue } = queryParams;
   const responseData = await fetchTaskItemsOverview({
     group: String(group || '').trim() || undefined,
     includeAggregating: !!String(group || '').trim(),
@@ -557,9 +568,9 @@ async function queryTasksByFilters(queryParams: {
     pageSize,
     queue: searchQueue.value.trim() || undefined,
     state: stateValue || undefined,
+    endTime,
+    startTime,
     taskName: searchTaskName.value.trim() || undefined,
-    timeEnd,
-    timeStart,
     workflowId: searchWorkflowId.value.trim() || undefined,
   });
   return {
@@ -575,8 +586,8 @@ async function queryTasksByFilters(queryParams: {
 function buildTaskTimeRangeParams() {
   const [startAt, endAt] = searchTimeRange.value || [];
   return {
-    timeEnd: endAt ? endAt.toDate().toISOString() : undefined,
-    timeStart: startAt ? startAt.toDate().toISOString() : undefined,
+    endTime: endAt ? endAt.toDate().toISOString() : undefined,
+    startTime: startAt ? startAt.toDate().toISOString() : undefined,
   };
 }
 
@@ -647,6 +658,311 @@ function formatTaskDurationMs(ms?: number) {
     return `${(value / 60_000).toFixed(value >= 600_000 ? 0 : 1)}m`;
   }
   return `${(value / 3_600_000).toFixed(value >= 36_000_000 ? 0 : 1)}h`;
+}
+
+// sumTaskTraceTotalCount 汇总当前页任务运行指标总处理量。
+function sumTaskTraceTotalCount(tasks: TaskApi.TaskItem[]) {
+  let total = 0;
+  for (const task of tasks) {
+    const trace = getTaskExecutionTrace(task);
+    const count = Number(trace?.totalCount || 0);
+    if (Number.isFinite(count) && count > 0) {
+      total += count;
+    }
+  }
+  return total;
+}
+
+// formatTaskTraceAction 把后端稳定动作枚举转换为当前语言文案。
+function formatTaskTraceAction(action?: string) {
+  const normalized = String(action || '')
+    .trim()
+    .toLowerCase();
+  const actionLabels: Record<string, string> = {
+    custom: $t('business.message.taskTraceActionCustom'),
+    delete: $t('business.message.taskTraceActionDelete'),
+    error: $t('business.message.taskTraceActionError'),
+    insert: $t('business.message.taskTraceActionInsert'),
+    read: $t('business.message.taskTraceActionRead'),
+    skip: $t('business.message.taskTraceActionSkip'),
+    update: $t('business.message.taskTraceActionUpdate'),
+    upsert: $t('business.message.taskTraceActionUpsert'),
+  };
+  return actionLabels[normalized] || normalized || '-';
+}
+
+// buildTaskTraceSummaryRows 生成任务追踪摘要指标行。
+function buildTaskTraceSummaryRows(trace: TaskApi.TaskExecutionTrace) {
+  return [
+    [$t('business.message.taskTraceTotalCount'), trace.totalCount, 'primary'],
+    [$t('business.message.taskTraceReadCount'), trace.readCount, 'info'],
+    [$t('business.message.taskTraceInsertCount'), trace.insertCount, 'success'],
+    [$t('business.message.taskTraceUpdateCount'), trace.updateCount, 'success'],
+    [$t('business.message.taskTraceDeleteCount'), trace.deleteCount, 'warning'],
+    [$t('business.message.taskTraceUpsertCount'), trace.upsertCount, 'success'],
+    [$t('business.message.taskTraceSkipCount'), trace.skipCount, 'warning'],
+    [$t('business.message.taskTraceErrorCount'), trace.errorCount, 'danger'],
+    [
+      $t('business.message.taskTraceDuration'),
+      formatTaskDurationMs(trace.durationMs),
+      'default',
+    ],
+    [
+      $t('business.message.taskTraceDetailCount'),
+      (trace.details || []).length,
+      'default',
+    ],
+  ];
+}
+
+// buildTaskTraceDetailRows 返回完整处理量明细，便于非工作流任务直接查看全部运行指标。
+function buildTaskTraceDetailRows(trace: TaskApi.TaskExecutionTrace) {
+  return trace.details || [];
+}
+
+// taskDetailToneClass 返回任务详情信息块的视觉语义。
+function taskDetailToneClass(tone?: string) {
+  const toneMap: Record<string, string> = {
+    danger:
+      'border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300',
+    default:
+      'border-slate-200 bg-slate-50 text-slate-900 dark:border-slate-700/70 dark:bg-slate-900/40 dark:text-slate-100',
+    info: 'border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-300',
+    primary:
+      'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300',
+    success:
+      'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300',
+    warning:
+      'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300',
+  };
+  return toneMap[tone || 'default'] || toneMap.default;
+}
+
+// taskStateTagColor 返回任务状态标签颜色。
+function taskStateTagColor(state?: string) {
+  const normalized = String(state || '').trim();
+  const colorMap: Record<string, string> = {
+    active: 'processing',
+    aggregating: 'purple',
+    archived: 'error',
+    completed: 'success',
+    pending: 'default',
+    retry: 'warning',
+    scheduled: 'blue',
+  };
+  return colorMap[normalized] || 'default';
+}
+
+// taskTraceActionColor 返回运行指标动作标签颜色。
+function taskTraceActionColor(action?: string) {
+  const normalized = String(action || '')
+    .trim()
+    .toLowerCase();
+  const colorMap: Record<string, string> = {
+    custom: 'default',
+    delete: 'orange',
+    error: 'error',
+    insert: 'green',
+    read: 'blue',
+    skip: 'gold',
+    update: 'cyan',
+    upsert: 'green',
+  };
+  return colorMap[normalized] || 'default';
+}
+
+// renderTaskDetailField 渲染任务详情中的单个信息块。
+function renderTaskDetailField(row: Array<any>) {
+  const [label, rawValue, tone, mono] = row;
+  const value = String(rawValue || '-');
+  return h(
+    'div',
+    {
+      class: `rounded-lg border px-4 py-3 ${taskDetailToneClass(tone)}`,
+    },
+    [
+      h(
+        'div',
+        {
+          class: 'text-xs font-medium text-slate-500 dark:text-slate-400',
+        },
+        label,
+      ),
+      h(Tooltip, buildOverflowTooltipProps(value), {
+        default: () =>
+          h(
+            'div',
+            {
+              class: [
+                'mt-1 truncate text-sm font-semibold',
+                mono ? 'font-mono' : '',
+              ]
+                .filter(Boolean)
+                .join(' '),
+              title: value,
+            },
+            value,
+          ),
+      }),
+    ],
+  );
+}
+
+// renderTaskDetailSection 渲染任务详情分区。
+function renderTaskDetailSection(
+  title: string,
+  rows: Array<Array<any>>,
+  gridClass = 'grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3',
+) {
+  if (rows.length === 0) {
+    return null;
+  }
+  return h('section', { class: 'space-y-2' }, [
+    h('div', { class: 'text-sm font-semibold' }, title),
+    h(
+      'div',
+      { class: gridClass },
+      rows.map((row) => renderTaskDetailField(row)),
+    ),
+  ]);
+}
+
+// renderTaskExecutionTraceSection 渲染任务执行处理量摘要和动作明细。
+function renderTaskExecutionTraceSection(trace?: TaskApi.TaskExecutionTrace) {
+  if (!hasTaskExecutionTrace(trace)) {
+    return null;
+  }
+  const currentTrace = trace as TaskApi.TaskExecutionTrace;
+  const summaryRows = buildTaskTraceSummaryRows(currentTrace);
+  const detailRows = buildTaskTraceDetailRows(currentTrace);
+  const gridClass =
+    'grid grid-cols-[120px_minmax(320px,520px)_88px_76px_88px] items-center gap-3 px-3 py-2';
+  return h(
+    'section',
+    {
+      class:
+        'space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/50',
+    },
+    [
+      h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
+        h(
+          'div',
+          { class: 'text-sm font-semibold' },
+          $t('business.message.taskExecutionTrace'),
+        ),
+        currentTrace.name
+          ? h(Tag, { color: 'processing' }, () => currentTrace.name)
+          : null,
+      ]),
+      h(
+        'div',
+        { class: 'grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4' },
+        summaryRows.map((row) =>
+          h(
+            'div',
+            {
+              class: `rounded-lg border px-4 py-3 ${taskDetailToneClass(String(row[2] || 'default'))}`,
+            },
+            [
+              h(
+                'div',
+                { class: 'text-xs text-[var(--vben-text-color-secondary)]' },
+                row[0],
+              ),
+              h(
+                'div',
+                { class: 'mt-1 truncate text-sm font-semibold' },
+                typeof row[1] === 'string' ? row[1] : formatTraceCount(row[1]),
+              ),
+            ],
+          ),
+        ),
+      ),
+      detailRows.length > 0
+        ? h(
+            'div',
+            {
+              class: 'overflow-x-auto',
+            },
+            [
+              h(
+                'div',
+                {
+                  class:
+                    'inline-block min-w-[964px] w-max overflow-hidden rounded-lg border border-slate-200 align-top dark:border-slate-700/70',
+                },
+                [
+                  h(
+                    'div',
+                    {
+                      class: `${gridClass} border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-500 dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-400`,
+                    },
+                    [
+                      $t('business.message.taskTraceAction'),
+                      $t('business.message.taskTraceObject'),
+                      $t('business.message.taskTraceCount'),
+                      $t('business.message.taskTraceTimes'),
+                      $t('business.message.taskTraceElapsed'),
+                    ].map((label, index) =>
+                      h(
+                        'div',
+                        { class: index >= 2 ? 'text-right' : '' },
+                        label,
+                      ),
+                    ),
+                  ),
+                  ...detailRows.map((detail) =>
+                    h(
+                      'div',
+                      {
+                        class: `${gridClass} border-b border-slate-100 last:border-b-0 dark:border-slate-800`,
+                      },
+                      [
+                        h(
+                          Tag,
+                          { color: taskTraceActionColor(detail.action) },
+                          () => formatTaskTraceAction(detail.action),
+                        ),
+                        h(
+                          Tooltip,
+                          buildOverflowTooltipProps(detail.name || '-'),
+                          {
+                            default: () =>
+                              h(
+                                'div',
+                                {
+                                  class:
+                                    'min-w-0 truncate rounded bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200',
+                                  title: detail.name || '-',
+                                },
+                                detail.name || '-',
+                              ),
+                          },
+                        ),
+                        h(
+                          'div',
+                          {
+                            class:
+                              'text-right text-sm font-semibold tabular-nums',
+                          },
+                          [formatTraceCount(detail.count)],
+                        ),
+                        h('div', { class: 'text-right text-sm tabular-nums' }, [
+                          formatTraceCount(detail.times),
+                        ]),
+                        h('div', { class: 'text-right text-sm tabular-nums' }, [
+                          formatTaskDurationMs(detail.elapsedMs),
+                        ]),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          )
+        : null,
+    ],
+  );
 }
 
 // formatTaskResultText 返回任务结果展示文本；历史任务未写 result 时给出明确提示，避免误以为页面异常。
@@ -724,7 +1040,7 @@ function closeTaskDetailModal() {
 
 // openWorkflowStatusFromTask 按任务头里的 workflowId 跳转到独立工作流状态页。
 async function openWorkflowStatusFromTask(task: TaskApi.TaskItem) {
-  const workflowId = getTaskHeaderValue(task, 'x-app-workflow-id');
+  const workflowId = getTaskWorkflowId(task);
   if (!workflowId) {
     message.warning($t('business.message.taskWorkflowIdMissing'));
     return;
@@ -740,46 +1056,66 @@ async function openWorkflowStatusFromTask(task: TaskApi.TaskItem) {
 
 function showTaskDetailModal(task: TaskApi.TaskItem) {
   closeTaskDetailModal();
-  const workflowId = getTaskHeaderValue(task, 'x-app-workflow-id');
+  const workflowId = getTaskWorkflowId(task);
   const workflowName = getTaskHeaderValue(task, 'x-app-workflow-name');
   const workflowNode = getTaskHeaderValue(task, 'x-app-workflow-node');
   const workflowSource = getTaskHeaderValue(task, 'x-app-task-source');
   const operationGuide = buildTaskOperationGuide(task);
+  const executionTrace = getTaskExecutionTrace(task);
+  const primaryWorkflowId = workflowId;
   const summaryRows = [
-    [$t('business.message.taskId'), task.id || '-'],
-    [$t('business.message.queueName'), task.queue || '-'],
-    [
-      $t('business.message.workflowInstanceId'),
-      task.workflowId || workflowId || '-',
-    ],
-    [$t('business.message.taskName'), task.taskName || '-'],
-    [$t('business.message.taskType'), task.taskType || '-'],
-    [$t('business.message.taskStatus'), task.state || '-'],
-    [$t('business.message.taskGroup'), task.group || '-'],
+    [$t('business.message.taskId'), task.id || '-', 'primary', true],
+    [$t('business.message.taskName'), task.taskName || '-', 'primary'],
+    [$t('business.message.taskType'), task.taskType || '-', 'default'],
+    [$t('business.message.taskGroup'), task.group || '-', 'default'],
     [
       $t('business.message.retryProgress'),
       `${task.retried || 0} / ${task.maxRetry || 0}`,
+      task.retried > 0 ? 'warning' : 'default',
     ],
-    [$t('business.message.timeoutSeconds'), String(task.timeoutSec || 0)],
-    [$t('business.message.startedAt'), task.startedAt || '-'],
+    [
+      $t('business.message.timeoutSeconds'),
+      String(task.timeoutSec || 0),
+      'default',
+    ],
+    [$t('business.message.startedAt'), task.startedAt || '-', 'default'],
     [
       $t('business.message.executionDuration'),
       formatTaskDurationMs(task.durationMs),
+      'success',
     ],
-    [$t('business.message.nextProcessAt'), task.nextProcessAt || '-'],
-    [$t('business.message.lastFailedAt'), task.lastFailedAt || '-'],
-    [$t('business.message.completedAt'), task.completedAt || '-'],
+    [
+      $t('business.message.nextProcessAt'),
+      task.nextProcessAt || '-',
+      task.nextProcessAt ? 'info' : 'default',
+    ],
+    [
+      $t('business.message.lastFailedAt'),
+      task.lastFailedAt || '-',
+      task.lastFailedAt ? 'danger' : 'default',
+    ],
+    [$t('business.message.completedAt'), task.completedAt || '-', 'success'],
     [
       $t('business.message.orphanedTask'),
       task.isOrphaned ? $t('business.message.yes') : $t('business.message.no'),
+      task.isOrphaned ? 'danger' : 'default',
     ],
   ];
-  const workflowSummaryRows = workflowId
+  const workflowSummaryRows = primaryWorkflowId
     ? [
-        [$t('business.message.workflowInstanceId'), workflowId],
-        [$t('business.message.workflowName'), workflowName || '-'],
-        [$t('business.message.workflowNode'), workflowNode || '-'],
-        [$t('business.message.triggerSource'), workflowSource || '-'],
+        [
+          $t('business.message.workflowInstanceId'),
+          primaryWorkflowId,
+          'primary',
+          true,
+        ],
+        [$t('business.message.workflowName'), workflowName || '-', 'primary'],
+        [$t('business.message.workflowNode'), workflowNode || '-', 'info'],
+        [
+          $t('business.message.triggerSource'),
+          workflowSource || '-',
+          'success',
+        ],
       ]
     : [];
   taskDetailModalHandle = Modal.info({
@@ -794,6 +1130,74 @@ function showTaskDetailModal(task: TaskApi.TaskItem) {
     title: $t('business.message.taskDetailTitle', [task.id]),
     width: 980,
     content: h('div', { class: 'space-y-4' }, [
+      h(
+        'section',
+        {
+          class:
+            'rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700/70 dark:bg-slate-900/60',
+        },
+        [
+          h(
+            'div',
+            { class: 'flex flex-wrap items-start justify-between gap-3' },
+            [
+              h('div', { class: 'min-w-0' }, [
+                h(
+                  Tooltip,
+                  buildOverflowTooltipProps(task.taskName || task.id || '-'),
+                  {
+                    default: () =>
+                      h(
+                        'div',
+                        {
+                          class:
+                            'truncate text-base font-semibold text-slate-900 dark:text-slate-100',
+                        },
+                        task.taskName || task.id || '-',
+                      ),
+                  },
+                ),
+                h(
+                  'div',
+                  {
+                    class:
+                      'mt-1 truncate font-mono text-xs text-slate-500 dark:text-slate-400',
+                  },
+                  task.id || '-',
+                ),
+              ]),
+              h(Space, { size: 8, wrap: true }, () => [
+                h(Tag, { color: taskStateTagColor(task.state) }, () =>
+                  $t('business.message.taskStateTag', [task.state || '-']),
+                ),
+                h(Tag, { color: 'processing' }, () =>
+                  $t('business.message.taskQueueTag', [task.queue || '-']),
+                ),
+                workflowSource
+                  ? h(Tag, { color: 'cyan' }, () => workflowSource)
+                  : null,
+              ]),
+            ],
+          ),
+          h('div', { class: 'mt-4 grid grid-cols-1 gap-3 md:grid-cols-3' }, [
+            renderTaskDetailField([
+              $t('business.message.taskStatus'),
+              task.state || '-',
+              task.state === 'completed' ? 'success' : 'primary',
+            ]),
+            renderTaskDetailField([
+              $t('business.message.executionDuration'),
+              formatTaskDurationMs(task.durationMs),
+              'success',
+            ]),
+            renderTaskDetailField([
+              $t('business.message.nextProcessAt'),
+              task.nextProcessAt || '-',
+              task.nextProcessAt ? 'info' : 'default',
+            ]),
+          ]),
+        ],
+      ),
       h(Alert, {
         description: operationGuide.description,
         message: operationGuide.message,
@@ -801,7 +1205,6 @@ function showTaskDetailModal(task: TaskApi.TaskItem) {
         type: operationGuide.type,
       }),
       h(Alert, {
-        class: 'mt-3',
         description: task.lastErr || $t('business.message.taskNoFailureError'),
         message: $t('business.message.latestFailureReason'),
         showIcon: true,
@@ -821,14 +1224,14 @@ function showTaskDetailModal(task: TaskApi.TaskItem) {
           },
           () => $t('business.message.copyTaskId'),
         ),
-        task.workflowId || workflowId
+        primaryWorkflowId
           ? h(
               Button,
               {
                 size: 'small',
                 onClick: () =>
                   copyTextToClipboard(
-                    String(task.workflowId || workflowId || ''),
+                    String(primaryWorkflowId || ''),
                     $t('business.message.workflowIdCopied'),
                     $t('business.message.noWorkflowIdToCopy'),
                   ),
@@ -836,34 +1239,17 @@ function showTaskDetailModal(task: TaskApi.TaskItem) {
               () => $t('business.message.copyWorkflowId'),
             )
           : null,
-        task.workflowId || workflowId
+        primaryWorkflowId
           ? h(
               Button,
               {
                 size: 'small',
                 onClick: async () => {
-                  searchWorkflowId.value = String(
-                    task.workflowId || workflowId || '',
-                  );
+                  searchWorkflowId.value = String(primaryWorkflowId || '');
                   await handleSearch();
                 },
               },
               () => $t('business.message.filterSameWorkflowTasks'),
-            )
-          : null,
-        workflowId
-          ? h(
-              Button,
-              {
-                size: 'small',
-                onClick: () =>
-                  copyTextToClipboard(
-                    workflowId,
-                    $t('business.message.workflowIdCopied'),
-                    $t('business.message.noWorkflowIdToCopy'),
-                  ),
-              },
-              () => $t('business.message.copyWorkflowId'),
             )
           : null,
         workflowId
@@ -907,91 +1293,19 @@ function showTaskDetailModal(task: TaskApi.TaskItem) {
               () => $t('business.message.deleteThisTask'),
             )
           : null,
-        h(Tag, { color: task.state === 'retry' ? 'error' : 'blue' }, () =>
-          $t('business.message.taskStateTag', [task.state || '-']),
-        ),
-        h(Tag, { color: 'processing' }, () =>
-          $t('business.message.taskQueueTag', [task.queue || '-']),
-        ),
       ]),
       workflowSummaryRows.length > 0
-        ? h('div', { class: 'space-y-2' }, [
-            h(
-              'div',
-              { class: 'text-sm font-semibold' },
-              $t('business.message.linkedWorkflow'),
-            ),
-            h(
-              'div',
-              { class: 'grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4' },
-              workflowSummaryRows.map(([label, value]) =>
-                h(
-                  'div',
-                  {
-                    class:
-                      'rounded border border-[var(--vben-border-color)] px-4 py-3',
-                  },
-                  [
-                    h(
-                      'div',
-                      {
-                        class:
-                          'text-xs text-[var(--vben-text-color-secondary)]',
-                      },
-                      label,
-                    ),
-                    h(
-                      Tooltip,
-                      buildOverflowTooltipProps(String(value || '-')),
-                      {
-                        default: () =>
-                          h(
-                            'div',
-                            {
-                              class: 'mt-1 truncate text-sm font-semibold',
-                              title: String(value || '-'),
-                            },
-                            value || '-',
-                          ),
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ])
+        ? renderTaskDetailSection(
+            $t('business.message.linkedWorkflow'),
+            workflowSummaryRows,
+            'grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4',
+          )
         : null,
-      h(
-        'div',
-        { class: 'grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3' },
-        summaryRows.map(([label, value]) =>
-          h(
-            'div',
-            {
-              class:
-                'rounded border border-[var(--vben-border-color)] px-4 py-3',
-            },
-            [
-              h(
-                'div',
-                { class: 'text-xs text-[var(--vben-text-color-secondary)]' },
-                label,
-              ),
-              h(Tooltip, buildOverflowTooltipProps(String(value || '-')), {
-                default: () =>
-                  h(
-                    'div',
-                    {
-                      class: 'mt-1 truncate text-sm font-semibold',
-                      title: String(value || '-'),
-                    },
-                    value || '-',
-                  ),
-              }),
-            ],
-          ),
-        ),
+      renderTaskDetailSection(
+        $t('business.message.taskDetailBasicInfo'),
+        summaryRows,
       ),
+      renderTaskExecutionTraceSection(executionTrace),
       h('div', { class: 'space-y-4' }, [
         h('div', {}, [
           h('div', { class: 'mb-2 flex items-center justify-between gap-2' }, [
@@ -1162,6 +1476,10 @@ function onActionClick(e: TableActionParams<TaskApi.TaskItem>) {
     }
     case 'runNow': {
       handleRunTask(e.row);
+      break;
+    }
+    case 'workflowStatus': {
+      void openWorkflowStatusFromTask(e.row);
       break;
     }
   }
@@ -1415,8 +1733,8 @@ async function handleReset() {
   searchTimeRange.value = undefined;
   routeWorkflowNode.value = '';
   routeSource.value = '';
-  currentQueryTimeStart.value = '';
-  currentQueryTimeEnd.value = '';
+  currentQueryStartTime.value = '';
+  currentQueryEndTime.value = '';
   currentTaskRows.value = [];
   currentStateTotals.value = {};
   autoOpenedTaskSignature.value = '';
@@ -1456,7 +1774,7 @@ watch(
             <div
               class="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300/80"
             >
-              Task Runtime Explorer
+              {{ $t('business.message.taskListConsoleEyebrow') }}
             </div>
             <div class="mt-2 text-2xl font-semibold tracking-tight text-white">
               {{ $t('business.message.taskListConsoleTitle') }}

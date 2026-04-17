@@ -7,6 +7,14 @@ type QueueOption = {
   value: string;
 };
 
+const defaultRetry = 3;
+const defaultTimeoutSeconds = 120;
+const defaultUniqueTTLSeconds = 60;
+const defaultQueue = 'default';
+const defaultProcessInSeconds = 0;
+const defaultShardTotal = 1;
+const defaultGrayPercent = 100;
+
 // useTriggerWorkflowSchema 返回“手动触发工作流”表单配置。
 export function useTriggerWorkflowSchema(
   queueOptions: QueueOption[] = [],
@@ -51,17 +59,19 @@ export function useTriggerWorkflowSchema(
       component: 'InputNumber',
       fieldName: 'shardTotal',
       label: $t('business.message.shardTotal'),
+      defaultValue: defaultShardTotal,
       componentProps: { min: 1, style: { width: '100%' } },
     },
     {
       component: 'InputNumber',
       fieldName: 'grayPercent',
       label: $t('business.message.grayPercent'),
-      defaultValue: 100,
+      defaultValue: defaultGrayPercent,
       componentProps: {
         min: 1,
         max: 100,
         addonAfter: '%',
+        placeholder: $t('business.message.workflowGrayPercentPlaceholder'),
         style: { width: '100%' },
       },
     },
@@ -78,6 +88,7 @@ export function useTriggerWorkflowSchema(
       component: 'InputNumber',
       fieldName: 'uniqueTTLSeconds',
       label: $t('business.message.uniqueTTLSeconds'),
+      defaultValue: defaultUniqueTTLSeconds,
       componentProps: {
         min: 1,
         addonAfter: $t('business.message.secondsUnit'),
@@ -88,6 +99,7 @@ export function useTriggerWorkflowSchema(
       component: 'InputNumber',
       fieldName: 'retry',
       label: $t('business.message.retryCount'),
+      defaultValue: defaultRetry,
       componentProps: {
         min: 0,
         addonAfter: $t('business.message.timesUnit'),
@@ -98,6 +110,7 @@ export function useTriggerWorkflowSchema(
       component: 'InputNumber',
       fieldName: 'timeoutSeconds',
       label: $t('business.message.timeoutSeconds'),
+      defaultValue: defaultTimeoutSeconds,
       componentProps: {
         min: 1,
         addonAfter: $t('business.message.secondsUnit'),
@@ -117,6 +130,7 @@ export function useTriggerWorkflowSchema(
       component: 'InputNumber',
       fieldName: 'processInSeconds',
       label: $t('business.message.delayRunSeconds'),
+      defaultValue: defaultProcessInSeconds,
       componentProps: {
         min: 0,
         addonAfter: $t('business.message.secondsUnit'),
@@ -169,6 +183,7 @@ export function useEnqueueTaskSchema(
       component: 'Select',
       fieldName: 'queue',
       label: $t('business.message.taskQueue'),
+      defaultValue: defaultQueue,
       componentProps: {
         allowClear: true,
         options: queueOptions,
@@ -189,6 +204,7 @@ export function useEnqueueTaskSchema(
       component: 'InputNumber',
       fieldName: 'retry',
       label: $t('business.message.retryCount'),
+      defaultValue: defaultRetry,
       componentProps: {
         min: 0,
         addonAfter: $t('business.message.timesUnit'),
@@ -199,6 +215,7 @@ export function useEnqueueTaskSchema(
       component: 'InputNumber',
       fieldName: 'timeoutSeconds',
       label: $t('business.message.timeoutSeconds'),
+      defaultValue: defaultTimeoutSeconds,
       componentProps: {
         min: 1,
         addonAfter: $t('business.message.secondsUnit'),
@@ -218,6 +235,7 @@ export function useEnqueueTaskSchema(
       component: 'InputNumber',
       fieldName: 'processInSeconds',
       label: $t('business.message.delayRunSeconds'),
+      defaultValue: defaultProcessInSeconds,
       componentProps: {
         min: 0,
         addonAfter: $t('business.message.secondsUnit'),
@@ -237,6 +255,7 @@ export function useEnqueueTaskSchema(
       component: 'InputNumber',
       fieldName: 'uniqueTTLSeconds',
       label: $t('business.message.uniqueTTLSeconds'),
+      defaultValue: defaultUniqueTTLSeconds,
       componentProps: {
         min: 1,
         addonAfter: $t('business.message.secondsUnit'),

@@ -8,7 +8,16 @@ import { useRoute, useRouter } from 'vue-router';
 import { Page, VbenButton } from '@vben/common-ui';
 
 import { CopyOutlined } from '@ant-design/icons-vue';
-import { Alert, Button, Card, message, Space, Tag } from 'ant-design-vue';
+import {
+  Alert,
+  Button,
+  Card,
+  Input,
+  message,
+  Modal,
+  Space,
+  Tag,
+} from 'ant-design-vue';
 
 import { useVbenForm } from '#/adapter/form';
 import { getTaskWorkflowStatus } from '#/api/cron/task';
@@ -58,12 +67,26 @@ const router = useRouter();
 const workflowStatusResultText = ref('');
 // workflowStatus 保存最近一次工作流状态查询结果。
 const workflowStatus = ref<null | TaskApi.WorkflowStatusResp>(null);
+// workflowTraceDetailsModalOpen 控制分片处理明细弹窗。
+const workflowTraceDetailsModalOpen = ref(false);
+// workflowTraceDetailsModalTitle 保存当前分片明细弹窗标题。
+const workflowTraceDetailsModalTitle = ref('');
+// workflowTraceDetailsModalRows 保存当前分片完整处理明细。
+const workflowTraceDetailsModalRows = ref<TaskApi.TaskExecutionTraceDetail[]>(
+  [],
+);
 // workflowQuerySource 记录 workflowId 的来源页面，帮助用户确认链路上下文。
 const workflowQuerySource = ref('');
 // autoQueriedWorkflowId 防止同一个路由 workflowId 被 watch 重复自动查询。
 const autoQueriedWorkflowId = ref('');
 // showWorkflowStatusRaw 控制原始 JSON 回执是否展开。
 const showWorkflowStatusRaw = ref(false);
+// workflowTopologyExpanded 控制节点执行流拓扑展开状态，长工作流可快速收起。
+const workflowTopologyExpanded = ref(true);
+// workflowTopologyKeyword 保存拓扑节点搜索词，支持按节点、队列、状态和依赖快速定位。
+const workflowTopologyKeyword = ref('');
+// workflowTraceNodeKeyword 保存处理量追踪节点名过滤词，仅在前端过滤当前回执。
+const workflowTraceNodeKeyword = ref('');
 
 // WorkflowGraphNode 表示拓扑视图中的节点，level 来自依赖关系计算，用于按执行阶段分组。
 type WorkflowGraphNode = TaskApi.WorkflowNodeItem & {
@@ -78,6 +101,22 @@ type WorkflowGraphLevel = {
   nodes: WorkflowGraphNode[];
   summary: string;
 };
+
+// WorkflowShardTraceRow 表示分片处理明细表格中的单行。
+type WorkflowShardTraceRow = {
+  key: string;
+  nodeName: string;
+  shard: TaskApi.WorkflowShardTraceItem;
+};
+
+// TraceMetricTone 表示处理量指标的展示语义，用于在数量面板中区分读写、风险和耗时。
+type TraceMetricTone =
+  | 'danger'
+  | 'info'
+  | 'neutral'
+  | 'primary'
+  | 'success'
+  | 'warning';
 
 // WorkflowStatusQueryOptions 描述一次工作流状态查询的页面副作用控制。
 type WorkflowStatusQueryOptions = {
@@ -105,6 +144,288 @@ function formatDurationMs(ms?: number) {
     return `${(value / 60_000).toFixed(value >= 600_000 ? 0 : 1)}m`;
   }
   return `${(value / 3_600_000).toFixed(value >= 36_000_000 ? 0 : 1)}h`;
+}
+
+// formatTraceCount 统一格式化处理量，避免大数字在工作流页难以扫描。
+function formatTraceCount(value?: number) {
+  const current = Number(value || 0);
+  if (!Number.isFinite(current)) {
+    return '0';
+  }
+  return Math.trunc(current).toLocaleString();
+}
+
+// formatTraceMetricValue 格式化处理量指标值，兼容数量和耗时文本。
+function formatTraceMetricValue(value?: number | string) {
+  return typeof value === 'string' ? value : formatTraceCount(value);
+}
+
+// formatProgressPercent 展示后端返回的执行进度百分比。
+function formatProgressPercent(progress?: TaskApi.TaskExecutionProgress) {
+  const value = Number(progress?.percent || 0);
+  if (!Number.isFinite(value) || value <= 0) {
+    return '0%';
+  }
+  return `${value.toFixed(value >= 10 || Number.isInteger(value) ? 0 : 1)}%`;
+}
+
+// getProgressPercentValue 返回进度条宽度百分比，兼容历史响应。
+function getProgressPercentValue(progress?: TaskApi.TaskExecutionProgress) {
+  const value = Number(progress?.percent || 0);
+  if (!Number.isFinite(value) || value <= 0) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, value));
+}
+
+// formatProgressStatus 展示进度状态，优先复用工作流节点状态文案。
+function formatProgressStatus(status?: string) {
+  const currentStatus = String(status || '')
+    .trim()
+    .toLowerCase();
+  const statusMap: Record<string, string> = {
+    failed: $t('business.message.failed'),
+    pending: $t('business.message.taskStatePending'),
+    running: $t('business.message.taskStateActive'),
+    skipped: $t('business.message.skipped'),
+    success: $t('business.message.success'),
+  };
+  return statusMap[currentStatus] || status || '-';
+}
+
+// buildProgressMetricItems 生成执行进度指标。
+function buildProgressMetricItems(progress?: TaskApi.TaskExecutionProgress) {
+  return [
+    {
+      label: $t('business.message.workflowProgressPercent'),
+      value: formatProgressPercent(progress),
+    },
+    {
+      label: $t('business.message.workflowProgressTotal'),
+      value: progress?.total,
+    },
+    {
+      label: $t('business.message.workflowProgressFinished'),
+      value: progress?.finished,
+    },
+    {
+      label: $t('business.message.workflowProgressRemaining'),
+      value: progress?.remaining,
+    },
+    {
+      label: $t('business.message.workflowProgressSucceeded'),
+      value: progress?.succeeded,
+    },
+    {
+      label: $t('business.message.workflowProgressFailed'),
+      value: progress?.failed,
+    },
+    {
+      label: $t('business.message.workflowProgressRunning'),
+      value: progress?.running,
+    },
+    {
+      label: $t('business.message.workflowProgressPending'),
+      value: progress?.pending,
+    },
+    {
+      label: $t('business.message.workflowProgressSkipped'),
+      value: progress?.skipped,
+    },
+    {
+      label: $t('business.message.workflowProgressSuccessPercent'),
+      value: `${Number(progress?.successPercent || 0).toFixed(0)}%`,
+    },
+  ];
+}
+
+// hasExecutionTrace 判断执行追踪是否包含可展示的处理量。
+function hasExecutionTrace(trace?: TaskApi.TaskExecutionTrace) {
+  if (!trace) {
+    return false;
+  }
+  return (
+    Number(trace.totalCount || 0) > 0 ||
+    Number(trace.readCount || 0) > 0 ||
+    Number(trace.insertCount || 0) > 0 ||
+    Number(trace.updateCount || 0) > 0 ||
+    Number(trace.deleteCount || 0) > 0 ||
+    Number(trace.upsertCount || 0) > 0 ||
+    Number(trace.skipCount || 0) > 0 ||
+    Number(trace.errorCount || 0) > 0 ||
+    (trace.details || []).length > 0
+  );
+}
+
+// formatTaskTraceAction 把后端动作枚举转换为当前语言文案。
+function formatTaskTraceAction(action?: string) {
+  const actionMap: Record<string, string> = {
+    custom: $t('business.message.taskTraceActionCustom'),
+    delete: $t('business.message.taskTraceActionDelete'),
+    error: $t('business.message.taskTraceActionError'),
+    insert: $t('business.message.taskTraceActionInsert'),
+    read: $t('business.message.taskTraceActionRead'),
+    skip: $t('business.message.taskTraceActionSkip'),
+    update: $t('business.message.taskTraceActionUpdate'),
+    upsert: $t('business.message.taskTraceActionUpsert'),
+  };
+  return actionMap[String(action || '').toLowerCase()] || String(action || '-');
+}
+
+// normalizeTaskTraceAction 统一动作枚举，供表格标签色使用。
+function normalizeTaskTraceAction(action?: string) {
+  const currentAction = String(action || 'custom').toLowerCase();
+  const supportedActions = new Set([
+    'custom',
+    'delete',
+    'error',
+    'insert',
+    'read',
+    'skip',
+    'update',
+    'upsert',
+  ]);
+  return supportedActions.has(currentAction) ? currentAction : 'custom';
+}
+
+// normalizeTraceStatus 统一进度状态，供分片状态标签色使用。
+function normalizeTraceStatus(status?: string) {
+  const currentStatus = String(status || '')
+    .trim()
+    .toLowerCase();
+  const supportedStatuses = new Set([
+    'failed',
+    'pending',
+    'running',
+    'skipped',
+    'success',
+  ]);
+  return supportedStatuses.has(currentStatus) ? currentStatus : 'default';
+}
+
+// buildTraceMetricItems 生成处理量指标，供工作流汇总和节点卡复用。
+function buildTraceMetricItems(trace?: TaskApi.TaskExecutionTrace) {
+  return [
+    {
+      label: $t('business.message.taskTraceTotalCount'),
+      tone: 'primary' as TraceMetricTone,
+      value: trace?.totalCount,
+    },
+    {
+      label: $t('business.message.taskTraceReadCount'),
+      tone: 'info' as TraceMetricTone,
+      value: trace?.readCount,
+    },
+    {
+      label: $t('business.message.taskTraceUpdateCount'),
+      tone: 'success' as TraceMetricTone,
+      value: trace?.updateCount,
+    },
+    {
+      label: $t('business.message.taskTraceInsertCount'),
+      tone: 'success' as TraceMetricTone,
+      value: trace?.insertCount,
+    },
+    {
+      label: $t('business.message.taskTraceDeleteCount'),
+      tone: 'warning' as TraceMetricTone,
+      value: trace?.deleteCount,
+    },
+    {
+      label: $t('business.message.taskTraceUpsertCount'),
+      tone: 'success' as TraceMetricTone,
+      value: trace?.upsertCount,
+    },
+    {
+      label: $t('business.message.taskTraceSkipCount'),
+      tone: 'warning' as TraceMetricTone,
+      value: trace?.skipCount,
+    },
+    {
+      label: $t('business.message.taskTraceErrorCount'),
+      tone: 'danger' as TraceMetricTone,
+      value: trace?.errorCount,
+    },
+    {
+      label: $t('business.message.taskTraceDuration'),
+      tone: 'neutral' as TraceMetricTone,
+      value: formatDurationMs(trace?.durationMs),
+    },
+  ];
+}
+
+// aggregateExecutionTraces 汇总前端过滤后的节点处理量，用于让汇总卡与可见明细一致。
+function aggregateExecutionTraces(
+  traces: Array<TaskApi.TaskExecutionTrace | undefined>,
+) {
+  const summary: TaskApi.TaskExecutionTrace = {};
+  for (const trace of traces) {
+    if (!trace) {
+      continue;
+    }
+    summary.deleteCount =
+      Number(summary.deleteCount || 0) + Number(trace.deleteCount || 0);
+    summary.durationMs =
+      Number(summary.durationMs || 0) + Number(trace.durationMs || 0);
+    summary.errorCount =
+      Number(summary.errorCount || 0) + Number(trace.errorCount || 0);
+    summary.insertCount =
+      Number(summary.insertCount || 0) + Number(trace.insertCount || 0);
+    summary.readCount =
+      Number(summary.readCount || 0) + Number(trace.readCount || 0);
+    summary.skipCount =
+      Number(summary.skipCount || 0) + Number(trace.skipCount || 0);
+    summary.totalCount =
+      Number(summary.totalCount || 0) + Number(trace.totalCount || 0);
+    summary.updateCount =
+      Number(summary.updateCount || 0) + Number(trace.updateCount || 0);
+    summary.upsertCount =
+      Number(summary.upsertCount || 0) + Number(trace.upsertCount || 0);
+  }
+  return summary;
+}
+
+// buildNodeTraceMiniMetrics 生成节点卡片中的紧凑处理量指标。
+function buildNodeTraceMiniMetrics(trace?: TaskApi.TaskExecutionTrace) {
+  return buildTraceMetricItems(trace).slice(0, 3);
+}
+
+// formatTraceDetails 在分片表格中展示动作摘要，完整明细通过弹窗查看。
+function formatTraceDetails(
+  details?: TaskApi.TaskExecutionTraceDetail[],
+  limit = 4,
+) {
+  const rows = (details || []).slice(0, limit);
+  if (rows.length === 0) {
+    return '-';
+  }
+  const text = rows
+    .map(
+      (detail) =>
+        `${formatTaskTraceAction(detail.action)} ${detail.name || '-'}: ${formatTraceCount(
+          detail.count,
+        )}`,
+    )
+    .join(' / ');
+  if ((details || []).length > rows.length) {
+    return `${text} ...`;
+  }
+  return text;
+}
+
+// hasTraceDetailRows 判断分片是否存在可展开的完整处理明细。
+function hasTraceDetailRows(details?: TaskApi.TaskExecutionTraceDetail[]) {
+  return (details || []).length > 0;
+}
+
+// showWorkflowTraceDetails 打开分片完整处理明细弹窗。
+function showWorkflowTraceDetails(row: WorkflowShardTraceRow) {
+  const shardTotal = row.shard.shardTotal || 1;
+  workflowTraceDetailsModalTitle.value = `${row.nodeName || '-'} ${row.shard.shardIndex}/${shardTotal}`;
+  workflowTraceDetailsModalRows.value = [
+    ...(row.shard.executionTrace?.details || []),
+  ];
+  workflowTraceDetailsModalOpen.value = true;
 }
 
 // calcWorkflowDurationMs 兼容后端历史响应中未返回 durationMs 的工作流实例。
@@ -268,6 +589,10 @@ const workflowSummaryRows = computed(() => {
       value: formatDurationMs(calcWorkflowDurationMs(currentWorkflow)),
     },
     {
+      label: $t('business.message.workflowProgressPercent'),
+      value: formatProgressPercent(currentWorkflow.progress),
+    },
+    {
       label: $t('business.message.grayPercent'),
       value: `${currentWorkflow.grayPercent || 0}%`,
     },
@@ -288,6 +613,77 @@ const workflowSummaryRows = computed(() => {
 
 // workflowNodeRows 便于模板直接展示节点明细。
 const workflowNodeRows = computed(() => workflowStatus.value?.nodes || []);
+
+// workflowProgressSummaryRows 展示工作流执行进度汇总。
+const workflowProgressSummaryRows = computed(() =>
+  buildProgressMetricItems(workflowStatus.value?.progress),
+);
+
+// workflowTraceNodeKeywordText 规范化处理量追踪节点过滤词。
+const workflowTraceNodeKeywordText = computed(() =>
+  workflowTraceNodeKeyword.value.trim().toLowerCase(),
+);
+
+// workflowHasExecutionTrace 判断当前工作流是否已有处理量追踪数据。
+const workflowHasExecutionTrace = computed(
+  () =>
+    hasExecutionTrace(workflowStatus.value?.executionTrace) ||
+    workflowNodeRows.value.some((node) =>
+      hasExecutionTrace(node.executionTrace),
+    ),
+);
+
+// allWorkflowNodeTraceRows 展示所有有处理量追踪的节点。
+const allWorkflowNodeTraceRows = computed(() =>
+  workflowNodeRows.value.filter((node) =>
+    hasExecutionTrace(node.executionTrace),
+  ),
+);
+
+// workflowNodeTraceRows 展示当前过滤条件下的节点处理量汇总。
+const workflowNodeTraceRows = computed(() => {
+  const keyword = workflowTraceNodeKeywordText.value;
+  if (!keyword) {
+    return allWorkflowNodeTraceRows.value;
+  }
+  return allWorkflowNodeTraceRows.value.filter((node) =>
+    workflowTraceNodeMatchesKeyword(node, keyword),
+  );
+});
+
+// workflowTraceVisibleNodeCount 表示当前处理量追踪可见节点数。
+const workflowTraceVisibleNodeCount = computed(
+  () => workflowNodeTraceRows.value.length,
+);
+
+// workflowTraceTotalNodeCount 表示当前工作流中带处理量追踪的节点总数。
+const workflowTraceTotalNodeCount = computed(
+  () => allWorkflowNodeTraceRows.value.length,
+);
+
+// workflowTraceSummaryRows 展示全流程或当前节点过滤后的处理量汇总。
+const workflowTraceSummaryRows = computed(() =>
+  buildTraceMetricItems(
+    workflowTraceNodeKeywordText.value
+      ? aggregateExecutionTraces(
+          workflowNodeTraceRows.value.map((node) => node.executionTrace),
+        )
+      : workflowStatus.value?.executionTrace,
+  ),
+);
+
+// workflowShardTraceRows 展示当前过滤条件下每个节点分片的处理量明细。
+const workflowShardTraceRows = computed(() =>
+  workflowNodeTraceRows.value.flatMap((node) =>
+    (node.shardTraces || [])
+      .filter((shard) => hasExecutionTrace(shard.executionTrace))
+      .map((shard) => ({
+        key: `${node.name}:${shard.shardIndex}`,
+        nodeName: node.name,
+        shard,
+      })),
+  ),
+);
 
 // workflowNodeDependents 按节点名称反向索引后续节点，用于拓扑卡片展示依赖去向。
 const workflowNodeDependents = computed(() => {
@@ -386,6 +782,49 @@ const workflowGraphLevels = computed<WorkflowGraphLevel[]>(() => {
       };
     });
 });
+
+// workflowTopologyKeywordText 规范化搜索词，避免模板重复处理字符串。
+const workflowTopologyKeywordText = computed(() =>
+  workflowTopologyKeyword.value.trim().toLowerCase(),
+);
+
+// filteredWorkflowGraphLevels 仅过滤拓扑展示，不改变原始工作流回执和节点明细。
+const filteredWorkflowGraphLevels = computed<WorkflowGraphLevel[]>(() => {
+  const keyword = workflowTopologyKeywordText.value;
+  if (!keyword) {
+    return workflowGraphLevels.value;
+  }
+  return workflowGraphLevels.value
+    .map((stage) => {
+      const matchedNodes = stage.nodes.filter((node) =>
+        workflowNodeMatchesKeyword(node, keyword),
+      );
+      const failedCount = matchedNodes.filter(
+        (node) => getWorkflowNodeStatus(node) === 'failed',
+      ).length;
+      const runningCount = matchedNodes.filter(
+        (node) => getWorkflowNodeStatus(node) === 'running',
+      ).length;
+      return {
+        ...stage,
+        nodes: matchedNodes,
+        summary: $t('business.message.workflowStageSummary', [
+          matchedNodes.length,
+          failedCount,
+          runningCount,
+        ]),
+      };
+    })
+    .filter((stage) => stage.nodes.length > 0);
+});
+
+// workflowTopologyVisibleNodeCount 表示当前拓扑可见节点数，用于搜索后提示。
+const workflowTopologyVisibleNodeCount = computed(() =>
+  filteredWorkflowGraphLevels.value.reduce(
+    (total, stage) => total + stage.nodes.length,
+    0,
+  ),
+);
 
 // workflowErrorText 返回工作流级别的失败信息。
 const workflowErrorText = computed(
@@ -538,6 +977,48 @@ function normalizeNodeDependencies(node: TaskApi.WorkflowNodeItem) {
     .filter(Boolean);
 }
 
+// workflowNodeMatchesKeyword 判断拓扑节点是否命中搜索词，覆盖节点上下游和运行字段。
+function workflowNodeMatchesKeyword(node: WorkflowGraphNode, keyword: string) {
+  const dependents = getWorkflowNodeDependents(node.name);
+  const searchableText = [
+    node.name,
+    node.taskType,
+    node.queue,
+    node.status,
+    node.dependencyText,
+    ...normalizeNodeDependencies(node),
+    ...dependents,
+  ]
+    .map((item) => String(item || '').toLowerCase())
+    .join(' ');
+  return searchableText.includes(keyword);
+}
+
+// workflowTraceNodeMatchesKeyword 判断处理量追踪节点名是否命中过滤词。
+function workflowTraceNodeMatchesKeyword(
+  node: TaskApi.WorkflowNodeItem,
+  keyword: string,
+) {
+  return String(node.name || '')
+    .toLowerCase()
+    .includes(keyword);
+}
+
+// clearWorkflowTopologyKeyword 清空拓扑搜索词，恢复完整节点执行流。
+function clearWorkflowTopologyKeyword() {
+  workflowTopologyKeyword.value = '';
+}
+
+// clearWorkflowTraceNodeKeyword 清空处理量追踪节点过滤词。
+function clearWorkflowTraceNodeKeyword() {
+  workflowTraceNodeKeyword.value = '';
+}
+
+// toggleWorkflowTopologyExpanded 切换拓扑展开状态，头尾两个按钮复用同一状态。
+function toggleWorkflowTopologyExpanded() {
+  workflowTopologyExpanded.value = !workflowTopologyExpanded.value;
+}
+
 // parseWorkflowNodeTime 把节点时间转成可排序数值，缺失时间排在同阶段后面。
 function parseWorkflowNodeTime(value?: string) {
   const timestamp = Date.parse(String(value || ''));
@@ -586,8 +1067,12 @@ function getWorkflowNodeCardClass(node: TaskApi.WorkflowNodeItem) {
   return 'workflow-node-card--default';
 }
 
-// calcWorkflowNodeProgress 计算节点实例完成比例，expected 为 0 的聚合节点按状态兜底展示。
+// calcWorkflowNodeProgress 计算节点实例完成比例，优先使用后端进度字段。
 function calcWorkflowNodeProgress(node: TaskApi.WorkflowNodeItem) {
+  const apiProgress = getProgressPercentValue(node.progress);
+  if (apiProgress > 0 || Number(node.progress?.total || 0) > 0) {
+    return apiProgress;
+  }
   const expected = Number(node.expected || 0);
   if (!Number.isFinite(expected) || expected <= 0) {
     return getWorkflowNodeStatus(node) === 'success' ? 100 : 0;
@@ -597,6 +1082,14 @@ function calcWorkflowNodeProgress(node: TaskApi.WorkflowNodeItem) {
     Number(node.failed || 0) +
     Number(node.skipped || 0);
   return Math.max(0, Math.min(100, Math.round((finished / expected) * 100)));
+}
+
+// formatWorkflowNodeProgress 展示节点进度百分比。
+function formatWorkflowNodeProgress(node: TaskApi.WorkflowNodeItem) {
+  if (node.progress) {
+    return formatProgressPercent(node.progress);
+  }
+  return `${calcWorkflowNodeProgress(node)}%`;
 }
 
 // formatWorkflowNodeStageTitle 展示拓扑阶段编号，按执行顺序从 01 开始。
@@ -647,320 +1140,1244 @@ watch(
 </script>
 
 <template>
-  <Page :title="$t('business.message.workflowStatus')">
-    <div class="space-y-4">
-      <Alert
-        v-if="workflowQuerySource"
-        :message="
-          $t('business.message.workflowIdFromSource', [workflowQuerySource])
-        "
-        show-icon
-        type="info"
-      />
-      <Card
-        class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
-        :title="$t('business.message.queryWorkflowInstanceStatus')"
-      >
-        <div class="mb-4 flex justify-end gap-2">
-          <VbenButton
-            v-access="
-              asActionPermission(
-                CRON_ACTION_PERMISSION_CODES.TASK_WORKFLOW_STATUS,
-              )
-            "
-            type="primary"
-            :disabled="submitting"
-            @click="handleQueryWorkflowStatus"
-          >
-            {{
-              submitting
-                ? $t('business.message.querying')
-                : $t('business.message.queryStatus')
-            }}
-          </VbenButton>
-        </div>
-        <WorkflowQueryForm />
-        <template v-if="workflowStatus">
-          <Alert
-            v-if="workflowOperationGuide"
-            class="mt-4"
-            :description="workflowOperationGuide.description"
-            :message="workflowOperationGuide.message"
-            show-icon
-            :type="workflowOperationGuide.type"
-          />
-          <Space class="mt-4" :size="8" wrap>
-            <Button
-              size="small"
+  <div class="task-workflow-status-page">
+    <Page :title="$t('business.message.workflowStatus')">
+      <div class="space-y-4">
+        <Alert
+          v-if="workflowQuerySource"
+          :message="
+            $t('business.message.workflowIdFromSource', [workflowQuerySource])
+          "
+          show-icon
+          type="info"
+        />
+        <Card
+          class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+          :title="$t('business.message.queryWorkflowInstanceStatus')"
+        >
+          <div class="mb-4 flex justify-end gap-2">
+            <VbenButton
+              v-access="
+                asActionPermission(
+                  CRON_ACTION_PERMISSION_CODES.TASK_WORKFLOW_STATUS,
+                )
+              "
               type="primary"
-              @click="handleOpenWorkflowStatusTasks"
-            >
-              {{ $t('business.message.openRelatedTaskList') }}
-            </Button>
-            <Button
-              size="small"
-              @click="showWorkflowStatusRaw = !showWorkflowStatusRaw"
+              :disabled="submitting"
+              @click="handleQueryWorkflowStatus"
             >
               {{
-                showWorkflowStatusRaw
-                  ? $t('business.message.closeRawReceipt')
-                  : $t('business.message.viewRawReceipt')
+                submitting
+                  ? $t('business.message.querying')
+                  : $t('business.message.queryStatus')
               }}
-            </Button>
-            <Button
-              size="small"
-              :disabled="!workflowStatusResultText"
-              @click="handleCopyWorkflowStatusReceipt"
-            >
-              <template #icon>
-                <CopyOutlined />
-              </template>
-              {{ $t('business.message.copyReceipt') }}
-            </Button>
-          </Space>
-          <Alert
-            class="mt-4"
-            :description="workflowErrorText"
-            :message="
-              workflowStatus.errorMessage
-                ? $t('business.message.currentWorkflowFailureReason')
-                : $t('business.message.noWorkflowFailure')
-            "
-            show-icon
-            :type="workflowStatus.errorMessage ? 'error' : 'success'"
-          />
-          <pre
-            v-if="showWorkflowStatusRaw && workflowStatusResultText"
-            class="mt-4 max-h-[360px] overflow-auto rounded-2xl border border-violet-500/20 bg-slate-950 px-4 py-4 text-sm text-violet-100 shadow-inner"
-            v-text="workflowStatusResultText"
-          ></pre>
-          <div
-            class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3"
-          >
+            </VbenButton>
+          </div>
+          <WorkflowQueryForm />
+          <template v-if="workflowStatus">
+            <Alert
+              v-if="workflowOperationGuide"
+              class="mt-4"
+              :description="workflowOperationGuide.description"
+              :message="workflowOperationGuide.message"
+              show-icon
+              :type="workflowOperationGuide.type"
+            />
+            <Space class="mt-4" :size="8" wrap>
+              <Button
+                size="small"
+                type="primary"
+                @click="handleOpenWorkflowStatusTasks"
+              >
+                {{ $t('business.message.openRelatedTaskList') }}
+              </Button>
+              <Button
+                size="small"
+                @click="showWorkflowStatusRaw = !showWorkflowStatusRaw"
+              >
+                {{
+                  showWorkflowStatusRaw
+                    ? $t('business.message.closeRawReceipt')
+                    : $t('business.message.viewRawReceipt')
+                }}
+              </Button>
+              <Button
+                size="small"
+                :disabled="!workflowStatusResultText"
+                @click="handleCopyWorkflowStatusReceipt"
+              >
+                <template #icon>
+                  <CopyOutlined />
+                </template>
+                {{ $t('business.message.copyReceipt') }}
+              </Button>
+            </Space>
+            <Alert
+              class="mt-4"
+              :description="workflowErrorText"
+              :message="
+                workflowStatus.errorMessage
+                  ? $t('business.message.currentWorkflowFailureReason')
+                  : $t('business.message.noWorkflowFailure')
+              "
+              show-icon
+              :type="workflowStatus.errorMessage ? 'error' : 'success'"
+            />
+            <pre
+              v-if="showWorkflowStatusRaw && workflowStatusResultText"
+              class="mt-4 max-h-[360px] overflow-auto rounded-2xl border border-violet-500/20 bg-slate-950 px-4 py-4 text-sm text-violet-100 shadow-inner"
+              v-text="workflowStatusResultText"
+            ></pre>
             <div
-              v-for="item in workflowSummaryRows"
-              :key="item.label"
-              class="rounded-2xl border border-slate-200/70 bg-slate-50/80 px-4 py-4 dark:border-slate-700 dark:bg-slate-950/40"
+              class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3"
             >
-              <div class="text-xs text-[var(--vben-text-color-secondary)]">
-                {{ item.label }}
-              </div>
-              <div class="mt-1 break-all text-sm font-semibold">
-                {{ item.value || '-' }}
+              <div
+                v-for="item in workflowSummaryRows"
+                :key="item.label"
+                class="rounded-2xl border border-slate-200/70 bg-slate-50/80 px-4 py-4 dark:border-slate-700 dark:bg-slate-950/40"
+              >
+                <div class="text-xs text-[var(--vben-text-color-secondary)]">
+                  {{ item.label }}
+                </div>
+                <div class="mt-1 break-all text-sm font-semibold">
+                  {{ item.value || '-' }}
+                </div>
               </div>
             </div>
-          </div>
-          <section class="workflow-topology-card mt-4">
-            <div class="workflow-topology-card__header">
-              <div>
-                <div class="text-base font-semibold">
-                  {{ $t('business.message.workflowTopologyTitle') }}
+            <section
+              v-if="workflowStatus.progress"
+              class="workflow-progress-panel mt-4"
+            >
+              <div class="workflow-progress-panel__header">
+                <div>
+                  <div class="text-base font-semibold">
+                    {{ $t('business.message.workflowExecutionProgressTitle') }}
+                  </div>
+                  <div
+                    class="mt-1 text-xs text-[var(--vben-text-color-secondary)]"
+                  >
+                    {{ $t('business.message.workflowExecutionProgressDesc') }}
+                  </div>
                 </div>
-                <div
-                  class="mt-1 text-xs text-[var(--vben-text-color-secondary)]"
-                >
-                  {{ $t('business.message.workflowTopologyDesc') }}
+                <Tag color="processing">
+                  {{ formatProgressPercent(workflowStatus.progress) }}
+                </Tag>
+              </div>
+              <div class="workflow-progress-bar-wrap">
+                <div class="workflow-progress-bar">
+                  <div
+                    class="workflow-progress-bar__inner"
+                    :style="{
+                      width: `${getProgressPercentValue(
+                        workflowStatus.progress,
+                      )}%`,
+                    }"
+                  ></div>
                 </div>
               </div>
-              <Tag class="workflow-topology-card__count" color="blue">
+              <div class="workflow-trace-metrics">
+                <div
+                  v-for="item in workflowProgressSummaryRows"
+                  :key="item.label"
+                  class="workflow-trace-metric"
+                >
+                  <div class="workflow-trace-metric__label">
+                    {{ item.label }}
+                  </div>
+                  <div class="workflow-trace-metric__value">
+                    {{ formatTraceMetricValue(item.value) }}
+                  </div>
+                </div>
+              </div>
+            </section>
+            <section class="workflow-topology-card mt-4">
+              <div class="workflow-topology-card__header">
+                <div>
+                  <div class="text-base font-semibold">
+                    {{ $t('business.message.workflowTopologyTitle') }}
+                  </div>
+                  <div
+                    class="mt-1 text-xs text-[var(--vben-text-color-secondary)]"
+                  >
+                    {{ $t('business.message.workflowTopologyDesc') }}
+                  </div>
+                </div>
+                <div class="workflow-topology-controls">
+                  <Tag class="workflow-topology-card__count" color="blue">
+                    {{
+                      workflowTopologyKeywordText
+                        ? $t('business.message.workflowVisibleNodeCount', [
+                            workflowTopologyVisibleNodeCount,
+                            workflowNodeRows.length,
+                          ])
+                        : $t('business.message.workflowNodeCount', [
+                            workflowNodeRows.length,
+                          ])
+                    }}
+                  </Tag>
+                  <Input
+                    v-model:value="workflowTopologyKeyword"
+                    allow-clear
+                    class="workflow-topology-search"
+                    size="small"
+                    :placeholder="
+                      $t('business.message.workflowTopologySearchPlaceholder')
+                    "
+                  />
+                  <Button
+                    size="small"
+                    :disabled="!workflowTopologyKeywordText"
+                    @click="clearWorkflowTopologyKeyword"
+                  >
+                    {{ $t('business.message.workflowTopologyClearSearch') }}
+                  </Button>
+                  <Button size="small" @click="toggleWorkflowTopologyExpanded">
+                    {{
+                      workflowTopologyExpanded
+                        ? $t('business.message.workflowTopologyCollapse')
+                        : $t('business.message.workflowTopologyExpand')
+                    }}
+                  </Button>
+                </div>
+              </div>
+
+              <div
+                v-if="!workflowTopologyExpanded"
+                class="workflow-topology-collapsed"
+              >
                 {{
-                  $t('business.message.workflowNodeCount', [
+                  $t('business.message.workflowTopologyCollapsedHint', [
+                    workflowTopologyVisibleNodeCount,
                     workflowNodeRows.length,
                   ])
                 }}
-              </Tag>
-            </div>
-
-            <div class="workflow-flow-scroll">
-              <div v-if="workflowGraphLevels.length > 0" class="workflow-flow">
-                <section
-                  v-for="stage in workflowGraphLevels"
-                  :key="stage.level"
-                  class="workflow-stage"
+              </div>
+              <div
+                v-show="workflowTopologyExpanded"
+                class="workflow-flow-scroll"
+              >
+                <div
+                  v-if="filteredWorkflowGraphLevels.length > 0"
+                  class="workflow-flow"
                 >
-                  <div class="workflow-stage__header">
-                    <div class="workflow-stage__badge">
-                      {{ String(stage.level + 1).padStart(2, '0') }}
+                  <section
+                    v-for="stage in filteredWorkflowGraphLevels"
+                    :key="stage.level"
+                    class="workflow-stage"
+                  >
+                    <div class="workflow-stage__header">
+                      <div class="workflow-stage__badge">
+                        {{ String(stage.level + 1).padStart(2, '0') }}
+                      </div>
+                      <div class="workflow-stage__heading">
+                        <div class="workflow-stage__title">
+                          {{ formatWorkflowNodeStageTitle(stage.level) }}
+                        </div>
+                        <div class="workflow-stage__summary">
+                          {{ stage.summary }}
+                        </div>
+                      </div>
                     </div>
-                    <div class="workflow-stage__heading">
-                      <div class="workflow-stage__title">
-                        {{ formatWorkflowNodeStageTitle(stage.level) }}
-                      </div>
-                      <div class="workflow-stage__summary">
-                        {{ stage.summary }}
-                      </div>
-                    </div>
-                  </div>
 
-                  <div class="workflow-stage__nodes">
-                    <article
-                      v-for="node in stage.nodes"
-                      :key="node.name"
-                      class="workflow-node-card"
-                      :class="getWorkflowNodeCardClass(node)"
-                    >
-                      <div class="workflow-node-card__header">
-                        <div class="workflow-node-card__identity">
-                          <span class="workflow-node-card__status-dot"></span>
-                          <div class="min-w-0">
-                            <div class="workflow-node-card__title">
-                              {{ node.name || '-' }}
-                            </div>
-                            <div class="workflow-node-card__subtitle">
-                              {{ node.taskType || '-' }}
+                    <div class="workflow-stage__nodes">
+                      <article
+                        v-for="node in stage.nodes"
+                        :key="node.name"
+                        class="workflow-node-card"
+                        :class="getWorkflowNodeCardClass(node)"
+                      >
+                        <div class="workflow-node-card__header">
+                          <div class="workflow-node-card__identity">
+                            <span class="workflow-node-card__status-dot"></span>
+                            <div class="min-w-0">
+                              <div class="workflow-node-card__title">
+                                {{ node.name || '-' }}
+                              </div>
+                              <div class="workflow-node-card__subtitle">
+                                {{ node.taskType || '-' }}
+                              </div>
                             </div>
                           </div>
+                          <Tag
+                            class="workflow-node-card__status-tag"
+                            :color="getWorkflowNodeStatusColor(node)"
+                          >
+                            {{ node.status || '-' }}
+                          </Tag>
                         </div>
-                        <Tag
-                          class="workflow-node-card__status-tag"
-                          :color="getWorkflowNodeStatusColor(node)"
-                        >
-                          {{ node.status || '-' }}
-                        </Tag>
-                      </div>
 
-                      <div class="workflow-node-chip-row">
-                        <span class="workflow-node-chip">
-                          {{ node.queue || '-' }}
-                        </span>
-                        <span
-                          class="workflow-node-chip workflow-node-chip--expected"
-                        >
-                          {{
-                            $t('business.message.expectedCount', [
-                              node.expected || 0,
-                            ])
-                          }}
-                        </span>
-                      </div>
-
-                      <div class="workflow-node-metrics">
-                        <div class="workflow-node-metric">
-                          <div class="workflow-node-metric__value">
-                            {{ node.succeeded || 0 }}
-                          </div>
-                          <div class="workflow-node-metric__label">
-                            {{ $t('business.message.success') }}
-                          </div>
-                        </div>
-                        <div class="workflow-node-metric">
-                          <div class="workflow-node-metric__value">
-                            {{ node.failed || 0 }}
-                          </div>
-                          <div class="workflow-node-metric__label">
-                            {{ $t('business.message.failed') }}
-                          </div>
-                        </div>
-                        <div class="workflow-node-metric">
-                          <div class="workflow-node-metric__value">
-                            {{ node.skipped || 0 }}
-                          </div>
-                          <div class="workflow-node-metric__label">
-                            {{ $t('business.message.skipped') }}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div class="workflow-node-progress-wrap">
-                        <div class="workflow-node-progress__meta">
-                          <span>{{ $t('business.message.progress') }}</span>
-                          <span>{{ calcWorkflowNodeProgress(node) }}%</span>
-                        </div>
-                        <div class="workflow-node-progress">
-                          <div
-                            class="workflow-node-progress__bar"
-                            :style="{
-                              width: `${calcWorkflowNodeProgress(node)}%`,
-                            }"
-                          ></div>
-                        </div>
-                      </div>
-
-                      <div class="workflow-node-relations">
-                        <div class="workflow-node-relation">
-                          <span class="workflow-node-relation__label">
-                            {{ $t('business.message.depends') }}
+                        <div class="workflow-node-chip-row">
+                          <span class="workflow-node-chip">
+                            {{ node.queue || '-' }}
                           </span>
-                          <span class="workflow-node-relation__value">
-                            {{ node.dependencyText }}
-                          </span>
-                        </div>
-                        <div class="workflow-node-relation">
-                          <span class="workflow-node-relation__label">
-                            {{ $t('business.message.next') }}
-                          </span>
-                          <span class="workflow-node-relation__value">
+                          <span
+                            class="workflow-node-chip workflow-node-chip--expected"
+                          >
                             {{
-                              getWorkflowNodeDependents(node.name).join(
-                                ' / ',
-                              ) || '-'
+                              $t('business.message.expectedCount', [
+                                node.expected || 0,
+                              ])
                             }}
                           </span>
                         </div>
-                        <div class="workflow-node-relation">
-                          <span class="workflow-node-relation__label">
-                            {{ $t('business.message.duration') }}
-                          </span>
-                          <span class="workflow-node-relation__value">
-                            {{ formatDurationMs(node.durationMs) }}
-                          </span>
-                        </div>
-                      </div>
 
-                      <div class="workflow-node-times">
-                        <div class="workflow-node-time">
-                          <span class="workflow-node-time__label">
-                            {{ $t('business.message.startedAt') }}
-                          </span>
-                          <span class="workflow-node-time__value">
-                            {{ node.startedAt || '-' }}
-                          </span>
+                        <div class="workflow-node-metrics">
+                          <div class="workflow-node-metric">
+                            <div class="workflow-node-metric__value">
+                              {{ node.succeeded || 0 }}
+                            </div>
+                            <div class="workflow-node-metric__label">
+                              {{ $t('business.message.success') }}
+                            </div>
+                          </div>
+                          <div class="workflow-node-metric">
+                            <div class="workflow-node-metric__value">
+                              {{ node.failed || 0 }}
+                            </div>
+                            <div class="workflow-node-metric__label">
+                              {{ $t('business.message.failed') }}
+                            </div>
+                          </div>
+                          <div class="workflow-node-metric">
+                            <div class="workflow-node-metric__value">
+                              {{ node.skipped || 0 }}
+                            </div>
+                            <div class="workflow-node-metric__label">
+                              {{ $t('business.message.skipped') }}
+                            </div>
+                          </div>
                         </div>
-                        <div class="workflow-node-time">
-                          <span class="workflow-node-time__label">
-                            {{ $t('business.message.finishedAt') }}
-                          </span>
-                          <span class="workflow-node-time__value">
-                            {{ node.finishedAt || '-' }}
-                          </span>
+
+                        <div
+                          v-if="hasExecutionTrace(node.executionTrace)"
+                          class="workflow-node-trace-mini"
+                        >
+                          <div
+                            v-for="item in buildNodeTraceMiniMetrics(
+                              node.executionTrace,
+                            )"
+                            :key="item.label"
+                            class="workflow-node-trace-mini__item"
+                          >
+                            <span class="workflow-node-trace-mini__label">
+                              {{ item.label }}
+                            </span>
+                            <span class="workflow-node-trace-mini__value">
+                              {{ formatTraceMetricValue(item.value) }}
+                            </span>
+                          </div>
                         </div>
-                      </div>
 
-                      <Button
-                        class="workflow-node-action"
-                        size="small"
-                        @click="handleOpenWorkflowNodeTasks(node)"
-                      >
-                        {{ $t('business.message.openNodeQueueTasks') }}
-                      </Button>
+                        <div class="workflow-node-progress-wrap">
+                          <div class="workflow-node-progress__meta">
+                            <span>{{ $t('business.message.progress') }}</span>
+                            <span>{{ formatWorkflowNodeProgress(node) }}</span>
+                          </div>
+                          <div class="workflow-node-progress">
+                            <div
+                              class="workflow-node-progress__bar"
+                              :style="{
+                                width: `${calcWorkflowNodeProgress(node)}%`,
+                              }"
+                            ></div>
+                          </div>
+                        </div>
 
-                      <Alert
-                        v-if="node.errorMessage"
-                        class="workflow-node-error"
-                        :description="node.errorMessage"
-                        :message="$t('business.message.nodeFailure')"
-                        show-icon
-                        type="error"
-                      />
-                    </article>
-                  </div>
-                </section>
+                        <div class="workflow-node-relations">
+                          <div class="workflow-node-relation">
+                            <span class="workflow-node-relation__label">
+                              {{ $t('business.message.depends') }}
+                            </span>
+                            <span class="workflow-node-relation__value">
+                              {{ node.dependencyText }}
+                            </span>
+                          </div>
+                          <div class="workflow-node-relation">
+                            <span class="workflow-node-relation__label">
+                              {{ $t('business.message.next') }}
+                            </span>
+                            <span class="workflow-node-relation__value">
+                              {{
+                                getWorkflowNodeDependents(node.name).join(
+                                  ' / ',
+                                ) || '-'
+                              }}
+                            </span>
+                          </div>
+                          <div class="workflow-node-relation">
+                            <span class="workflow-node-relation__label">
+                              {{ $t('business.message.duration') }}
+                            </span>
+                            <span class="workflow-node-relation__value">
+                              {{ formatDurationMs(node.durationMs) }}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div class="workflow-node-times">
+                          <div class="workflow-node-time">
+                            <span class="workflow-node-time__label">
+                              {{ $t('business.message.startedAt') }}
+                            </span>
+                            <span class="workflow-node-time__value">
+                              {{ node.startedAt || '-' }}
+                            </span>
+                          </div>
+                          <div class="workflow-node-time">
+                            <span class="workflow-node-time__label">
+                              {{ $t('business.message.finishedAt') }}
+                            </span>
+                            <span class="workflow-node-time__value">
+                              {{ node.finishedAt || '-' }}
+                            </span>
+                          </div>
+                        </div>
+
+                        <Button
+                          class="workflow-node-action"
+                          size="small"
+                          @click="handleOpenWorkflowNodeTasks(node)"
+                        >
+                          {{ $t('business.message.openNodeQueueTasks') }}
+                        </Button>
+
+                        <Alert
+                          v-if="node.errorMessage"
+                          class="workflow-node-error"
+                          :description="node.errorMessage"
+                          :message="$t('business.message.nodeFailure')"
+                          show-icon
+                          type="error"
+                        />
+                      </article>
+                    </div>
+                  </section>
+                </div>
+                <div
+                  v-else
+                  class="px-4 py-8 text-center text-sm text-[var(--vben-text-color-secondary)]"
+                >
+                  {{ $t('business.message.noNodeDetails') }}
+                </div>
               </div>
               <div
-                v-else
-                class="px-4 py-8 text-center text-sm text-[var(--vben-text-color-secondary)]"
+                class="workflow-topology-controls workflow-topology-controls--tail"
               >
-                {{ $t('business.message.noNodeDetails') }}
+                <Input
+                  v-model:value="workflowTopologyKeyword"
+                  allow-clear
+                  class="workflow-topology-search"
+                  size="small"
+                  :placeholder="
+                    $t('business.message.workflowTopologySearchPlaceholder')
+                  "
+                />
+                <Button
+                  size="small"
+                  :disabled="!workflowTopologyKeywordText"
+                  @click="clearWorkflowTopologyKeyword"
+                >
+                  {{ $t('business.message.workflowTopologyClearSearch') }}
+                </Button>
+                <Button size="small" @click="toggleWorkflowTopologyExpanded">
+                  {{
+                    workflowTopologyExpanded
+                      ? $t('business.message.workflowTopologyCollapse')
+                      : $t('business.message.workflowTopologyExpand')
+                  }}
+                </Button>
               </div>
+            </section>
+            <section
+              v-if="workflowHasExecutionTrace"
+              class="workflow-trace-panel mt-4"
+            >
+              <div class="workflow-trace-panel__header">
+                <div>
+                  <div class="text-base font-semibold">
+                    {{ $t('business.message.workflowExecutionTraceTitle') }}
+                  </div>
+                  <div
+                    class="mt-1 text-xs text-[var(--vben-text-color-secondary)]"
+                  >
+                    {{ $t('business.message.workflowExecutionTraceDesc') }}
+                  </div>
+                </div>
+                <div class="workflow-trace-filter">
+                  <Tag class="workflow-trace-filter__count" color="blue">
+                    {{
+                      $t('business.message.workflowTraceNodeFilterCount', [
+                        workflowTraceVisibleNodeCount,
+                        workflowTraceTotalNodeCount,
+                      ])
+                    }}
+                  </Tag>
+                  <Input
+                    v-model:value="workflowTraceNodeKeyword"
+                    allow-clear
+                    class="workflow-trace-filter__search"
+                    size="small"
+                    :placeholder="
+                      $t('business.message.workflowTraceNodeSearchPlaceholder')
+                    "
+                  />
+                  <Button
+                    size="small"
+                    :disabled="!workflowTraceNodeKeywordText"
+                    @click="clearWorkflowTraceNodeKeyword"
+                  >
+                    {{ $t('business.message.workflowTraceClearFilter') }}
+                  </Button>
+                </div>
+              </div>
+              <div class="workflow-trace-metrics">
+                <div
+                  v-for="item in workflowTraceSummaryRows"
+                  :key="item.label"
+                  class="workflow-trace-metric"
+                  :class="`workflow-trace-metric--${item.tone || 'neutral'}`"
+                >
+                  <div class="workflow-trace-metric__label">
+                    {{ item.label }}
+                  </div>
+                  <div class="workflow-trace-metric__value">
+                    {{ formatTraceMetricValue(item.value) }}
+                  </div>
+                </div>
+              </div>
+              <div
+                v-if="
+                  workflowTraceNodeKeywordText &&
+                  workflowNodeTraceRows.length === 0
+                "
+                class="workflow-trace-empty"
+              >
+                {{ $t('business.message.workflowTraceNoMatchedNode') }}
+              </div>
+              <div
+                v-if="workflowNodeTraceRows.length > 0"
+                class="workflow-trace-table-wrap"
+              >
+                <div class="workflow-trace-section-title">
+                  {{ $t('business.message.workflowTraceNodeBreakdown') }}
+                </div>
+                <div class="workflow-trace-table">
+                  <div class="workflow-trace-row workflow-trace-row--head">
+                    <span>{{ $t('business.message.workflowTraceNode') }}</span>
+                    <span>{{
+                      $t('business.message.taskTraceTotalCount')
+                    }}</span>
+                    <span>{{ $t('business.message.taskTraceReadCount') }}</span>
+                    <span>{{
+                      $t('business.message.taskTraceUpdateCount')
+                    }}</span>
+                    <span>{{
+                      $t('business.message.taskTraceUpsertCount')
+                    }}</span>
+                    <span>{{ $t('business.message.taskTraceSkipCount') }}</span>
+                    <span>{{ $t('business.message.taskTraceDuration') }}</span>
+                  </div>
+                  <div
+                    v-for="node in workflowNodeTraceRows"
+                    :key="node.name"
+                    class="workflow-trace-row"
+                  >
+                    <span class="workflow-trace-name">{{
+                      node.name || '-'
+                    }}</span>
+                    <span class="workflow-trace-number is-primary">{{
+                      formatTraceCount(node.executionTrace?.totalCount)
+                    }}</span>
+                    <span class="workflow-trace-number is-info">{{
+                      formatTraceCount(node.executionTrace?.readCount)
+                    }}</span>
+                    <span class="workflow-trace-number is-success">{{
+                      formatTraceCount(node.executionTrace?.updateCount)
+                    }}</span>
+                    <span class="workflow-trace-number is-success">{{
+                      formatTraceCount(node.executionTrace?.upsertCount)
+                    }}</span>
+                    <span class="workflow-trace-number is-warning">{{
+                      formatTraceCount(node.executionTrace?.skipCount)
+                    }}</span>
+                    <span class="workflow-trace-number is-neutral">{{
+                      formatDurationMs(node.executionTrace?.durationMs)
+                    }}</span>
+                  </div>
+                </div>
+              </div>
+              <div
+                v-if="workflowShardTraceRows.length > 0"
+                class="workflow-trace-table-wrap"
+              >
+                <div class="workflow-trace-section-title">
+                  {{ $t('business.message.workflowTraceShardBreakdown') }}
+                </div>
+                <div class="workflow-trace-table workflow-trace-table--shards">
+                  <div class="workflow-trace-row workflow-trace-row--head">
+                    <span>{{ $t('business.message.workflowTraceNode') }}</span>
+                    <span>{{ $t('business.message.workflowTraceShard') }}</span>
+                    <span>{{
+                      $t('business.message.workflowTraceShardStatus')
+                    }}</span>
+                    <span>{{
+                      $t('business.message.workflowProgressPercent')
+                    }}</span>
+                    <span>{{
+                      $t('business.message.taskTraceTotalCount')
+                    }}</span>
+                    <span>{{ $t('business.message.taskTraceReadCount') }}</span>
+                    <span>{{
+                      $t('business.message.taskTraceUpdateCount')
+                    }}</span>
+                    <span>{{ $t('business.message.taskTraceDuration') }}</span>
+                    <span>{{
+                      $t('business.message.workflowTraceDetails')
+                    }}</span>
+                  </div>
+                  <div
+                    v-for="row in workflowShardTraceRows"
+                    :key="row.key"
+                    class="workflow-trace-row"
+                  >
+                    <span class="workflow-trace-name">{{
+                      row.nodeName || '-'
+                    }}</span>
+                    <span>{{
+                      `${row.shard.shardIndex}/${row.shard.shardTotal || 1}`
+                    }}</span>
+                    <span>
+                      <span
+                        class="workflow-trace-status"
+                        :class="`workflow-trace-status--${normalizeTraceStatus(
+                          row.shard.status,
+                        )}`"
+                      >
+                        {{ formatProgressStatus(row.shard.status) }}
+                      </span>
+                    </span>
+                    <span class="workflow-trace-number is-primary">{{
+                      formatProgressPercent(row.shard.progress)
+                    }}</span>
+                    <span class="workflow-trace-number is-primary">{{
+                      formatTraceCount(row.shard.executionTrace?.totalCount)
+                    }}</span>
+                    <span class="workflow-trace-number is-info">{{
+                      formatTraceCount(row.shard.executionTrace?.readCount)
+                    }}</span>
+                    <span class="workflow-trace-number is-success">{{
+                      formatTraceCount(row.shard.executionTrace?.updateCount)
+                    }}</span>
+                    <span class="workflow-trace-number is-neutral">{{
+                      formatDurationMs(row.shard.executionTrace?.durationMs)
+                    }}</span>
+                    <span class="workflow-trace-details">
+                      <span class="workflow-trace-details__summary">
+                        {{
+                          formatTraceDetails(row.shard.executionTrace?.details)
+                        }}
+                      </span>
+                      <Button
+                        v-if="
+                          hasTraceDetailRows(row.shard.executionTrace?.details)
+                        "
+                        class="workflow-trace-details__button"
+                        size="small"
+                        type="link"
+                        @click="showWorkflowTraceDetails(row)"
+                      >
+                        {{ $t('business.message.workflowTraceViewAll') }}
+                      </Button>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </template>
+        </Card>
+      </div>
+    </Page>
+    <Modal
+      v-model:open="workflowTraceDetailsModalOpen"
+      :footer="null"
+      :title="workflowTraceDetailsModalTitle"
+      :width="920"
+      destroy-on-close
+    >
+      <div class="workflow-trace-detail-modal">
+        <div class="workflow-trace-detail-modal__meta">
+          {{
+            $t('business.message.workflowTraceDetailCount', [
+              workflowTraceDetailsModalRows.length,
+            ])
+          }}
+        </div>
+        <div class="workflow-trace-detail-modal__scroll">
+          <div class="workflow-trace-detail-modal__table">
+            <div
+              class="workflow-trace-detail-modal__row workflow-trace-detail-modal__row--head"
+            >
+              <span>{{ $t('business.message.taskTraceAction') }}</span>
+              <span>{{ $t('business.message.taskTraceObject') }}</span>
+              <span>{{ $t('business.message.taskTraceCount') }}</span>
+              <span>{{ $t('business.message.taskTraceTimes') }}</span>
+              <span>{{ $t('business.message.taskTraceElapsed') }}</span>
             </div>
-          </section>
-        </template>
-      </Card>
-    </div>
-  </Page>
+            <div
+              v-for="(detail, index) in workflowTraceDetailsModalRows"
+              :key="`${detail.action}:${detail.name}:${index}`"
+              class="workflow-trace-detail-modal__row"
+            >
+              <span>
+                <span
+                  class="workflow-trace-action"
+                  :class="`workflow-trace-action--${normalizeTaskTraceAction(
+                    detail.action,
+                  )}`"
+                >
+                  {{ formatTaskTraceAction(detail.action) }}
+                </span>
+              </span>
+              <span class="workflow-trace-detail-modal__object">
+                {{ detail.name || '-' }}
+              </span>
+              <span>{{ formatTraceCount(detail.count) }}</span>
+              <span>{{ formatTraceCount(detail.times) }}</span>
+              <span>{{ formatDurationMs(detail.elapsedMs) }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  </div>
 </template>
 
 <style scoped>
+.workflow-progress-panel {
+  overflow: hidden;
+  color: #0f172a;
+  background: rgb(255 255 255 / 96%);
+  border: 1px solid rgb(226 232 240 / 90%);
+  border-radius: 8px;
+}
+
+.workflow-progress-panel__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid rgb(226 232 240 / 90%);
+}
+
+.workflow-progress-bar-wrap {
+  padding: 16px 16px 0;
+}
+
+.workflow-progress-bar {
+  height: 10px;
+  overflow: hidden;
+  background: rgb(148 163 184 / 20%);
+  border-radius: 999px;
+}
+
+.workflow-progress-bar__inner {
+  height: 100%;
+  background: linear-gradient(90deg, #2563eb, #059669);
+  border-radius: inherit;
+  transition: width 180ms ease;
+}
+
+.workflow-trace-panel {
+  overflow: hidden;
+  color: #0f172a;
+  background: rgb(255 255 255 / 96%);
+  border: 1px solid rgb(226 232 240 / 90%);
+  border-radius: 8px;
+}
+
+.workflow-trace-panel__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid rgb(226 232 240 / 90%);
+}
+
+.workflow-trace-filter {
+  display: flex;
+  flex: 1 1 440px;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.workflow-trace-filter__count {
+  flex: none;
+  margin-inline-end: 0;
+}
+
+.workflow-trace-filter__search {
+  width: min(260px, 100%);
+}
+
+.workflow-trace-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.workflow-trace-metric {
+  position: relative;
+  min-width: 0;
+  padding: 10px 12px;
+  overflow: hidden;
+  background: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 96%),
+    rgb(248 250 252 / 92%)
+  );
+  border: 1px solid rgb(226 232 240 / 92%);
+  border-radius: 8px;
+}
+
+.workflow-trace-metric::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  content: '';
+  background: rgb(100 116 139 / 72%);
+}
+
+.workflow-trace-metric--primary {
+  color: #1d4ed8;
+  border-color: rgb(147 197 253 / 58%);
+}
+
+.workflow-trace-metric--info {
+  color: #0e7490;
+  border-color: rgb(103 232 249 / 48%);
+}
+
+.workflow-trace-metric--success {
+  color: #047857;
+  border-color: rgb(110 231 183 / 50%);
+}
+
+.workflow-trace-metric--warning {
+  color: #b45309;
+  border-color: rgb(252 211 77 / 54%);
+}
+
+.workflow-trace-metric--danger {
+  color: #be123c;
+  border-color: rgb(253 164 175 / 58%);
+}
+
+.workflow-trace-metric--neutral {
+  color: #334155;
+}
+
+.workflow-trace-metric--primary::before {
+  background: #2563eb;
+}
+
+.workflow-trace-metric--info::before {
+  background: #0891b2;
+}
+
+.workflow-trace-metric--success::before {
+  background: #10b981;
+}
+
+.workflow-trace-metric--warning::before {
+  background: #f59e0b;
+}
+
+.workflow-trace-metric--danger::before {
+  background: #e11d48;
+}
+
+.workflow-trace-metric__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.workflow-trace-metric__value {
+  margin-top: 4px;
+  font-size: 15px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.workflow-trace-table-wrap {
+  padding: 0 16px 16px;
+}
+
+.workflow-trace-section-title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.workflow-trace-empty {
+  padding: 16px;
+  margin: 0 16px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #64748b;
+  text-align: center;
+  background: rgb(248 250 252 / 86%);
+  border: 1px dashed rgb(203 213 225 / 92%);
+  border-radius: 8px;
+}
+
+.workflow-trace-table {
+  min-width: 760px;
+  overflow: hidden;
+  border: 1px solid rgb(226 232 240 / 92%);
+  border-radius: 8px;
+}
+
+.workflow-trace-row {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 1.4fr) repeat(5, minmax(84px, 0.72fr))
+    minmax(92px, 0.78fr);
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  font-size: 12px;
+  border-top: 1px solid rgb(226 232 240 / 72%);
+}
+
+.workflow-trace-row:first-child {
+  border-top: 0;
+}
+
+.workflow-trace-row--head {
+  font-weight: 800;
+  color: #334155;
+  background: rgb(248 250 252 / 92%);
+}
+
+.workflow-trace-table--shards .workflow-trace-row {
+  grid-template-columns:
+    minmax(130px, 1.1fr) minmax(70px, 0.55fr) minmax(72px, 0.6fr)
+    minmax(72px, 0.6fr) repeat(4, minmax(82px, 0.65fr))
+    minmax(220px, 1.7fr);
+}
+
+.workflow-trace-table--shards {
+  min-width: 1020px;
+}
+
+.workflow-trace-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-trace-number {
+  font-weight: 800;
+}
+
+.workflow-trace-number.is-primary {
+  color: #1d4ed8;
+}
+
+.workflow-trace-number.is-info {
+  color: #0e7490;
+}
+
+.workflow-trace-number.is-success {
+  color: #047857;
+}
+
+.workflow-trace-number.is-warning {
+  color: #b45309;
+}
+
+.workflow-trace-number.is-neutral {
+  color: #475569;
+}
+
+.workflow-trace-action,
+.workflow-trace-status {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 22px;
+  padding: 2px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.workflow-trace-action--read,
+.workflow-trace-status--running {
+  color: #0369a1;
+  background: rgb(224 242 254 / 76%);
+  border-color: rgb(125 211 252 / 68%);
+}
+
+.workflow-trace-action--insert,
+.workflow-trace-action--update,
+.workflow-trace-action--upsert,
+.workflow-trace-status--success {
+  color: #047857;
+  background: rgb(209 250 229 / 72%);
+  border-color: rgb(110 231 183 / 68%);
+}
+
+.workflow-trace-action--delete,
+.workflow-trace-action--skip,
+.workflow-trace-status--pending,
+.workflow-trace-status--skipped {
+  color: #b45309;
+  background: rgb(254 243 199 / 72%);
+  border-color: rgb(252 211 77 / 70%);
+}
+
+.workflow-trace-action--error,
+.workflow-trace-status--failed {
+  color: #be123c;
+  background: rgb(255 228 230 / 78%);
+  border-color: rgb(253 164 175 / 72%);
+}
+
+.workflow-trace-action--custom,
+.workflow-trace-status--default {
+  color: #334155;
+  background: rgb(241 245 249 / 82%);
+  border-color: rgb(203 213 225 / 82%);
+}
+
+.workflow-trace-details {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.workflow-trace-details__summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-trace-details__button {
+  flex: none;
+  height: auto;
+  padding: 0;
+  font-size: 12px;
+}
+
+.workflow-trace-detail-modal {
+  max-height: 68vh;
+  overflow-y: auto;
+}
+
+.workflow-trace-detail-modal__meta {
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.workflow-trace-detail-modal__scroll {
+  overflow-x: auto;
+}
+
+.workflow-trace-detail-modal__table {
+  min-width: 720px;
+  overflow: hidden;
+  border: 1px solid rgb(226 232 240 / 92%);
+  border-radius: 8px;
+}
+
+.workflow-trace-detail-modal__row {
+  display: grid;
+  grid-template-columns:
+    minmax(88px, 0.7fr) minmax(280px, 1.8fr) minmax(90px, 0.7fr)
+    minmax(80px, 0.6fr) minmax(96px, 0.7fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  font-size: 12px;
+  border-top: 1px solid rgb(226 232 240 / 72%);
+}
+
+.workflow-trace-detail-modal__row:first-child {
+  border-top: 0;
+}
+
+.workflow-trace-detail-modal__row--head {
+  font-weight: 800;
+  color: #334155;
+  background: rgb(248 250 252 / 92%);
+}
+
+.workflow-trace-detail-modal__object {
+  overflow-wrap: anywhere;
+}
+
+:global(.dark) .workflow-trace-panel {
+  color: #e2e8f0;
+  background: rgb(15 23 42 / 78%);
+  border-color: rgb(51 65 85 / 82%);
+}
+
+:global(.dark) .workflow-progress-panel {
+  color: #e2e8f0;
+  background: rgb(15 23 42 / 78%);
+  border-color: rgb(51 65 85 / 82%);
+}
+
+:global(.dark) .workflow-progress-panel__header {
+  border-color: rgb(51 65 85 / 76%);
+}
+
+:global(.dark) .workflow-trace-panel__header,
+:global(.dark) .workflow-trace-row {
+  border-color: rgb(51 65 85 / 76%);
+}
+
+:global(.dark) .workflow-trace-metric,
+:global(.dark) .workflow-trace-row--head {
+  color: #e2e8f0;
+  background: rgb(30 41 59 / 76%);
+  border-color: rgb(51 65 85 / 78%);
+}
+
+:global(.dark) .workflow-trace-metric__label {
+  color: #94a3b8;
+}
+
+:global(.dark) .workflow-trace-metric--primary {
+  color: #93c5fd;
+  background: rgb(15 23 42 / 72%);
+  border-color: rgb(96 165 250 / 34%);
+}
+
+:global(.dark) .workflow-trace-metric--info {
+  color: #67e8f9;
+  background: rgb(15 23 42 / 72%);
+  border-color: rgb(34 211 238 / 34%);
+}
+
+:global(.dark) .workflow-trace-metric--success {
+  color: #6ee7b7;
+  background: rgb(15 23 42 / 72%);
+  border-color: rgb(52 211 153 / 34%);
+}
+
+:global(.dark) .workflow-trace-metric--warning {
+  color: #fcd34d;
+  background: rgb(15 23 42 / 72%);
+  border-color: rgb(245 158 11 / 34%);
+}
+
+:global(.dark) .workflow-trace-metric--danger {
+  color: #fda4af;
+  background: rgb(15 23 42 / 72%);
+  border-color: rgb(244 63 94 / 34%);
+}
+
+:global(.dark) .workflow-trace-table {
+  border-color: rgb(51 65 85 / 82%);
+}
+
+:global(.dark) .workflow-trace-number.is-primary {
+  color: #93c5fd;
+}
+
+:global(.dark) .workflow-trace-number.is-info {
+  color: #67e8f9;
+}
+
+:global(.dark) .workflow-trace-number.is-success {
+  color: #6ee7b7;
+}
+
+:global(.dark) .workflow-trace-number.is-warning {
+  color: #fcd34d;
+}
+
+:global(.dark) .workflow-trace-number.is-neutral {
+  color: #cbd5e1;
+}
+
+:global(.dark) .workflow-trace-action--read,
+:global(.dark) .workflow-trace-status--running {
+  color: #7dd3fc;
+  background: rgb(12 74 110 / 40%);
+  border-color: rgb(56 189 248 / 38%);
+}
+
+:global(.dark) .workflow-trace-action--insert,
+:global(.dark) .workflow-trace-action--update,
+:global(.dark) .workflow-trace-action--upsert,
+:global(.dark) .workflow-trace-status--success {
+  color: #6ee7b7;
+  background: rgb(6 78 59 / 38%);
+  border-color: rgb(52 211 153 / 38%);
+}
+
+:global(.dark) .workflow-trace-action--delete,
+:global(.dark) .workflow-trace-action--skip,
+:global(.dark) .workflow-trace-status--pending,
+:global(.dark) .workflow-trace-status--skipped {
+  color: #fcd34d;
+  background: rgb(120 53 15 / 38%);
+  border-color: rgb(245 158 11 / 38%);
+}
+
+:global(.dark) .workflow-trace-action--error,
+:global(.dark) .workflow-trace-status--failed {
+  color: #fda4af;
+  background: rgb(136 19 55 / 38%);
+  border-color: rgb(244 63 94 / 38%);
+}
+
+:global(.dark) .workflow-trace-action--custom,
+:global(.dark) .workflow-trace-status--default {
+  color: #cbd5e1;
+  background: rgb(51 65 85 / 64%);
+  border-color: rgb(71 85 105 / 76%);
+}
+
+:global(.dark) .workflow-trace-detail-modal__meta {
+  color: #94a3b8;
+}
+
+:global(.dark) .workflow-trace-detail-modal__table {
+  border-color: rgb(51 65 85 / 82%);
+}
+
+:global(.dark) .workflow-trace-detail-modal__row {
+  border-color: rgb(51 65 85 / 76%);
+}
+
+:global(.dark) .workflow-trace-detail-modal__row--head {
+  color: #e2e8f0;
+  background: rgb(30 41 59 / 76%);
+}
+
 .workflow-topology-card {
   --workflow-text-color: #0f172a;
   --workflow-muted-color: #64748b;
@@ -1038,6 +2455,93 @@ watch(
 
 .workflow-topology-card__count {
   margin-inline-end: 0;
+}
+
+.workflow-topology-controls {
+  display: flex;
+  flex: 1 1 520px;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.workflow-topology-controls--tail {
+  flex-basis: auto;
+  padding: 12px 16px;
+  background: rgb(248 250 252 / 86%);
+  border-top: 1px solid var(--workflow-header-border);
+}
+
+.workflow-topology-search {
+  width: min(280px, 100%);
+}
+
+.workflow-topology-controls :deep(.ant-btn),
+.workflow-trace-filter :deep(.ant-btn) {
+  height: 30px;
+  padding: 0 12px;
+  color: #334155;
+  background: #fff;
+  border-color: #cbd5e1;
+  box-shadow: none;
+}
+
+.workflow-topology-controls :deep(.ant-btn:not(:disabled):hover),
+.workflow-trace-filter :deep(.ant-btn:not(:disabled):hover) {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
+.workflow-topology-controls :deep(.ant-btn:disabled),
+.workflow-trace-filter :deep(.ant-btn:disabled) {
+  color: #94a3b8;
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+.workflow-topology-controls :deep(.ant-input-affix-wrapper),
+.workflow-trace-filter :deep(.ant-input-affix-wrapper) {
+  height: 30px;
+  color: #0f172a;
+  background: #fff;
+  border-color: #cbd5e1;
+  box-shadow: none;
+}
+
+.workflow-topology-controls :deep(.ant-input-affix-wrapper-focused),
+.workflow-topology-controls :deep(.ant-input-affix-wrapper:focus),
+.workflow-topology-controls :deep(.ant-input-affix-wrapper:hover),
+.workflow-trace-filter :deep(.ant-input-affix-wrapper-focused),
+.workflow-trace-filter :deep(.ant-input-affix-wrapper:focus),
+.workflow-trace-filter :deep(.ant-input-affix-wrapper:hover) {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgb(96 165 250 / 14%);
+}
+
+.workflow-topology-controls :deep(.ant-input),
+.workflow-trace-filter :deep(.ant-input) {
+  color: #0f172a;
+  background: transparent;
+}
+
+.workflow-topology-controls :deep(.ant-input::placeholder),
+.workflow-trace-filter :deep(.ant-input::placeholder) {
+  color: #94a3b8;
+}
+
+.workflow-topology-collapsed {
+  padding: 18px;
+  margin: 16px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--workflow-muted-color);
+  text-align: center;
+  background: var(--workflow-canvas-bg);
+  border: 1px dashed var(--workflow-stage-border);
+  border-radius: 8px;
 }
 
 .workflow-flow-scroll {
@@ -1287,6 +2791,38 @@ watch(
   color: var(--workflow-muted-color);
 }
 
+.workflow-node-trace-mini {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 10px;
+  margin-top: 10px;
+  border-top: 1px solid var(--workflow-node-separator);
+}
+
+.workflow-node-trace-mini__item {
+  min-width: 0;
+}
+
+.workflow-node-trace-mini__label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--workflow-muted-color);
+  white-space: nowrap;
+}
+
+.workflow-node-trace-mini__value {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .workflow-node-progress-wrap {
   margin-top: 12px;
 }
@@ -1435,7 +2971,28 @@ watch(
   --workflow-status-pending-ring: rgb(148 163 184 / 18%);
 }
 
+:global(.dark) .workflow-topology-controls--tail,
+:global(html.dark) .workflow-topology-controls--tail {
+  background: rgb(15 23 42 / 72%);
+}
+
 @media (max-width: 768px) {
+  .workflow-trace-filter {
+    justify-content: flex-start;
+  }
+
+  .workflow-trace-filter__search {
+    width: 100%;
+  }
+
+  .workflow-topology-controls {
+    justify-content: flex-start;
+  }
+
+  .workflow-topology-search {
+    width: 100%;
+  }
+
   .workflow-flow {
     grid-auto-columns: minmax(0, 1fr);
     grid-auto-flow: row;
