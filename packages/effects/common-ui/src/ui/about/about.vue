@@ -21,8 +21,8 @@ defineOptions({
 
 withDefaults(defineProps<Props>(), {
   description:
-    'Admin Cron 是面向任务调度、工作流、Collector、用户标签和系统运维的生产级管理后台，统一承载权限、审计、链路追踪和安全调试能力。',
-  name: 'Admin Cron',
+    'Admin 是面向任务调度、工作流、Collector、用户标签和系统运维的生产级管理后台，统一承载权限、审计、链路追踪和安全调试能力。',
+  name: 'Admin',
   title: '关于项目',
 });
 

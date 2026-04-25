@@ -1,6 +1,6 @@
 {
   "route": {
-    "cronAdmin": "Cron任务中心",
+    "workbench": "任务运维",
     "collector": "Collector任务",
     "taskConsole": "任务总控台",
     "taskWorkflowStatus": "工作流状态",

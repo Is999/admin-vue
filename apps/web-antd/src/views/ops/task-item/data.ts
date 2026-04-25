@@ -1,6 +1,6 @@
 import type { VbenFormSchema } from '#/adapter/form';
 import type { VxeTableGridOptions } from '#/adapter/vxe-table';
-import type { TaskApi } from '#/api/cron/task';
+import type { TaskApi } from '#/api/ops/task';
 
 import { h } from 'vue';
 
@@ -10,7 +10,7 @@ import { Button, Tooltip } from 'ant-design-vue';
 import { buildClampTextColumn } from '#/adapter/vxe-table';
 import {
   asActionPermission,
-  CRON_ACTION_PERMISSION_CODES,
+  OPS_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 import { copyTextToClipboard } from '#/utils/security/password';
@@ -479,23 +479,21 @@ export function useColumns<T = any>(
             icon: 'detail',
             iconOnly: true,
             text: $t('business.message.viewDetail'),
-            auth: asActionPermission(
-              CRON_ACTION_PERMISSION_CODES.TASK_INFO_GET,
-            ),
+            auth: asActionPermission(OPS_ACTION_PERMISSION_CODES.TASK_INFO_GET),
           },
           {
             code: 'runNow',
             icon: 'play',
             iconOnly: true,
             text: $t('business.message.taskRunNow'),
-            auth: asActionPermission(CRON_ACTION_PERMISSION_CODES.TASK_RUN),
+            auth: asActionPermission(OPS_ACTION_PERMISSION_CODES.TASK_RUN),
           },
           {
             code: 'delete',
             icon: 'delete',
             iconOnly: true,
             text: $t('business.message.taskDelete'),
-            auth: asActionPermission(CRON_ACTION_PERMISSION_CODES.TASK_DELETE),
+            auth: asActionPermission(OPS_ACTION_PERMISSION_CODES.TASK_DELETE),
             danger: true,
           },
         ],

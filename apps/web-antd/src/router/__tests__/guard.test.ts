@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import type { RouteRecordRaw } from 'vue-router';
 
 import { createMemoryHistory, createRouter } from 'vue-router';
@@ -39,11 +41,11 @@ describe('router access guard redirect resolver', () => {
   it('falls back to profile page when cached redirect points to an inaccessible page', () => {
     const router = createTestRouter();
 
-    // 旧偏好或登录前访问无权限菜单时可能带入任务中心回跳，这里必须降级到个人信息页。
+    // 缓存回跳或登录前访问无权限菜单时可能带入任务中心路径，这里必须降级到个人信息页。
     expect(
       resolveAccessibleRedirectPath(
         router,
-        encodeURIComponent('/cron-admin/task-console'),
+        encodeURIComponent('/ops/task-console'),
       ),
     ).toBe(APP_DEFAULT_HOME_PATH);
   });
@@ -51,18 +53,15 @@ describe('router access guard redirect resolver', () => {
   it('keeps accessible redirect paths after dynamic routes are registered', () => {
     const router = createTestRouter([
       {
-        path: '/cron-admin/task-console',
-        name: 'CronTaskConsole',
+        path: '/ops/task-console',
+        name: 'OpsTaskConsole',
         component: EmptyComponent,
       },
     ]);
 
     // 已注册且有权限的深链仍然保留，避免影响用户从登录页进入目标业务页面。
     expect(
-      resolveAccessibleRedirectPath(
-        router,
-        '/cron-admin/task-console?tab=running',
-      ),
-    ).toBe('/cron-admin/task-console?tab=running');
+      resolveAccessibleRedirectPath(router, '/ops/task-console?tab=running'),
+    ).toBe('/ops/task-console?tab=running');
   });
 });

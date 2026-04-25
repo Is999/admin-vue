@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 // ================= 类型与依赖引入 =================
-import type { TaskApi } from '#/api/cron/task';
+import type { TaskApi } from '#/api/ops/task';
 
 import { computed, onMounted, ref } from 'vue';
 
@@ -31,10 +31,10 @@ import {
   fetchConfigReloadItems,
   fetchConfigReloadStatus,
   runConfigReload,
-} from '#/api/cron/task';
+} from '#/api/ops/task';
 import {
   asActionPermission,
-  CRON_ACTION_PERMISSION_CODES,
+  OPS_ACTION_PERMISSION_CODES,
   hasAnyPermission,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
@@ -131,7 +131,7 @@ const configYamlViewMode = ref<ConfigYamlViewMode>('runtime');
 const canQueryConfigReloadStatus = computed(() =>
   hasAnyPermission(
     accessStore.accessCodes,
-    CRON_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_STATUS,
+    OPS_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_STATUS,
   ),
 );
 
@@ -139,16 +139,16 @@ const canQueryConfigReloadStatus = computed(() =>
 const canQueryConfigItems = computed(() =>
   hasAnyPermission(
     accessStore.accessCodes,
-    CRON_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_ITEMS,
+    OPS_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_ITEMS,
   ),
 );
 
 // canManageConfigReload 判断当前账号是否具备任一热加载相关操作权限。
 const canManageConfigReload = computed(() =>
   hasAnyPermission(accessStore.accessCodes, [
-    CRON_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_ITEMS,
-    CRON_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_RUN,
-    CRON_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_STATUS,
+    OPS_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_ITEMS,
+    OPS_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_RUN,
+    OPS_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_STATUS,
   ]),
 );
 
@@ -717,7 +717,7 @@ onMounted(() => {
             <VbenButton
               v-access="
                 asActionPermission(
-                  CRON_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_STATUS,
+                  OPS_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_STATUS,
                 )
               "
               :disabled="submitting"
@@ -728,7 +728,7 @@ onMounted(() => {
             <VbenButton
               v-access="
                 asActionPermission(
-                  CRON_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_RUN,
+                  OPS_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_RUN,
                 )
               "
               type="primary"

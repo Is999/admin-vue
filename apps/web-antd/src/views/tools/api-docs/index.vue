@@ -8,7 +8,7 @@ import { Alert, Spin } from 'ant-design-vue';
 import { createDocsSession } from '#/api/docs';
 import { $t } from '#/locales';
 
-defineOptions({ name: 'CronApiDocsPage' });
+defineOptions({ name: 'OpsApiDocsPage' });
 
 // docsUrl 指向后端文档站入口；加载前必须先创建文档会话 cookie。
 const docsUrl = '/api/docs#/';
@@ -121,7 +121,7 @@ onBeforeUnmount(clearDocsReadyTimer);
         v-if="loading"
         class="absolute inset-0 z-10 flex items-center justify-center bg-background text-muted-foreground"
       >
-        <Spin :tip="$t('cron.apiDocs.loading')" />
+        <Spin :tip="$t('admin.apiDocs.loading')" />
       </div>
 
       <div
@@ -132,11 +132,11 @@ onBeforeUnmount(clearDocsReadyTimer);
           <Alert
             show-icon
             type="error"
-            :description="$t('cron.apiDocs.loadFailedDesc')"
-            :message="$t('cron.apiDocs.loadFailedTitle')"
+            :description="$t('admin.apiDocs.loadFailedDesc')"
+            :message="$t('admin.apiDocs.loadFailedTitle')"
           />
           <VbenButton type="primary" @click="loadDocs">
-            {{ $t('cron.apiDocs.retry') }}
+            {{ $t('admin.apiDocs.retry') }}
           </VbenButton>
         </div>
       </div>
@@ -147,7 +147,7 @@ onBeforeUnmount(clearDocsReadyTimer);
         class="h-full min-h-[620px] w-full border-0 transition-opacity"
         :class="loading ? 'opacity-0' : 'opacity-100'"
         :src="frameSrc"
-        :title="$t('cron.route.apiDocs')"
+        :title="$t('admin.route.apiDocs')"
         @error="markDocsLoadFailed"
         @load="handleFrameLoad"
       ></iframe>

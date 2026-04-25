@@ -268,7 +268,7 @@ function buildMfaBindingMeta(
         h(
           'div',
           { class: 'mt-2 text-sm leading-6 text-foreground' },
-          `${info.issuer || 'admin-cron'} / ${info.account || options.accountName || $t('business.message.mfaCurrentAccount')}`,
+          `${info.issuer || 'admin'} / ${info.account || options.accountName || $t('business.message.mfaCurrentAccount')}`,
         ),
       ],
     ),

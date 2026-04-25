@@ -244,7 +244,7 @@ function confirmForceDisableMfa() {
             {{ profileName }}
           </DescriptionsItem>
           <DescriptionsItem :label="$t('business.message.mfaIssuer')">
-            {{ profileMfaInfo.issuer || 'admin-cron' }}
+            {{ profileMfaInfo.issuer || 'admin' }}
           </DescriptionsItem>
           <DescriptionsItem :label="$t('business.message.mfaBoundAccount')">
             {{ profileMfaInfo.account || profileName }}
@@ -303,7 +303,7 @@ function confirmForceDisableMfa() {
                   <div class="mfa-qr-header">
                     <div class="mfa-qr-badge">MFA SECURE</div>
                     <div class="mfa-qr-caption">
-                      {{ profileMfaInfo.issuer || 'admin-cron' }}
+                      {{ profileMfaInfo.issuer || 'admin' }}
                     </div>
                   </div>
                   <div class="mfa-qr-board">
@@ -341,7 +341,7 @@ function confirmForceDisableMfa() {
             />
             <Descriptions :column="1" size="small" bordered>
               <DescriptionsItem :label="$t('business.message.mfaIssuer')">
-                {{ profileMfaInfo.issuer || 'admin-cron' }}
+                {{ profileMfaInfo.issuer || 'admin' }}
               </DescriptionsItem>
               <DescriptionsItem :label="$t('business.message.mfaAccount')">
                 {{ profileMfaInfo.account || profileName }}

@@ -133,7 +133,7 @@ function setupAccessGuard(router: Router) {
     }
 
     // 生成动态路由前，先读取当前登录用户资料。
-    // 这里的角色信息仅用于兼容 Vben 路由过滤入参；真正的页面/按钮/API 权限显隐仍以 accessCodes 为主。
+    // 这里的角色信息仅用于 Vben 路由过滤入参；真正的页面/按钮/API 权限显隐仍以 accessCodes 为主。
     let userInfo: AdminUserInfo | null =
       userStore.userInfo as AdminUserInfo | null;
     try {
@@ -150,7 +150,7 @@ function setupAccessGuard(router: Router) {
       throw error;
     }
     // 获取当前登录账号的角色名称、角色ID与权限码。
-    // `roles` 主要用于兼容 Vben 的路由过滤入参与布局展示，不直接承担按钮/API 鉴权职责。
+    // `roles` 主要用于 Vben 的路由过滤入参与布局展示，不直接承担按钮/API 鉴权职责。
     // `roleIds` 主要用于识别超级管理员角色；当前约定角色ID 1 为超级管理员。
     // `accessCodes` 来自后端 `/auth/codes`，实际内容是 admin_permission.uuid 列表，
     // 会与路由 meta.authority、按钮 v-access、表格 action.auth 做字符串匹配。

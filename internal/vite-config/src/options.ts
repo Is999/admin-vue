@@ -6,8 +6,7 @@ const isDevelopment = process.env.NODE_ENV === 'development';
 
 const getDefaultPwaOptions = (name: string): Partial<PwaPluginOptions> => ({
   manifest: {
-    description:
-      'Admin Cron is a production operations console based on Vue 3.',
+    description: 'Admin is a production operations console based on Vue 3.',
     icons: [
       {
         sizes: '192x192',

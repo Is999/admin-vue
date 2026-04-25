@@ -55,12 +55,12 @@ export const SYSTEM_ACTION_PERMISSION_CODES = {
   SYSTEM_CONFIG_UPDATE: '100040',
 } as const satisfies Record<string, PermissionCode>;
 
-// CRON_ROUTE_PERMISSION_CODES 统一维护 cron 模块页面级 uuid 权限码。
-export const CRON_ROUTE_PERMISSION_CODES = {
+// OPS_ROUTE_PERMISSION_CODES 统一维护任务运维模块页面级 uuid 权限码。
+export const OPS_ROUTE_PERMISSION_CODES = {
   API_DOCS: '200029',
-  CRON_ADMIN: '200001',
   COLLECTOR: '200039',
   CONFIG_RELOAD: '200046',
+  HOME: '200001',
   TASK_CONSOLE: '200002',
   TASK_ITEM: '200017',
   TASK_QUEUE: '200013',
@@ -68,8 +68,8 @@ export const CRON_ROUTE_PERMISSION_CODES = {
   USER_TAG: '200024',
 } as const satisfies Record<string, PermissionCode>;
 
-// CRON_ACTION_PERMISSION_CODES 统一维护 cron 模块按钮与接口级 uuid 权限码。
-export const CRON_ACTION_PERMISSION_CODES = {
+// OPS_ACTION_PERMISSION_CODES 统一维护任务运维模块按钮与接口级 uuid 权限码。
+export const OPS_ACTION_PERMISSION_CODES = {
   COLLECTOR_OVERVIEW: '200044',
   COLLECTOR_RETRY: '200043',
   COLLECTOR_RUN: '200041',
@@ -91,13 +91,13 @@ export const CRON_ACTION_PERMISSION_CODES = {
 
 // ROUTE_PERMISSION_CODE_GROUPS 便于按业务模块聚合页面权限。
 export const ROUTE_PERMISSION_CODE_GROUPS = {
-  cron: CRON_ROUTE_PERMISSION_CODES,
+  ops: OPS_ROUTE_PERMISSION_CODES,
   system: SYSTEM_ROUTE_PERMISSION_CODES,
 } as const;
 
 // ACTION_PERMISSION_CODE_GROUPS 便于按业务模块聚合按钮与接口权限。
 export const ACTION_PERMISSION_CODE_GROUPS = {
-  cron: CRON_ACTION_PERMISSION_CODES,
+  ops: OPS_ACTION_PERMISSION_CODES,
   system: SYSTEM_ACTION_PERMISSION_CODES,
 } as const;
 
@@ -109,33 +109,31 @@ export type SystemRoutePermissionCode = ValueOf<
 export type SystemActionPermissionCode = ValueOf<
   typeof SYSTEM_ACTION_PERMISSION_CODES
 >;
-// CronRoutePermissionCode 表示 cron 模块页面级权限码联合类型。
-export type CronRoutePermissionCode = ValueOf<
-  typeof CRON_ROUTE_PERMISSION_CODES
->;
-// CronActionPermissionCode 表示 cron 模块按钮与接口级权限码联合类型。
-export type CronActionPermissionCode = ValueOf<
-  typeof CRON_ACTION_PERMISSION_CODES
+// OpsRoutePermissionCode 表示任务运维模块页面级权限码联合类型。
+export type OpsRoutePermissionCode = ValueOf<typeof OPS_ROUTE_PERMISSION_CODES>;
+// OpsActionPermissionCode 表示任务运维模块按钮与接口级权限码联合类型。
+export type OpsActionPermissionCode = ValueOf<
+  typeof OPS_ACTION_PERMISSION_CODES
 >;
 // RoutePermissionCode 表示所有页面级权限码联合类型。
 export type RoutePermissionCode =
-  | CronRoutePermissionCode
+  | OpsRoutePermissionCode
   | SystemRoutePermissionCode;
 // ActionPermissionCode 表示所有按钮与接口级权限码联合类型。
 export type ActionPermissionCode =
-  | CronActionPermissionCode
+  | OpsActionPermissionCode
   | SystemActionPermissionCode;
 
 // ALL_ROUTE_PERMISSION_CODES 汇总全部页面级权限码，便于做调试、校验和文档输出。
 export const ALL_ROUTE_PERMISSION_CODES = [
   ...Object.values(SYSTEM_ROUTE_PERMISSION_CODES),
-  ...Object.values(CRON_ROUTE_PERMISSION_CODES),
+  ...Object.values(OPS_ROUTE_PERMISSION_CODES),
 ] as const satisfies readonly RoutePermissionCode[];
 
 // ALL_ACTION_PERMISSION_CODES 汇总全部按钮与接口级权限码，便于做调试、校验和文档输出。
 export const ALL_ACTION_PERMISSION_CODES = [
   ...Object.values(SYSTEM_ACTION_PERMISSION_CODES),
-  ...Object.values(CRON_ACTION_PERMISSION_CODES),
+  ...Object.values(OPS_ACTION_PERMISSION_CODES),
 ] as const satisfies readonly ActionPermissionCode[];
 
 // ALL_PERMISSION_CODES 汇总前端当前维护的全部页面与按钮权限码。

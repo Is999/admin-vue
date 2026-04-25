@@ -65,17 +65,14 @@ const LOGIN_MFA_CANCELLED = 'LOGIN_MFA_CANCELLED';
 const LOGIN_MFA_USER_UPDATED_EVENT = 'login-mfa-user-updated';
 // LOGIN_MFA_SKIP_URLS 表示不应再触发登录 MFA 拦截的接口白名单，避免递归请求自身。
 const LOGIN_MFA_SKIP_URLS = new Set([
-  '/admin/checkmfasecure',
-  '/admin/updatemfastatus',
-  '/login/after/info',
+  '/auth/profile',
+  '/profile/check-mfa',
+  '/profile/mfa-status',
 ]);
 // PASSWORD_RESET_PROFILE_URLS 表示会返回 needResetPassword 标记的用户资料接口。
-const PASSWORD_RESET_PROFILE_URLS = new Set([
-  '/admin/mine',
-  '/login/after/info',
-]);
+const PASSWORD_RESET_PROFILE_URLS = new Set(['/auth/profile', '/profile']);
 // ACCESS_SYNC_SKIP_URLS 表示权限同步自身依赖的接口，避免 403 兜底刷新形成递归触发。
-const ACCESS_SYNC_SKIP_URLS = new Set(['/auth/codes', '/login/after/info']);
+const ACCESS_SYNC_SKIP_URLS = new Set(['/auth/codes', '/auth/profile']);
 
 // LoginMfaUserContext 表示登录 MFA 弹窗依赖的最小用户上下文字段集合。
 type LoginMfaUserContext = {
@@ -298,7 +295,7 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
   // refreshUserInfoAfterLoginMfa 在登录 MFA 完成后刷新一次登录后资料，保证前端缓存同步最新状态。
   async function refreshUserInfoAfterLoginMfa() {
     try {
-      const userInfo = await client.get('/login/after/info', {
+      const userInfo = await client.get('/auth/profile', {
         skipLoginMfaHandler: true,
       } as any);
       if (userInfo && typeof userInfo === 'object') {
@@ -338,7 +335,7 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
     }
     if (needBind && !buildMfaUrl) {
       try {
-        const resp: any = await client.post('/admin/refreshMfaSecretKey', {}, {
+        const resp: any = await client.post('/profile/mfa-secret/refresh', {}, {
           skipGlobalErrorMessage: true,
           skipLoginMfaHandler: true,
         } as any);
@@ -383,7 +380,7 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
       okText: $t('business.message.mfaVerifyButton'),
       onSubmit: async ({ buildMfaUrl: currentBuildMfaUrl, secure }) => {
         const loginCheckResp: any = await client.post(
-          '/admin/checkMfaSecure',
+          '/profile/check-mfa',
           {
             mfaSecureKey: needBind
               ? extractMfaSecret(currentBuildMfaUrl) || undefined
@@ -405,7 +402,7 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
           const mfaSecureKey =
             extractMfaSecret(currentBuildMfaUrl) || undefined;
           const enableCheckResp: any = await client.post(
-            '/admin/checkMfaSecure',
+            '/profile/check-mfa',
             {
               mfaSecureKey,
               scenarios: 2,
@@ -421,8 +418,8 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
             throw new Error($t('business.message.mfaEnableCheckFailed'));
           }
 
-          await client.post(
-            '/admin/updateMfaStatus',
+          await client.patch(
+            '/profile/mfa-status',
             {
               mfaSecureKey,
               mfaStatus: 1,

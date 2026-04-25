@@ -130,7 +130,7 @@ export async function checkSecureApi(
   config?: Record<string, any>,
 ) {
   return requestClient.post<AuthApi.CheckSecureResult>(
-    '/admin/checkSecure',
+    '/profile/check-secure',
     data,
     config,
   );
@@ -144,7 +144,7 @@ export async function checkMfaSecureApi(
   config?: Record<string, any>,
 ) {
   return requestClient.post<AuthApi.CheckMfaResult>(
-    '/admin/checkMfaSecure',
+    '/profile/check-mfa',
     data,
     config,
   );

@@ -169,7 +169,7 @@ export function useFormSchema(disabledUUID = false): VbenFormSchema[] {
       label: $t('business.message.secretAesKeyPath'),
       rules: absolutePathRule(),
       componentProps: {
-        placeholder: '/etc/admin-cron/keys/<uuid>/aes_key',
+        placeholder: '/etc/admin/keys/<uuid>/aes_key',
       },
     },
     {
@@ -179,7 +179,7 @@ export function useFormSchema(disabledUUID = false): VbenFormSchema[] {
       label: $t('business.message.secretAesIvPath'),
       rules: absolutePathRule(),
       componentProps: {
-        placeholder: '/etc/admin-cron/keys/<uuid>/aes_iv',
+        placeholder: '/etc/admin/keys/<uuid>/aes_iv',
       },
     },
     {
@@ -189,7 +189,7 @@ export function useFormSchema(disabledUUID = false): VbenFormSchema[] {
       label: $t('business.message.secretServerPublicKeyPath'),
       rules: absolutePathRule(),
       componentProps: {
-        placeholder: '/etc/admin-cron/keys/<uuid>/server_public.pem',
+        placeholder: '/etc/admin/keys/<uuid>/server_public.pem',
       },
       formItemClass: 'col-span-1',
     },
@@ -200,7 +200,7 @@ export function useFormSchema(disabledUUID = false): VbenFormSchema[] {
       label: $t('business.message.secretServerPrivateKeyPath'),
       rules: absolutePathRule(),
       componentProps: {
-        placeholder: '/etc/admin-cron/keys/<uuid>/server_private.pem',
+        placeholder: '/etc/admin/keys/<uuid>/server_private.pem',
       },
       formItemClass: 'col-span-1',
     },
@@ -211,7 +211,7 @@ export function useFormSchema(disabledUUID = false): VbenFormSchema[] {
       label: $t('business.message.secretUserPublicKeyPath'),
       rules: absolutePathRule(),
       componentProps: {
-        placeholder: '/etc/admin-cron/keys/<uuid>/user_public.pem',
+        placeholder: '/etc/admin/keys/<uuid>/user_public.pem',
       },
       formItemClass: 'col-span-2',
     },

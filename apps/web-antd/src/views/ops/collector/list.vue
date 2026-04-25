@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 // ================= 类型与依赖引入 =================
-import type { CollectorApi } from '#/api/cron/collector';
+import type { CollectorApi } from '#/api/ops/collector';
 
 import { computed, onMounted, ref } from 'vue';
 
@@ -25,10 +25,10 @@ import {
   fetchCollectorTasks,
   retryCollectorTasks,
   runCollector,
-} from '#/api/cron/collector';
+} from '#/api/ops/collector';
 import {
   asActionPermission,
-  CRON_ACTION_PERMISSION_CODES,
+  OPS_ACTION_PERMISSION_CODES,
   hasAnyPermission,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
@@ -70,14 +70,14 @@ const resetAttempt = ref(true);
 // canRunCollector 控制“执行一轮”按钮展示。
 const canRunCollector = computed(() =>
   hasAnyPermission(accessStore.accessCodes, [
-    CRON_ACTION_PERMISSION_CODES.COLLECTOR_RUN,
+    OPS_ACTION_PERMISSION_CODES.COLLECTOR_RUN,
   ]),
 );
 
 // canRetryCollector 控制“批量重试”按钮展示。
 const canRetryCollector = computed(() =>
   hasAnyPermission(accessStore.accessCodes, [
-    CRON_ACTION_PERMISSION_CODES.COLLECTOR_RETRY,
+    OPS_ACTION_PERMISSION_CODES.COLLECTOR_RETRY,
   ]),
 );
 
@@ -661,7 +661,7 @@ function formatMilliseconds(ms: number) {
             <VbenButton
               v-if="canRunCollector"
               v-access="
-                asActionPermission(CRON_ACTION_PERMISSION_CODES.COLLECTOR_RUN)
+                asActionPermission(OPS_ACTION_PERMISSION_CODES.COLLECTOR_RUN)
               "
               type="primary"
               :disabled="submitting"
@@ -676,7 +676,7 @@ function formatMilliseconds(ms: number) {
             <VbenButton
               v-if="canRetryCollector"
               v-access="
-                asActionPermission(CRON_ACTION_PERMISSION_CODES.COLLECTOR_RETRY)
+                asActionPermission(OPS_ACTION_PERMISSION_CODES.COLLECTOR_RETRY)
               "
               type="primary"
               :disabled="submitting"

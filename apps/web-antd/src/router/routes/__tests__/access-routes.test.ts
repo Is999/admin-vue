@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { APP_DEFAULT_HOME_PATH } from '#/constants/app';
-import { CRON_ROUTE_PERMISSION_CODES } from '#/constants/permission-codes';
+import { OPS_ROUTE_PERMISSION_CODES } from '#/constants/permission-codes';
 import { overridesPreferences } from '#/preferences';
 
 import { coreRoutes } from '../core';
@@ -65,7 +65,7 @@ function findRouteByName(routes: typeof accessRoutes, name: string) {
   return visit(routes);
 }
 
-describe('admin-cron access routes', () => {
+describe('admin access routes', () => {
   it('keeps production route modules focused and unique', () => {
     const names = collectRouteNames(accessRoutes);
     const uniqueNames = new Set(names);
@@ -73,16 +73,16 @@ describe('admin-cron access routes', () => {
     expect(uniqueNames.size).toBe(names.length);
     expect(names).toEqual(
       expect.arrayContaining([
-        'AdminCronTools',
-        'CronAdmin',
-        'CronApiDocs',
-        'CronConfigReload',
-        'CronCollector',
-        'CronTaskConsole',
-        'CronTaskItem',
-        'CronTaskQueue',
-        'CronTaskWorkflowStatus',
-        'CronUserTag',
+        'AdminTools',
+        'OpsHome',
+        'OpsApiDocs',
+        'OpsConfigReload',
+        'OpsCollector',
+        'OpsTaskConsole',
+        'OpsTaskItem',
+        'OpsTaskQueue',
+        'OpsWorkflowStatus',
+        'OpsUserTag',
         'ProfileManage',
         'ProfileMessage',
         'SystemAdmin',
@@ -109,19 +109,19 @@ describe('admin-cron access routes', () => {
     );
   });
 
-  it('keeps all cron and system entry paths available', () => {
+  it('keeps all admin and system entry paths available', () => {
     const paths = collectRoutePaths(accessRoutes);
 
     expect(paths).toEqual(
       expect.arrayContaining([
-        '/cron-admin',
-        '/cron-admin/config-reload',
-        '/cron-admin/collector',
-        '/cron-admin/task-console',
-        '/cron-admin/task-item',
-        '/cron-admin/task-queue',
-        '/cron-admin/task-workflow-status',
-        '/cron-admin/user-tag',
+        '/ops',
+        '/ops/config-reload',
+        '/ops/collector',
+        '/ops/task-console',
+        '/ops/task-item',
+        '/ops/task-queue',
+        '/ops/task-workflow-status',
+        '/ops/user-tag',
         '/profile-manage',
         '/profile-manage/index',
         '/profile-manage/message',
@@ -142,9 +142,9 @@ describe('admin-cron access routes', () => {
   });
 
   it('keeps project tool children under the tool directory menu', () => {
-    const toolsRoute = findRouteByName(accessRoutes, 'AdminCronTools');
+    const toolsRoute = findRouteByName(accessRoutes, 'AdminTools');
     const childPaths = (toolsRoute?.children || []).map((route) => route.path);
-    const apiDocsRoute = findRouteByName(accessRoutes, 'CronApiDocs');
+    const apiDocsRoute = findRouteByName(accessRoutes, 'OpsApiDocs');
     const securityDebugRoute = findRouteByName(
       accessRoutes,
       'SystemSecurityDebug',
@@ -153,7 +153,7 @@ describe('admin-cron access routes', () => {
     expect(childPaths).toEqual(
       expect.arrayContaining(['/tools/api-docs', '/tools/security-debug']),
     );
-    expect(apiDocsRoute?.alias).toBe('/cron-admin/api-docs');
+    expect(apiDocsRoute?.alias).toBeUndefined();
     expect(securityDebugRoute?.alias).toBe('/system/security-debug');
   });
 
@@ -170,24 +170,24 @@ describe('admin-cron access routes', () => {
     expect(rootRoute?.redirect).toBe(APP_DEFAULT_HOME_PATH);
   });
 
-  it('keeps split cron tools on independent menu permissions', () => {
+  it('keeps split admin tools on independent menu permissions', () => {
     const workflowStatusRoute = findRouteByName(
       accessRoutes,
-      'CronTaskWorkflowStatus',
+      'OpsWorkflowStatus',
     );
-    const configReloadRoute = findRouteByName(accessRoutes, 'CronConfigReload');
+    const configReloadRoute = findRouteByName(accessRoutes, 'OpsConfigReload');
 
     expect(workflowStatusRoute?.meta?.authority).toEqual([
-      CRON_ROUTE_PERMISSION_CODES.TASK_WORKFLOW_STATUS,
+      OPS_ROUTE_PERMISSION_CODES.TASK_WORKFLOW_STATUS,
     ]);
     expect(configReloadRoute?.meta?.authority).toEqual([
-      CRON_ROUTE_PERMISSION_CODES.CONFIG_RELOAD,
+      OPS_ROUTE_PERMISSION_CODES.CONFIG_RELOAD,
     ]);
     expect(workflowStatusRoute?.meta?.authority).not.toContain(
-      CRON_ROUTE_PERMISSION_CODES.TASK_CONSOLE,
+      OPS_ROUTE_PERMISSION_CODES.TASK_CONSOLE,
     );
     expect(configReloadRoute?.meta?.authority).not.toContain(
-      CRON_ROUTE_PERMISSION_CODES.TASK_CONSOLE,
+      OPS_ROUTE_PERMISSION_CODES.TASK_CONSOLE,
     );
   });
 });

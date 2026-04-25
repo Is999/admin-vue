@@ -187,7 +187,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   /**
    * 判断后端是否要求当前登录先完成MFA认证
-   * @param user 登录接口返回的兼容用户信息
+   * @param user 登录接口返回的用户信息
    */
   function needLoginMfa(user?: AuthApi.LoginUserInfo) {
     const mfaCheckRequired = Number(user?.mfaCheck || 0) === 1;
@@ -220,7 +220,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   /**
    * 弹出MFA认证框并调用后端完成登录场景校验
-   * @param user 登录接口返回的兼容用户信息
+   * @param user 登录接口返回的用户信息
    */
   function verifyLoginMfa(user?: AuthApi.LoginUserInfo) {
     const forceMfaEnabled = Boolean(user?.forceMFAEnabled);

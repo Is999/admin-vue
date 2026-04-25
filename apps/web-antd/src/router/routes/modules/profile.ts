@@ -12,7 +12,7 @@ const routes: RouteRecordRaw[] = [
       icon: 'ant-design:idcard-outlined',
       keepAlive: true,
       order: 900,
-      title: $t('cron.route.profileManage'),
+      title: $t('admin.route.profileManage'),
     },
     children: [
       {
@@ -20,7 +20,7 @@ const routes: RouteRecordRaw[] = [
         name: 'SystemProfile',
         meta: {
           icon: 'ant-design:user-outlined',
-          title: $t('cron.route.profile'),
+          title: $t('admin.route.profile'),
         },
         component: () => import('#/views/system/profile/index.vue'),
       },
@@ -29,7 +29,7 @@ const routes: RouteRecordRaw[] = [
         name: 'ProfileMessage',
         meta: {
           icon: 'ant-design:bell-outlined',
-          title: $t('cron.route.message'),
+          title: $t('admin.route.message'),
         },
         component: () => import('#/views/system/message/list.vue'),
       },
@@ -38,7 +38,7 @@ const routes: RouteRecordRaw[] = [
         name: 'SystemMfa',
         meta: {
           icon: 'ant-design:qrcode-outlined',
-          title: $t('cron.route.mfa'),
+          title: $t('admin.route.mfa'),
         },
         component: () => import('#/views/system/mfa/index.vue'),
       },

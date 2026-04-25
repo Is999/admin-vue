@@ -1,6 +1,6 @@
 {
   "route": {
-    "cronAdmin": "Cron Center",
+    "workbench": "Task Operations",
     "collector": "Collector Jobs",
     "taskConsole": "Task Console",
     "taskWorkflowStatus": "Workflow Status",
