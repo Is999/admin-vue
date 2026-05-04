@@ -34,9 +34,11 @@ import { $t } from '#/locales';
 import { resolveRequestErrorMessage } from '#/utils/file/download';
 import { cropAvatarFile, resolveDisplayFileURL } from '#/utils/file/image';
 import {
+  extractMfaManualInfo,
   extractMfaSecret,
-  formatMfaSecret,
   isMfaAgainError,
+  mfaAccountLabel,
+  mfaIssuerLabel,
   requestMfaTwoStep,
   ticketPayload,
 } from '#/utils/security/mfa';
@@ -72,9 +74,17 @@ const profileMfaStatus = computed(() => Number(profile.value.mfaStatus || 0));
 const profileMfaUrl = computed(() =>
   profileMfaStatus.value === 1 ? '' : String(profile.value.buildMFAURL || ''),
 );
+// profileMfaInfo 解析身份验证器中展示的发行方、绑定账号与手动秘钥。
+const profileMfaInfo = computed(() =>
+  extractMfaManualInfo(profileMfaUrl.value),
+);
 // profileMfaSecret 从绑定地址中解析手动添加秘钥。
-const profileMfaSecret = computed(() =>
-  formatMfaSecret(extractMfaSecret(profileMfaUrl.value)),
+const profileMfaSecret = computed(() => profileMfaInfo.value.formattedSecret);
+// profileMfaIssuer 展示身份验证器里的发行方，后端会携带当前 app_id。
+const profileMfaIssuer = computed(() => mfaIssuerLabel(profileMfaInfo.value));
+// profileMfaAccount 展示身份验证器里的绑定账号。
+const profileMfaAccount = computed(() =>
+  mfaAccountLabel(profileMfaInfo.value, String(profile.value.username || '-')),
 );
 // profileHasMfaBindingMaterial 标识当前页面是否存在可展示的 MFA 绑定材料。
 const profileHasMfaBindingMaterial = computed(() =>
@@ -662,9 +672,7 @@ async function submitWithMfa<T>(
               </div>
               <div class="profile-mfa-qr-footer">
                 <div class="profile-mfa-qr-account">
-                  {{
-                    profile.username || $t('business.message.mfaCurrentAccount')
-                  }}
+                  {{ profileMfaAccount }}
                 </div>
                 <div class="profile-mfa-qr-tip">
                   {{ $t('business.message.mfaQrRightManualTip') }}
@@ -674,10 +682,10 @@ async function submitWithMfa<T>(
             <div class="min-w-0 space-y-3">
               <Descriptions :column="1" size="small" bordered>
                 <DescriptionsItem :label="$t('business.message.mfaIssuer')">
-                  admin
+                  {{ profileMfaIssuer }}
                 </DescriptionsItem>
                 <DescriptionsItem :label="$t('business.message.mfaAccount')">
-                  {{ profile.username || '-' }}
+                  {{ profileMfaAccount }}
                 </DescriptionsItem>
                 <DescriptionsItem
                   :label="$t('business.message.mfaManualSecret')"

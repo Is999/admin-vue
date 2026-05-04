@@ -4,6 +4,19 @@ import { Alert, Button, Input, message, QRCode, Space } from 'ant-design-vue';
 
 import { $t } from '#/locales';
 
+import { extractMfaManualInfo, mfaBindingLabel } from './mfa-core';
+
+export type { MFAManualInfo } from './mfa-core';
+export {
+  extractMfaManualInfo,
+  extractMfaSecret,
+  formatMfaSecret,
+  getMfaDefaultIssuer,
+  mfaAccountLabel,
+  mfaBindingLabel,
+  mfaIssuerLabel,
+} from './mfa-core';
+
 // getMfaAuthenticatorApps 返回推荐的 TOTP 身份验证器应用列表，避免语言包加载前固定成原始 key。
 export function getMfaAuthenticatorApps() {
   return [
@@ -55,14 +68,6 @@ export function getMfaMicrosoftScanTip() {
   return $t('business.message.mfaMicrosoftScanTip');
 }
 
-// MFAManualInfo 表示身份验证器手动绑定所需信息。
-export type MFAManualInfo = {
-  account: string; // 身份验证器账号名称
-  formattedSecret: string; // 分组展示后的MFA秘钥
-  issuer: string; // 身份验证器发行方
-  secret: string; // 原始MFA秘钥
-};
-
 // MFAOverlayDialogOptions 定义全屏 MFA 遮罩弹层的通用参数。
 export type MFAOverlayDialogOptions<Result = unknown> = {
   accountName?: string; // 账号兜底展示名称
@@ -93,56 +98,6 @@ export type MFAOverlayDialogResult<Result = unknown> = {
   result: Result; // 提交回调返回结果
   secure: string; // 当前用户输入的 6 位动态验证码
 };
-
-// safeDecode 安全解码 otpauth 标签，避免异常地址影响页面渲染。
-function safeDecode(value = '') {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-// formatMfaSecret 把秘钥格式化为 4 位一组，方便手动录入身份验证器。
-export function formatMfaSecret(secret = '') {
-  return String(secret || '')
-    .replaceAll(/\s+/g, '')
-    .toUpperCase()
-    .replaceAll(/(.{4})(?=.)/g, '$1 ')
-    .trim();
-}
-
-// extractMfaManualInfo 从 otpauth 地址中解析手动绑定所需的发行方、账号与秘钥。
-export function extractMfaManualInfo(buildMfaUrl = ''): MFAManualInfo {
-  const raw = String(buildMfaUrl || '').trim();
-  const info: MFAManualInfo = {
-    account: '',
-    formattedSecret: '',
-    issuer: '',
-    secret: '',
-  };
-  if (!raw) {
-    return info;
-  }
-  try {
-    const url = new URL(raw);
-    const label = safeDecode(url.pathname.replace(/^\/+/, ''));
-    const labelParts = label.split(':');
-    info.issuer = String(url.searchParams.get('issuer') || labelParts[0] || '');
-    info.account = labelParts.length > 1 ? labelParts.slice(1).join(':') : '';
-    info.secret = String(url.searchParams.get('secret') || '').toUpperCase();
-  } catch {
-    const matched = raw.match(/[?&]secret=([^&]+)/i);
-    info.secret = matched?.[1] ? safeDecode(matched[1]).toUpperCase() : '';
-  }
-  info.formattedSecret = formatMfaSecret(info.secret);
-  return info;
-}
-
-// extractMfaSecret 从 otpauth 地址中解析 TOTP 手动绑定秘钥。
-export function extractMfaSecret(buildMfaUrl = '') {
-  return extractMfaManualInfo(buildMfaUrl).secret;
-}
 
 // copyMfaSecret 复制 MFA 原始秘钥，便于手动添加到身份验证器。
 async function copyMfaSecret(secret = '') {
@@ -268,7 +223,10 @@ function buildMfaBindingMeta(
         h(
           'div',
           { class: 'mt-2 text-sm leading-6 text-foreground' },
-          `${info.issuer || 'admin'} / ${info.account || options.accountName || $t('business.message.mfaCurrentAccount')}`,
+          mfaBindingLabel(
+            info,
+            options.accountName || $t('business.message.mfaCurrentAccount'),
+          ),
         ),
       ],
     ),

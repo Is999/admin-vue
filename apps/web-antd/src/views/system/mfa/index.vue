@@ -34,6 +34,8 @@ import {
   getMfaBindSteps,
   getMfaGuideSteps,
   getMfaMicrosoftScanTip,
+  mfaAccountLabel,
+  mfaIssuerLabel,
   ticketPayload,
 } from '#/utils/security/mfa';
 
@@ -61,6 +63,12 @@ const profileMfaInfo = computed(() =>
 );
 // profileName 归一化当前登录账号名称。
 const profileName = computed(() => String(profile.value.username || '-'));
+// profileMfaIssuer 展示身份验证器中的发行方，缺失时不伪造站点名。
+const profileMfaIssuer = computed(() => mfaIssuerLabel(profileMfaInfo.value));
+// profileMfaAccount 展示身份验证器中的绑定账号。
+const profileMfaAccount = computed(() =>
+  mfaAccountLabel(profileMfaInfo.value, profileName.value),
+);
 // profileForceMfaEnabled 标识系统是否开启强制启用 MFA。
 const profileForceMfaEnabled = computed(() =>
   Boolean(profile.value.forceMFAEnabled),
@@ -244,10 +252,10 @@ function confirmForceDisableMfa() {
             {{ profileName }}
           </DescriptionsItem>
           <DescriptionsItem :label="$t('business.message.mfaIssuer')">
-            {{ profileMfaInfo.issuer || 'admin' }}
+            {{ profileMfaIssuer }}
           </DescriptionsItem>
           <DescriptionsItem :label="$t('business.message.mfaBoundAccount')">
-            {{ profileMfaInfo.account || profileName }}
+            {{ profileMfaAccount }}
           </DescriptionsItem>
           <DescriptionsItem :label="$t('business.message.mfaStatus')">
             {{
@@ -303,7 +311,7 @@ function confirmForceDisableMfa() {
                   <div class="mfa-qr-header">
                     <div class="mfa-qr-badge">MFA SECURE</div>
                     <div class="mfa-qr-caption">
-                      {{ profileMfaInfo.issuer || 'admin' }}
+                      {{ profileMfaIssuer }}
                     </div>
                   </div>
                   <div class="mfa-qr-board">
@@ -317,7 +325,7 @@ function confirmForceDisableMfa() {
                   </div>
                   <div class="mfa-qr-footer">
                     <div class="mfa-qr-account">
-                      {{ profileMfaInfo.account || profileName }}
+                      {{ profileMfaAccount }}
                     </div>
                     <div class="mfa-qr-tip">
                       {{ $t('business.message.mfaQrManualSwitchTip') }}
@@ -341,10 +349,10 @@ function confirmForceDisableMfa() {
             />
             <Descriptions :column="1" size="small" bordered>
               <DescriptionsItem :label="$t('business.message.mfaIssuer')">
-                {{ profileMfaInfo.issuer || 'admin' }}
+                {{ profileMfaIssuer }}
               </DescriptionsItem>
               <DescriptionsItem :label="$t('business.message.mfaAccount')">
-                {{ profileMfaInfo.account || profileName }}
+                {{ profileMfaAccount }}
               </DescriptionsItem>
               <DescriptionsItem :label="$t('business.message.mfaManualSecret')">
                 <Space class="w-full" wrap>
