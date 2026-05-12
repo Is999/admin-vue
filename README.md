@@ -1,6 +1,6 @@
-# gozero-admin-vue
+# admin-vue
 
-`gozero-admin-vue` 是基于 Vben 5.x 的后台管理前端工程，保留 Ant Design Vue 应用、共享包、构建脚本和项目内开发约定。本文只说明工程框架与协作边界，不展开功能细节。
+`admin-vue` 是基于 Vben 5.x 的后台管理前端工程，保留 Ant Design Vue 应用、共享包、构建脚本和项目内开发约定。本文只说明工程框架与协作边界，不展开功能细节。
 
 > **AI 开发必读**：使用 AI 修改前端或联动后端接口前，必须先阅读 [admin AI开发规范](../admin/docs/site/角色文档/后端开发/AI开发规范.md)。前端文案必须走中英文国际化，敏感操作复用既有 MFA、签名和加密链路。
 

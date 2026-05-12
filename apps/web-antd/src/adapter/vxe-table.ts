@@ -116,6 +116,7 @@ function resolveOperationIcon(icon: string | undefined, code: string) {
     run: PlayCircleOutlined,
     runNow: PlayCircleOutlined,
     'self-check': CheckCircleOutlined,
+    templateWarmup: ReloadOutlined,
     renew: ReloadOutlined,
     refreshCache: ReloadOutlined,
     search: SearchOutlined,
@@ -473,6 +474,16 @@ setupVbenVxeTable({
         }
         const { hasAccessByCodes } = useAccess();
         const visibleOptions = actionOptions.filter((item: any) => {
+          if (
+            typeof item !== 'string' &&
+            typeof item?.visible === 'function' &&
+            !item.visible(row)
+          ) {
+            return false;
+          }
+          if (typeof item !== 'string' && item?.visible === false) {
+            return false;
+          }
           const auth = item?.auth;
           if (!auth) return true;
           const auths = Array.isArray(auth) ? auth : [auth];

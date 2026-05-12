@@ -326,7 +326,23 @@ function onActionClick(e: OnActionClickParams<SystemCacheApi.Item>) {
       onViewKeyInfo(e.row.key);
       break;
     }
+    case 'warmupCache': {
+      openTemplateWarmupDrawer(e.row);
+      break;
+    }
   }
+}
+
+// openTemplateWarmupDrawer 打开模板缓存实例抽屉，提供缓存预热入口。
+function openTemplateWarmupDrawer(row: SystemCacheApi.Item) {
+  if (!isTemplateCacheKey(row.key)) {
+    message.warning($t('business.message.templateKeyMissingForWarmup'));
+    return;
+  }
+  topCardsExpanded.value = true;
+  const pattern = buildTemplateSearchPattern(row.key);
+  searchKeyword.value = pattern;
+  openTemplateKeysDrawer(pattern, row.key);
 }
 
 // loadServerInfo 刷新 Redis 服务信息。

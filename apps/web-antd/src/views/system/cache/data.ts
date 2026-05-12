@@ -122,6 +122,16 @@ export function useColumns<T = SystemCacheApi.Item>(
               SYSTEM_ACTION_PERMISSION_CODES.CACHE_RENEW,
             ),
           },
+          {
+            code: 'warmupCache',
+            icon: 'templateWarmup',
+            iconOnly: true,
+            text: $t('business.message.warmupByTemplate'),
+            auth: asActionPermission(
+              SYSTEM_ACTION_PERMISSION_CODES.CACHE_WARMUP,
+            ),
+            visible: (row: SystemCacheApi.Item) => row.isTemplate,
+          },
         ],
       },
       field: 'operation',
