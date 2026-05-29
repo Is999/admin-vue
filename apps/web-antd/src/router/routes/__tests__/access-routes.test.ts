@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { APP_DEFAULT_HOME_PATH } from '#/constants/app';
-import { OPS_ROUTE_PERMISSION_CODES } from '#/constants/permission-codes';
+import {
+  OPS_ROUTE_PERMISSION_CODES,
+  SYSTEM_ROUTE_PERMISSION_CODES,
+} from '#/constants/permission-codes';
 import { overridesPreferences } from '#/preferences';
 
 import { coreRoutes } from '../core';
@@ -86,6 +89,7 @@ describe('admin access routes', () => {
         'ProfileManage',
         'ProfileMessage',
         'SystemAdmin',
+        'SystemAPIUser',
         'SystemCache',
         'SystemConfig',
         'SystemLog',
@@ -117,6 +121,7 @@ describe('admin access routes', () => {
         '/ops',
         '/ops/config-reload',
         '/ops/collector',
+        '/ops/runtime-config',
         '/ops/task-console',
         '/ops/task-item',
         '/ops/task-queue',
@@ -128,6 +133,7 @@ describe('admin access routes', () => {
         '/profile-manage/mfa',
         '/system',
         '/system/admin',
+        '/system/api-user',
         '/system/cache',
         '/system/config',
         '/system/log',
@@ -176,12 +182,16 @@ describe('admin access routes', () => {
       'OpsWorkflowStatus',
     );
     const configReloadRoute = findRouteByName(accessRoutes, 'OpsConfigReload');
+    const apiUserRoute = findRouteByName(accessRoutes, 'SystemAPIUser');
 
     expect(workflowStatusRoute?.meta?.authority).toEqual([
       OPS_ROUTE_PERMISSION_CODES.TASK_WORKFLOW_STATUS,
     ]);
     expect(configReloadRoute?.meta?.authority).toEqual([
       OPS_ROUTE_PERMISSION_CODES.CONFIG_RELOAD,
+    ]);
+    expect(apiUserRoute?.meta?.authority).toEqual([
+      SYSTEM_ROUTE_PERMISSION_CODES.API_USER_LIST,
     ]);
     expect(workflowStatusRoute?.meta?.authority).not.toContain(
       OPS_ROUTE_PERMISSION_CODES.TASK_CONSOLE,

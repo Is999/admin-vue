@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 // ================= 类型与依赖引入 =================
 import type { TaskApi } from '#/api/ops/task';
+import type { SystemAPIUserApi } from '#/api/system';
 
 import { computed, onMounted, ref } from 'vue';
 
@@ -33,11 +34,16 @@ import {
   runConfigReload,
 } from '#/api/ops/task';
 import {
+  fetchAPIRuntimeConfigReloadStatus,
+  runAPIRuntimeConfigReload,
+} from '#/api/system';
+import {
   asActionPermission,
   OPS_ACTION_PERMISSION_CODES,
   hasAnyPermission,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
+import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
 import { copyTextToClipboard } from '#/utils/security/password';
 
 import {
@@ -80,6 +86,9 @@ type ConfigYamlLine = {
   // tokens 保存该行按 YAML 语义拆分后的高亮片段。
   tokens: ConfigYamlToken[];
 };
+
+// MFA_SCENARIO_API_RUNTIME_MANAGE 表示 API 运行态管理二次校验场景。
+const MFA_SCENARIO_API_RUNTIME_MANAGE = 14;
 
 // configYamlTokenClassMap 定义 YAML 高亮颜色类，避免使用 v-html 注入高亮片段。
 const configYamlTokenClassMap: Record<ConfigYamlTokenType, string> = {
@@ -126,6 +135,16 @@ const configItemTotal = ref(0);
 const configItemViewMode = ref<ConfigItemViewMode>('yaml');
 // configYamlViewMode 控制 YAML 视图展示完整快照或 runtime.yaml 原结构。
 const configYamlViewMode = ref<ConfigYamlViewMode>('runtime');
+// apiRuntimeSubmitting 避免 API 热加载状态查询或触发重复点击。
+const apiRuntimeSubmitting = ref(false);
+// apiRuntimeStatusText 保存 API 热加载接口原始回执，便于复制排障。
+const apiRuntimeStatusText = ref('');
+// apiRuntimeStatus 保存最近一次 API 热加载状态回执。
+const apiRuntimeStatus = ref<null | SystemAPIUserApi.APIRuntimeReloadResp>(
+  null,
+);
+// showAPIRuntimeRaw 控制 API 热加载原始 JSON 回执是否展开。
+const showAPIRuntimeRaw = ref(false);
 
 // canQueryConfigReloadStatus 判断当前账号是否可以查询热加载状态。
 const canQueryConfigReloadStatus = computed(() =>
@@ -143,9 +162,19 @@ const canQueryConfigItems = computed(() =>
   ),
 );
 
+// canQueryAPIRuntimeConfigReloadStatus 判断当前账号是否可以查询 API 热加载状态。
+const canQueryAPIRuntimeConfigReloadStatus = computed(() =>
+  hasAnyPermission(
+    accessStore.accessCodes,
+    OPS_ACTION_PERMISSION_CODES.API_RUNTIME_CONFIG_RELOAD_STATUS,
+  ),
+);
+
 // canManageConfigReload 判断当前账号是否具备任一热加载相关操作权限。
 const canManageConfigReload = computed(() =>
   hasAnyPermission(accessStore.accessCodes, [
+    OPS_ACTION_PERMISSION_CODES.API_RUNTIME_CONFIG_RELOAD_RUN,
+    OPS_ACTION_PERMISSION_CODES.API_RUNTIME_CONFIG_RELOAD_STATUS,
     OPS_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_ITEMS,
     OPS_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_RUN,
     OPS_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_STATUS,
@@ -401,6 +430,57 @@ const hotReloadDetailRows = computed(() => [
   ...hotReloadTimeRows.value,
 ]);
 
+// apiRuntimeDetailRows 生成 API 服务热加载状态摘要。
+const apiRuntimeDetailRows = computed(() => {
+  const result = apiRuntimeStatus.value;
+  if (!result) {
+    return [];
+  }
+  const status = result.status;
+  const rows = [
+    {
+      label: $t('business.message.connectionStatus'),
+      value: result.connected
+        ? $t('business.message.connected')
+        : $t('business.message.disconnected'),
+      description: result.message || '-',
+    },
+  ];
+  if (!status) {
+    return rows;
+  }
+  return [
+    ...rows,
+    {
+      label: $t('business.message.currentStatus'),
+      value: buildHotReloadStatusLabel(status.lastStatus),
+      description: $t('business.message.hotReloadCurrentStatusDesc'),
+    },
+    {
+      label: $t('business.message.configVersion'),
+      value: status.configVersion || '-',
+      description: $t('business.message.configVersionDesc'),
+    },
+    {
+      label: $t('business.message.latestReloadTime'),
+      value: status.lastReloadAt || '-',
+      description: $t('business.message.latestReloadTimeDesc'),
+    },
+    {
+      label: $t('business.message.restartRequired'),
+      value: status.restartRequired
+        ? $t('business.message.needRestartProcess')
+        : $t('business.message.noRestartRequired'),
+      description: status.restartReason || '-',
+    },
+    {
+      label: $t('business.message.latestResultMessage'),
+      value: status.lastMessage || '-',
+      description: $t('business.message.latestResultMessageDesc'),
+    },
+  ];
+});
+
 // buildOverflowTooltipProps 返回统一的长文本悬浮展示配置。
 function buildOverflowTooltipProps(text: string): OverflowTooltipProps {
   return {
@@ -623,6 +703,46 @@ async function handleRunConfigReload() {
   }
 }
 
+// handleFetchAPIRuntimeConfigReloadStatus 查询 API 服务配置热加载状态。
+async function handleFetchAPIRuntimeConfigReloadStatus() {
+  apiRuntimeSubmitting.value = true;
+  try {
+    const responseData = await fetchAPIRuntimeConfigReloadStatus();
+    apiRuntimeStatus.value = responseData;
+    apiRuntimeStatusText.value = safePrettyJson(responseData);
+    message.success($t('business.message.apiConfigHotReloadStatusQueried'));
+  } catch (error) {
+    apiRuntimeStatus.value = null;
+    apiRuntimeStatusText.value = $t('business.message.queryFailed', [
+      String(error),
+    ]);
+  } finally {
+    apiRuntimeSubmitting.value = false;
+  }
+}
+
+// handleRunAPIRuntimeConfigReload 手动触发 API 服务配置热加载。
+async function handleRunAPIRuntimeConfigReload() {
+  apiRuntimeSubmitting.value = true;
+  try {
+    const responseData = await submitWithMfaRetry(
+      MFA_SCENARIO_API_RUNTIME_MANAGE,
+      (ticket) => runAPIRuntimeConfigReload(ticketPayload(ticket)),
+      $t('business.message.triggerApiHotReloadMfaTitle'),
+    );
+    apiRuntimeStatus.value = responseData;
+    apiRuntimeStatusText.value = safePrettyJson(responseData);
+    message.success($t('business.message.apiConfigHotReloadExecuted'));
+  } catch (error) {
+    apiRuntimeStatus.value = null;
+    apiRuntimeStatusText.value = $t('business.message.runFailed', [
+      String(error),
+    ]);
+  } finally {
+    apiRuntimeSubmitting.value = false;
+  }
+}
+
 // handleFetchConfigItems 查询当前运行态配置项；后端只返回脱敏后的展示值。
 async function handleFetchConfigItems(resetPage = true, showToast = true) {
   if (!canQueryConfigItems.value) {
@@ -689,6 +809,9 @@ async function handleCopyConfigYaml() {
 onMounted(() => {
   if (canQueryConfigReloadStatus.value) {
     void handleFetchConfigReloadStatus();
+  }
+  if (canQueryAPIRuntimeConfigReloadStatus.value) {
+    void handleFetchAPIRuntimeConfigReloadStatus();
   }
 });
 </script>
@@ -792,6 +915,98 @@ onMounted(() => {
           v-if="showConfigReloadRaw && configReloadStatusText"
           class="mt-4 overflow-auto rounded-2xl border border-amber-500/20 bg-slate-950 px-4 py-4 text-sm text-amber-100 shadow-inner"
           v-text="configReloadStatusText"
+        ></pre>
+      </Card>
+
+      <Card
+        class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+        :title="$t('business.message.apiConfigHotReload')"
+      >
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div
+            class="min-w-0 flex-1 text-sm leading-6 text-slate-500 dark:text-slate-300"
+          >
+            {{ $t('business.message.apiConfigHotReloadGuide') }}
+          </div>
+          <Space class="shrink-0" :size="8" wrap>
+            <VbenButton
+              v-access="
+                asActionPermission(
+                  OPS_ACTION_PERMISSION_CODES.API_RUNTIME_CONFIG_RELOAD_STATUS,
+                )
+              "
+              :disabled="apiRuntimeSubmitting"
+              @click="handleFetchAPIRuntimeConfigReloadStatus"
+            >
+              {{ $t('business.message.queryApiHotReloadStatus') }}
+            </VbenButton>
+            <VbenButton
+              v-access="
+                asActionPermission(
+                  OPS_ACTION_PERMISSION_CODES.API_RUNTIME_CONFIG_RELOAD_RUN,
+                )
+              "
+              type="primary"
+              :disabled="apiRuntimeSubmitting"
+              @click="handleRunAPIRuntimeConfigReload"
+            >
+              {{ $t('business.message.triggerApiHotReload') }}
+            </VbenButton>
+            <VbenButton
+              v-if="apiRuntimeStatusText"
+              :disabled="apiRuntimeSubmitting"
+              @click="showAPIRuntimeRaw = !showAPIRuntimeRaw"
+            >
+              {{
+                showAPIRuntimeRaw
+                  ? $t('business.message.closeRawReceipt')
+                  : $t('business.message.viewRawReceipt')
+              }}
+            </VbenButton>
+          </Space>
+        </div>
+        <div
+          v-if="apiRuntimeDetailRows.length > 0"
+          class="mt-4 overflow-hidden border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950/30"
+        >
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
+            <div
+              v-for="item in apiRuntimeDetailRows"
+              :key="item.label"
+              class="min-w-0 border-b border-slate-200 px-4 py-3 last:border-b-0 md:border-r md:[&:nth-child(2n)]:border-r-0 xl:[&:nth-child(2n)]:border-r xl:[&:nth-child(4n)]:border-r-0 dark:border-slate-700"
+            >
+              <div class="truncate text-xs font-medium text-slate-400">
+                {{ item.label }}
+              </div>
+              <Tooltip
+                v-if="String(item.value || '').trim()"
+                v-bind="buildOverflowTooltipProps(String(item.value))"
+              >
+                <div
+                  class="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-slate-100"
+                  :title="String(item.value)"
+                >
+                  {{ item.value }}
+                </div>
+              </Tooltip>
+              <div
+                v-else
+                class="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-slate-100"
+              >
+                {{ item.value }}
+              </div>
+              <Tooltip v-bind="buildOverflowTooltipProps(item.description)">
+                <div class="mt-2 truncate text-xs text-slate-500">
+                  {{ item.description }}
+                </div>
+              </Tooltip>
+            </div>
+          </div>
+        </div>
+        <pre
+          v-if="showAPIRuntimeRaw && apiRuntimeStatusText"
+          class="mt-4 overflow-auto rounded-2xl border border-amber-500/20 bg-slate-950 px-4 py-4 text-sm text-amber-100 shadow-inner"
+          v-text="apiRuntimeStatusText"
         ></pre>
       </Card>
 

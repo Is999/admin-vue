@@ -62,6 +62,18 @@ const routes: RouteRecordRaw[] = [
         component: () => import('#/views/ops/config-reload/index.vue'),
       },
       {
+        path: '/ops/runtime-config',
+        name: 'OpsRuntimeConfig',
+        meta: {
+          authority: asRouteAuthority(
+            OPS_ROUTE_PERMISSION_CODES.RUNTIME_CONFIG,
+          ),
+          icon: 'ant-design:setting-outlined',
+          title: $t('admin.route.runtimeConfig'),
+        },
+        component: () => import('#/views/ops/runtime-config/index.vue'),
+      },
+      {
         path: '/ops/task-queue',
         name: 'OpsTaskQueue',
         meta: {
