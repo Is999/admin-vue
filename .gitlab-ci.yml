@@ -1,0 +1,4 @@
+include:
+  - project: devops/gitlab-cicd-template
+    ref: master
+    file: /frontend/ark-admin-cron-vue/.gitlab-ci.yml

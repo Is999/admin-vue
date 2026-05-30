@@ -1,0 +1,62 @@
+{
+  "name": "@vben/web-antd",
+  "version": "5.7.0",
+  "homepage": "https://vben.pro",
+  "bugs": "https://github.com/vbenjs/vue-vben-admin/issues",
+  "repository": {
+    "type": "git",
+    "url": "admin-cron-vue",
+    "directory": "apps/web-antd"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "admin-cron"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "pnpm vite build --mode production && node ../../scripts/archive-root-dist.mjs",
+    "build:1": "pnpm vite build --mode tenant_1 && node ../../scripts/archive-root-dist.mjs",
+    "build:101": "pnpm vite build --mode tenant_101 && node ../../scripts/archive-root-dist.mjs",
+    "build:102": "pnpm vite build --mode tenant_102 && node ../../scripts/archive-root-dist.mjs",
+    "build:103": "pnpm vite build --mode tenant_103 && node ../../scripts/archive-root-dist.mjs",
+    "build:104": "pnpm vite build --mode tenant_104 && node ../../scripts/archive-root-dist.mjs",
+    "build:105": "pnpm vite build --mode tenant_105 && node ../../scripts/archive-root-dist.mjs",
+    "build:1001": "pnpm vite build --mode tenant_1001 && node ../../scripts/archive-root-dist.mjs",
+    "build:2001": "pnpm vite build --mode tenant_2001 && node ../../scripts/archive-root-dist.mjs",
+    "build:3001": "pnpm vite build --mode tenant_3001 && node ../../scripts/archive-root-dist.mjs",
+    "build:4001": "pnpm vite build --mode tenant_4001 && node ../../scripts/archive-root-dist.mjs",
+    "build:5001": "pnpm vite build --mode tenant_5001 && node ../../scripts/archive-root-dist.mjs",
+    "build:203": "pnpm vite build --mode tenant_203 && node ../../scripts/archive-root-dist.mjs",
+    "build:215": "pnpm vite build --mode tenant_215 && node ../../scripts/archive-root-dist.mjs",
+    "build:analyze": "pnpm vite build --mode analyze",
+    "dev": "pnpm vite --mode development",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit --skipLibCheck"
+  },
+  "imports": {
+    "#/*": "./src/*"
+  },
+  "dependencies": {
+    "@ant-design/icons-vue": "catalog:",
+    "@vben/access": "workspace:*",
+    "@vben/common-ui": "workspace:*",
+    "@vben/constants": "workspace:*",
+    "@vben/hooks": "workspace:*",
+    "@vben/icons": "workspace:*",
+    "@vben/layouts": "workspace:*",
+    "@vben/locales": "workspace:*",
+    "@vben/plugins": "workspace:*",
+    "@vben/preferences": "workspace:*",
+    "@vben/request": "workspace:*",
+    "@vben/stores": "workspace:*",
+    "@vben/styles": "workspace:*",
+    "@vben/types": "workspace:*",
+    "@vben/utils": "workspace:*",
+    "@vueuse/core": "catalog:",
+    "ant-design-vue": "catalog:",
+    "dayjs": "catalog:",
+    "pinia": "catalog:",
+    "vue": "catalog:",
+    "vue-router": "catalog:"
+  }
+}
