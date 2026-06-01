@@ -5,6 +5,23 @@ import { $t } from '@vben/locales';
 
 import { Modal } from 'ant-design-vue';
 
+type CropExportFormat = 'image/jpeg' | 'image/png';
+
+interface CropExportOptions {
+  format: CropExportFormat; // 输出图片格式，头像优先使用 JPEG 避免 PNG 重编码膨胀。
+  quality: number; // 有损格式压缩质量，范围 0-1。
+  targetHeight: number; // 输出目标高度，限制头像像素尺寸。
+  targetWidth: number; // 输出目标宽度，限制头像像素尺寸。
+}
+
+// avatarCropExportOptions 约束头像裁剪输出，避免大图按 PNG 原尺寸导出后超过上传限制。
+const avatarCropExportOptions: CropExportOptions = {
+  format: 'image/jpeg',
+  quality: 0.86,
+  targetHeight: 512,
+  targetWidth: 512,
+};
+
 // resolveDisplayFileURL 把相对文件地址转换为浏览器可直接访问的显示地址。
 export function resolveDisplayFileURL(rawUrl?: string, baseURL?: string) {
   const normalizedUrl = String(rawUrl || '').trim();
@@ -76,7 +93,11 @@ export async function cropAvatarFile(
   file: File,
   aspectRatio = '1:1',
 ): Promise<File | null> {
-  const croppedResult = await openCropperDialog(file, aspectRatio);
+  const croppedResult = await openCropperDialog(
+    file,
+    aspectRatio,
+    avatarCropExportOptions,
+  );
   if (!croppedResult) {
     return null;
   }
@@ -85,7 +106,11 @@ export async function cropAvatarFile(
 
 // openCropperDialog 打开图片裁剪弹窗，返回裁剪后的图片结果。
 // 兼容 VCropper 在不同版本下返回 data URL、Blob 或 File。
-function openCropperDialog(file: File, aspectRatio: string) {
+function openCropperDialog(
+  file: File,
+  aspectRatio: string,
+  exportOptions?: CropExportOptions,
+) {
   return new Promise<Blob | File | string>((resolve, reject) => {
     const container = document.createElement('div');
     document.body.append(container);
@@ -142,7 +167,13 @@ function openCropperDialog(file: File, aspectRatio: string) {
                   return;
                 }
                 try {
-                  const cropResult = await cropper.getCropImage();
+                  const cropResult = await cropper.getCropImage(
+                    exportOptions?.format,
+                    exportOptions?.quality,
+                    'blob',
+                    exportOptions?.targetWidth,
+                    exportOptions?.targetHeight,
+                  );
                   resolve(cropResult || '');
                 } catch {
                   reject(new Error($t('ui.crop.errorTip')));
