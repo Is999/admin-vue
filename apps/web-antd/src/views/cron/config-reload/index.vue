@@ -695,7 +695,7 @@ onMounted(() => {
 
 <template>
   <Page :title="$t('business.message.configHotReload')">
-    <div class="space-y-5">
+    <div class="space-y-8">
       <Alert
         v-if="!canManageConfigReload"
         :message="$t('business.message.noConfigHotReloadPermission')"
@@ -801,10 +801,10 @@ onMounted(() => {
         :title="$t('business.message.configRuntimeItems')"
       >
         <div
-          class="config-query-panel border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-700 dark:bg-slate-950/30"
+          class="config-query-panel flex flex-col gap-4 border border-slate-200 bg-slate-50/70 p-5 dark:border-slate-700 dark:bg-slate-950/30"
         >
           <div
-            class="grid gap-3 xl:grid-cols-[minmax(360px,1fr)_auto] xl:items-center"
+            class="grid gap-4 2xl:grid-cols-[minmax(420px,1fr)_auto] 2xl:items-center"
           >
             <Input
               v-model:value="configItemKeyword"
@@ -816,12 +816,13 @@ onMounted(() => {
               @press-enter="() => handleFetchConfigItems(true)"
             />
             <div
-              class="flex min-w-0 flex-wrap items-center gap-3 xl:justify-end"
+              class="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center 2xl:justify-end"
             >
               <Switch
                 v-model:checked="configItemSensitiveOnly"
                 class="config-query-switch"
                 :checked-children="$t('business.message.sensitiveOnly')"
+                :disabled="configItemsLoading"
                 :un-checked-children="$t('business.message.all')"
                 @change="() => handleFetchConfigItems(true, false)"
               />
@@ -843,7 +844,7 @@ onMounted(() => {
 
           <Alert
             v-if="!configItemsLoaded"
-            class="config-query-alert mt-3"
+            class="config-query-alert"
             :message="$t('business.message.configRuntimeItemsGuide')"
             show-icon
             type="info"
@@ -1073,22 +1074,31 @@ onMounted(() => {
   border-radius: 8px;
 }
 
+.config-query-alert {
+  border-radius: 8px;
+}
+
 .config-query-button {
   min-width: 136px;
-  height: 40px;
+  height: 44px;
+}
+
+:deep(.config-query-input.ant-input),
+:deep(.config-query-input.ant-input-affix-wrapper) {
+  min-height: 44px;
 }
 
 :deep(.config-query-switch.ant-switch) {
-  min-width: 108px;
-  height: 40px;
-  line-height: 40px;
+  min-width: 116px;
+  height: 44px;
+  line-height: 44px;
 }
 
 :deep(.config-query-switch.ant-switch .ant-switch-handle) {
   inset-inline-start: 4px;
   top: 4px;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
 }
 
 :deep(.config-query-switch.ant-switch .ant-switch-handle::before) {
@@ -1096,18 +1106,18 @@ onMounted(() => {
 }
 
 :deep(.config-query-switch.ant-switch.ant-switch-checked .ant-switch-handle) {
-  inset-inline-start: calc(100% - 36px);
+  inset-inline-start: calc(100% - 40px);
 }
 
 :deep(.config-query-switch.ant-switch .ant-switch-inner) {
   display: grid;
   place-items: center;
   height: 100%;
-  padding-inline: 42px 12px;
+  padding-inline: 46px 14px;
 }
 
 :deep(.config-query-switch.ant-switch.ant-switch-checked .ant-switch-inner) {
-  padding-inline: 12px 42px;
+  padding-inline: 14px 46px;
 }
 
 :deep(.config-query-switch.ant-switch .ant-switch-inner-checked),

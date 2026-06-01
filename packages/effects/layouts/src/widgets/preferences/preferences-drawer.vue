@@ -548,7 +548,6 @@ function handleCustomPreferencesUpdate(updates: CustomPreferencesRecord) {
           {{ $t('preferences.copyPreferences') }}
         </VbenButton>
         <VbenButton
-          :disabled="!mergedDiffPreference"
           class="mr-4 w-full"
           size="sm"
           variant="ghost"

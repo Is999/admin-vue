@@ -144,6 +144,27 @@ export const ALL_PERMISSION_CODES = [
   ...ALL_ACTION_PERMISSION_CODES,
 ] as const satisfies readonly PermissionCode[];
 
+// DERIVED_ACCESS_CODE_MAP 定义动作权限对应的菜单入口权限，避免只授予子权限时前端入口被过滤。
+export const DERIVED_ACCESS_CODE_MAP: Partial<
+  Record<PermissionCode, readonly PermissionCode[]>
+> = {
+  [CRON_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_ITEMS]: [
+    CRON_ROUTE_PERMISSION_CODES.CONFIG_RELOAD,
+    CRON_ROUTE_PERMISSION_CODES.CRON_ADMIN,
+  ],
+  [CRON_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_RUN]: [
+    CRON_ROUTE_PERMISSION_CODES.CONFIG_RELOAD,
+    CRON_ROUTE_PERMISSION_CODES.CRON_ADMIN,
+  ],
+  [CRON_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_STATUS]: [
+    CRON_ROUTE_PERMISSION_CODES.CONFIG_RELOAD,
+    CRON_ROUTE_PERMISSION_CODES.CRON_ADMIN,
+  ],
+  [CRON_ROUTE_PERMISSION_CODES.CONFIG_RELOAD]: [
+    CRON_ROUTE_PERMISSION_CODES.CRON_ADMIN,
+  ],
+};
+
 // SUPER_ADMIN_ROLE_ID 表示后端约定的超级管理员角色 ID。
 export const SUPER_ADMIN_ROLE_ID = 1;
 
@@ -188,9 +209,28 @@ export function hasSuperAdminRoleId(roleIds: readonly number[] | undefined) {
   );
 }
 
+// appendDerivedAccessCodes 补齐仅用于前端入口展示的父级权限码，不改变后端接口鉴权。
+function appendDerivedAccessCodes(accessCodes: readonly string[]) {
+  const result = new Set<string>();
+  const visit = (code: string) => {
+    if (!code || result.has(code)) {
+      return;
+    }
+    result.add(code);
+    for (const derivedCode of DERIVED_ACCESS_CODE_MAP[code] || []) {
+      visit(derivedCode);
+    }
+  };
+  for (const code of accessCodes) {
+    visit(code);
+  }
+  return [...result];
+}
+
 // buildEffectiveAccessCodes 统一构造前端实际使用的权限码集合。
 // 优先使用后端显式返回的 isSuperAdmin 标记；未命中时再按 roleIds 是否包含角色ID 1 判断。
 // 超级管理员即便后端 `/auth/codes` 返回空数组，前端也补齐全部权限码，保持与后端接口放行一致。
+// 普通管理员会补齐动作权限的父级菜单权限，保证子权限可用时菜单入口也可见。
 export function buildEffectiveAccessCodes(
   ownerInfo: PermissionOwnerInfo | undefined,
   accessCodes: readonly string[] | undefined,
@@ -201,5 +241,5 @@ export function buildEffectiveAccessCodes(
   if (isSuperAdmin) {
     return [...new Set([...ALL_PERMISSION_CODES, ...currentAccessCodes])];
   }
-  return [...new Set(currentAccessCodes)];
+  return appendDerivedAccessCodes(currentAccessCodes);
 }
