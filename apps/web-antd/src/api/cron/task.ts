@@ -524,6 +524,90 @@ export namespace TaskApi {
     /** 限频压制的重复失败日志次数 */
     suppressedFailureCount: number;
   }
+
+  /** 查询运行态配置项请求 */
+  export interface TaskConfigItemQueryReq {
+    /** 配置路径或已脱敏展示值关键字 */
+    keyword?: string;
+    /** 是否只查看敏感配置项 */
+    sensitiveOnly?: boolean;
+    /** 页码 */
+    page?: number;
+    /** 每页条数 */
+    pageSize?: number;
+  }
+
+  /** 已脱敏运行态配置项 */
+  export interface TaskConfigItem {
+    /** 扁平化配置路径 */
+    path: string;
+    /** 展示值，敏感项已脱敏 */
+    value: string;
+    /** 值类型 */
+    valueType: string;
+    /** 是否按敏感配置处理 */
+    sensitive: boolean;
+  }
+
+  /** 顶层配置分组统计 */
+  export interface TaskConfigSectionStat {
+    /** 顶层配置名称 */
+    name: string;
+    /** 配置项数量 */
+    total: number;
+    /** 敏感配置项数量 */
+    sensitiveTotal: number;
+  }
+
+  /** 运行态配置快照来源 */
+  export interface TaskConfigSourceMeta {
+    /** 快照来源 */
+    source: string;
+    /** 当前监听的配置文件 */
+    configFile: string;
+    /** 当前声明的运行期外部配置文件 */
+    runtimeFile: string;
+    /** 当前生效配置版本 */
+    configVersion: string;
+    /** 最近一次热加载状态 */
+    lastStatus: string;
+    /** 最近一次触发来源 */
+    lastTriggerSource: string;
+    /** 最近一次重载时间 */
+    lastReloadAt?: string;
+    /** 最近一次成功加载时间 */
+    lastSuccessAt?: string;
+    /** 是否仍需重启 */
+    restartRequired: boolean;
+  }
+
+  /** 运行态配置项查询响应 */
+  export interface TaskConfigItemQueryResp {
+    /** 当前关键字 */
+    keyword?: string;
+    /** 是否只查看敏感配置项 */
+    sensitiveOnly: boolean;
+    /** 当前页码 */
+    page: number;
+    /** 当前页大小 */
+    pageSize: number;
+    /** 命中总数 */
+    total: number;
+    /** 当前快照配置项总数 */
+    totalItems: number;
+    /** 当前快照敏感配置项总数 */
+    sensitiveTotal: number;
+    /** 顶层配置分组统计 */
+    sections: TaskConfigSectionStat[];
+    /** 当前快照来源 */
+    source: TaskConfigSourceMeta;
+    /** 完整脱敏 YAML 快照 */
+    snapshotYaml: string;
+    /** 按 runtime.yaml 顶层结构生成的脱敏 YAML 视图 */
+    runtimeYaml: string;
+    /** 当前页配置项 */
+    items: TaskConfigItem[];
+  }
 }
 
 // TASK_PREFIX 统一管理任务系统接口前缀。
@@ -603,6 +687,18 @@ export async function fetchTaskRegistryWorkflows() {
 export async function fetchConfigReloadStatus() {
   return requestClient.get<TaskApi.TaskConfigReloadStatusResp>(
     `${TASK_PREFIX}/config-reload`,
+  );
+}
+
+// fetchConfigReloadItems 查询当前运行态配置项，后端已完成敏感值脱敏。
+export async function fetchConfigReloadItems(
+  params: TaskApi.TaskConfigItemQueryReq,
+) {
+  return requestClient.get<TaskApi.TaskConfigItemQueryResp>(
+    `${TASK_PREFIX}/config-reload/items`,
+    {
+      params,
+    },
   );
 }
 
