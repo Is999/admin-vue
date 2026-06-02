@@ -23,7 +23,7 @@ import {
   asActionPermission,
   SYSTEM_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
-import { $t, $te } from '#/locales';
+import { $t } from '#/locales';
 import {
   buildConfigCacheTargets,
   openSystemCachePage,
@@ -37,6 +37,7 @@ import { createResumableUpload } from '#/utils/transfer/resumable-upload';
 
 import { showStructuredValueModal } from '../cache/helper';
 import TreeExpandToolbar from '../components/tree-expand-toolbar.vue';
+import { resolveBackendMessage } from '../shared';
 import { useColumns, useGridFormSchema } from './data';
 import Form from './modules/form.vue';
 
@@ -57,18 +58,6 @@ const configImportInputRef = ref<HTMLInputElement | null>(null);
 const configExporting = ref(false);
 // configImporting 控制导入按钮状态。
 const configImporting = ref(false);
-
-// resolveBackendMessage 优先翻译后端返回的多语言 key，否则展示原始消息或本地兜底文案。
-function resolveBackendMessage(
-  message: string | undefined,
-  fallbackKey: string,
-) {
-  const text = String(message || '').trim();
-  if (!text) {
-    return $t(fallbackKey);
-  }
-  return $te(text) ? $t(text) : text;
-}
 
 // countConfigNodes 统计配置树节点数量，用于表格总数展示。
 function countConfigNodes(items: SystemConfigTreeItem[]): number {

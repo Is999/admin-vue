@@ -39,6 +39,7 @@ import type {
   IconPickerProps,
 } from '@vben/common-ui';
 import type { Sortable } from '@vben/hooks';
+import type { TipTapProps } from '@vben/plugins/tiptap';
 import type { Recordable } from '@vben/types';
 
 import {
@@ -118,6 +119,9 @@ const Space = defineAsyncComponent(() => import('ant-design-vue/es/space'));
 const Switch = defineAsyncComponent(() => import('ant-design-vue/es/switch'));
 const Textarea = defineAsyncComponent(() =>
   import('ant-design-vue/es/input').then((res) => res.Textarea),
+);
+const Tiptap = defineAsyncComponent(() =>
+  import('@vben/plugins/tiptap').then((res) => res.VbenTiptap),
 );
 const TimePicker = defineAsyncComponent(
   () => import('ant-design-vue/es/time-picker'),
@@ -627,6 +631,7 @@ export type ComponentType =
   | 'Switch'
   | 'Textarea'
   | 'TimePicker'
+  | 'Tiptap'
   | 'TreeSelect'
   | 'Upload'
   | BaseFormComponentType;
@@ -659,6 +664,7 @@ export interface ComponentPropsMap {
   Space: SpaceProps;
   Switch: SwitchProps;
   Textarea: TextAreaProps;
+  Tiptap: TipTapProps;
   TimePicker: TimePickerProps;
   TreeSelect: TreeSelectProps;
   Upload: AdapterUploadProps;
@@ -725,6 +731,7 @@ async function initComponentAdapter() {
     Space,
     Switch,
     Textarea: withDefaultPlaceholder(Textarea, 'input'),
+    Tiptap,
     TimePicker,
     TreeSelect: withDefaultPlaceholder(TreeSelect, 'select'),
     Upload: withPreviewUpload(),

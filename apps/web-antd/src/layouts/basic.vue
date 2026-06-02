@@ -29,6 +29,10 @@ import { $t } from '#/locales';
 import { useAuthStore } from '#/store';
 import { refreshAccessState } from '#/utils/access-sync';
 import LoginForm from '#/views/_core/authentication/login.vue';
+import {
+  messageContentText,
+  sanitizeMessageContentHtml,
+} from '#/views/system/message/content';
 
 import AppIdBadge from './components/app-id-badge.vue';
 import AppLockScreen from './components/app-lock-screen.vue';
@@ -160,7 +164,8 @@ async function refreshNotifications() {
       date: item.createdAt || '',
       isRead: item.isRead,
       link: item.link || undefined,
-      message: item.content || '',
+      message: messageContentText(item.content) || '',
+      messageHtml: sanitizeMessageContentHtml(item.content),
       title: item.title || '',
     }));
   } catch {

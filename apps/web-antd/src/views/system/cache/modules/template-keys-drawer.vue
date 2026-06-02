@@ -26,10 +26,11 @@ import {
   asActionPermission,
   SYSTEM_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
-import { $t, $te } from '#/locales';
+import { $t } from '#/locales';
 import { downloadBlobFile } from '#/utils/file/download';
 import { copyTextToClipboard } from '#/utils/security/password';
 
+import { resolveBackendMessage } from '../../shared';
 import {
   formatCacheCategory,
   formatRefreshScope,
@@ -49,18 +50,6 @@ interface TemplateKeyDrawerData {
 
 // emit 向父级回传刷新事件，便于联动主页面。
 const emit = defineEmits<{ refreshed: [] }>();
-
-// resolveBackendMessage 优先翻译后端返回的多语言 key，否则展示原始消息或本地兜底文案。
-function resolveBackendMessage(
-  message: string | undefined,
-  fallbackKey: string,
-) {
-  const text = String(message || '').trim();
-  if (!text) {
-    return $t(fallbackKey);
-  }
-  return $te(text) ? $t(text) : text;
-}
 
 // loading 表示当前是否正在加载模板缓存实例列表。
 const loading = ref(false);

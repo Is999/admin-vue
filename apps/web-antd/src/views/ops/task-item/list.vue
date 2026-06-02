@@ -1032,6 +1032,35 @@ function buildTaskOperationGuide(task: TaskApi.TaskItem) {
   }
 }
 
+// renderTaskDetailGuideAlert 渲染任务状态提示；有失败信息时合并展示，避免详情顶部出现重复提示框。
+function renderTaskDetailGuideAlert(
+  operationGuide: ReturnType<typeof buildTaskOperationGuide>,
+  lastErr?: string,
+) {
+  const errorText = String(lastErr || '').trim();
+  return h(Alert, {
+    description: errorText
+      ? h('div', { class: 'space-y-3' }, [
+          h('div', operationGuide.description),
+          h('div', {
+            class: 'border-t border-current/20',
+          }),
+          h('div', { class: 'space-y-1' }, [
+            h(
+              'div',
+              { class: 'text-sm font-semibold' },
+              $t('business.message.latestFailureReason'),
+            ),
+            h('div', { class: 'break-words' }, errorText),
+          ]),
+        ])
+      : operationGuide.description,
+    message: operationGuide.message,
+    showIcon: true,
+    type: errorText ? 'error' : operationGuide.type,
+  });
+}
+
 // closeTaskDetailModal 仅关闭任务详情弹框，避免 Modal.destroyAll 误关正在确认的删除/立即执行弹框。
 function closeTaskDetailModal() {
   taskDetailModalHandle?.destroy();
@@ -1199,19 +1228,7 @@ function showTaskDetailModal(task: TaskApi.TaskItem) {
         ],
       ),
       h('section', { class: 'grid gap-3' }, [
-        h(Alert, {
-          description: operationGuide.description,
-          message: operationGuide.message,
-          showIcon: true,
-          type: operationGuide.type,
-        }),
-        h(Alert, {
-          description:
-            task.lastErr || $t('business.message.taskNoFailureError'),
-          message: $t('business.message.latestFailureReason'),
-          showIcon: true,
-          type: task.lastErr ? 'error' : 'success',
-        }),
+        renderTaskDetailGuideAlert(operationGuide, task.lastErr),
         h('div', { class: 'flex flex-wrap items-center gap-2 pt-1' }, [
           h(
             Button,

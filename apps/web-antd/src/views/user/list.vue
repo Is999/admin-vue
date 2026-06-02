@@ -151,6 +151,12 @@ const editorTitle = computed(() =>
     ? $t('business.message.addUser')
     : $t('business.message.editUser'),
 );
+// editorModeDesc 返回弹窗顶部说明，按新增和编辑区分用户预期。
+const editorModeDesc = computed(() =>
+  editorMode.value === 'create'
+    ? $t('business.message.userAddModeDesc')
+    : $t('business.message.userEditModeDesc'),
+);
 
 // Grid 使用 VbenVxeGrid 承载用户分页、筛选和行操作。
 const [Grid, gridApi] = useVbenVxeGrid({
@@ -334,6 +340,17 @@ function onCreate() {
   editorMode.value = 'create';
   resetEditorForm();
   editorOpen.value = true;
+}
+
+// fillRandomEditorPassword 生成随机初始密码并复制，减少新增用户时手动拼复杂密码。
+async function fillRandomEditorPassword() {
+  const password = generateRandomPassword();
+  editorForm.password = password;
+  await copyTextToClipboard(
+    password,
+    $t('business.message.loginPasswordCopied'),
+    $t('business.message.noLoginPasswordToCopy'),
+  );
 }
 
 // onEdit 打开编辑用户弹窗。
@@ -535,89 +552,268 @@ function confirm(content: string, title: string) {
     <Modal
       v-model:open="editorOpen"
       :confirm-loading="editorSubmitting"
+      :body-style="{ padding: '0' }"
       destroy-on-close
       :title="editorTitle"
-      width="720px"
+      :width="860"
+      wrap-class-name="user-editor-dialog"
       @ok="submitEditor"
     >
-      <Alert
-        class="mb-4"
-        :message="$t('business.message.userDirectManageAlert')"
-        show-icon
-        type="info"
-      />
-      <Form :model="editorForm" layout="vertical">
-        <div class="grid grid-cols-1 gap-x-4 md:grid-cols-2">
-          <Form.Item
-            :label="$t('business.message.username')"
-            :required="editorMode === 'create'"
-          >
-            <Input
-              v-model:value="editorForm.username"
-              :disabled="editorMode === 'edit'"
-              :placeholder="$t('business.message.usernamePlaceholder')"
-            />
-          </Form.Item>
-          <Form.Item
-            v-if="editorMode === 'create'"
-            :label="$t('business.message.loginPassword')"
-            required
-          >
-            <Input.Password
-              v-model:value="editorForm.password"
-              :placeholder="$t('business.message.userPasswordPlaceholder')"
-            />
-          </Form.Item>
-          <Form.Item :label="$t('business.message.nickname')">
-            <Input
-              v-model:value="editorForm.nickname"
-              :placeholder="$t('business.message.nicknamePlaceholder')"
-            />
-          </Form.Item>
-          <Form.Item :label="$t('business.message.accountStatus')">
-            <Select
-              v-model:value="editorForm.status"
-              :disabled="editorMode === 'edit'"
-              :options="USER_STATUS_OPTIONS"
-            />
-          </Form.Item>
-          <Form.Item :label="$t('business.message.email')">
-            <Input
-              v-model:value="editorForm.email"
-              :placeholder="$t('business.message.email')"
-            />
-          </Form.Item>
-          <Form.Item :label="$t('business.message.phone')">
-            <Input
-              v-model:value="editorForm.phone"
-              :placeholder="$t('business.message.phone')"
-            />
-          </Form.Item>
-          <Form.Item
-            class="md:col-span-2"
-            :label="$t('business.message.avatarUrl')"
-          >
-            <Input
-              v-model:value="editorForm.avatar"
-              :placeholder="$t('business.message.avatarUrl')"
-            />
-          </Form.Item>
-          <Form.Item
-            class="md:col-span-2"
-            :label="$t('business.message.userRuntimeSync')"
-          >
-            <Switch
-              :checked="true"
-              disabled
-              :checked-children="$t('business.message.enabled')"
-              :un-checked-children="$t('business.message.disabled')"
-            />
-            <span class="ml-2 text-xs text-[var(--ant-color-text-secondary)]">
-              {{ $t('business.message.userRuntimeSyncDesc') }}
-            </span>
-          </Form.Item>
-        </div>
-      </Form>
+      <div class="user-editor">
+        <Alert
+          class="user-editor__alert"
+          :description="editorModeDesc"
+          :message="$t('business.message.userDirectManageAlert')"
+          show-icon
+          type="info"
+        />
+        <Form :model="editorForm" layout="vertical">
+          <div class="user-editor__layout">
+            <section class="user-editor__section">
+              <div class="user-editor__section-head">
+                <div>
+                  <div class="user-editor__section-title">
+                    {{ $t('business.message.userAccountInfo') }}
+                  </div>
+                  <div class="user-editor__section-desc">
+                    {{ $t('business.message.userNameTip') }}
+                  </div>
+                </div>
+              </div>
+              <div class="user-editor__grid">
+                <Form.Item
+                  :label="$t('business.message.username')"
+                  :required="editorMode === 'create'"
+                >
+                  <Input
+                    v-model:value="editorForm.username"
+                    :disabled="editorMode === 'edit'"
+                    :placeholder="$t('business.message.usernamePlaceholder')"
+                  />
+                </Form.Item>
+                <Form.Item :label="$t('business.message.accountStatus')">
+                  <Select
+                    v-model:value="editorForm.status"
+                    :disabled="editorMode === 'edit'"
+                    :options="USER_STATUS_OPTIONS"
+                  />
+                </Form.Item>
+                <Form.Item :label="$t('business.message.nickname')">
+                  <Input
+                    v-model:value="editorForm.nickname"
+                    :placeholder="$t('business.message.nicknamePlaceholder')"
+                  />
+                </Form.Item>
+              </div>
+            </section>
+
+            <section
+              v-if="editorMode === 'create'"
+              class="user-editor__section"
+            >
+              <div class="user-editor__section-head">
+                <div>
+                  <div class="user-editor__section-title">
+                    {{ $t('business.message.userSecurityInfo') }}
+                  </div>
+                  <div class="user-editor__section-desc">
+                    {{ $t('business.message.userPasswordTip') }}
+                  </div>
+                </div>
+              </div>
+              <Form.Item :label="$t('business.message.loginPassword')" required>
+                <Input.Password
+                  v-model:value="editorForm.password"
+                  :placeholder="$t('business.message.userPasswordPlaceholder')"
+                >
+                  <template #addonAfter>
+                    <Button type="link" @click="fillRandomEditorPassword">
+                      {{ $t('business.message.generateCopyRandomPassword') }}
+                    </Button>
+                  </template>
+                </Input.Password>
+              </Form.Item>
+            </section>
+
+            <section class="user-editor__section user-editor__section--wide">
+              <div class="user-editor__section-head">
+                <div>
+                  <div class="user-editor__section-title">
+                    {{ $t('business.message.userContactInfo') }}
+                  </div>
+                  <div class="user-editor__section-desc">
+                    {{ $t('business.message.userContactInfoDesc') }}
+                  </div>
+                </div>
+              </div>
+              <div class="user-editor__grid">
+                <Form.Item :label="$t('business.message.email')">
+                  <Input
+                    v-model:value="editorForm.email"
+                    :placeholder="$t('business.message.email')"
+                  />
+                </Form.Item>
+                <Form.Item :label="$t('business.message.phone')">
+                  <Input
+                    v-model:value="editorForm.phone"
+                    :placeholder="$t('business.message.phone')"
+                  />
+                </Form.Item>
+                <Form.Item
+                  class="user-editor__field-wide"
+                  :label="$t('business.message.avatarUrl')"
+                >
+                  <Input
+                    v-model:value="editorForm.avatar"
+                    :placeholder="$t('business.message.avatarUrl')"
+                  />
+                </Form.Item>
+              </div>
+            </section>
+
+            <section class="user-editor__sync">
+              <div>
+                <div class="user-editor__sync-title">
+                  {{ $t('business.message.userRuntimeSync') }}
+                </div>
+                <div class="user-editor__sync-desc">
+                  {{ $t('business.message.userRuntimeSyncDesc') }}
+                </div>
+              </div>
+              <Switch
+                :checked="true"
+                disabled
+                :checked-children="$t('business.message.enabled')"
+                :un-checked-children="$t('business.message.disabled')"
+              />
+            </section>
+          </div>
+        </Form>
+      </div>
     </Modal>
   </Page>
 </template>
+
+<style scoped>
+.user-editor {
+  padding: 18px 22px 20px;
+}
+
+.user-editor__alert {
+  margin-bottom: 16px;
+}
+
+.user-editor__layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.user-editor__section {
+  padding: 14px;
+  background: hsl(var(--accent) / 32%);
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+}
+
+.user-editor__section--wide,
+.user-editor__sync {
+  grid-column: 1 / -1;
+}
+
+.user-editor__section-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.user-editor__section-title,
+.user-editor__sync-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: hsl(var(--foreground));
+}
+
+.user-editor__section-desc,
+.user-editor__sync-desc {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--vben-text-color-secondary);
+}
+
+.user-editor__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 14px;
+}
+
+.user-editor__field-wide {
+  grid-column: 1 / -1;
+}
+
+.user-editor :deep(.ant-form-item) {
+  margin-bottom: 0;
+}
+
+.user-editor :deep(.ant-form-item-label > label) {
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.user-editor :deep(.ant-input),
+.user-editor :deep(.ant-input-affix-wrapper),
+.user-editor :deep(.ant-select-selector) {
+  border-radius: 6px;
+}
+
+.user-editor :deep(.ant-input-group-addon) {
+  padding: 0;
+  background: hsl(var(--accent) / 48%);
+  border-color: hsl(var(--border));
+}
+
+.user-editor :deep(.ant-input-group-addon .ant-btn) {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.user-editor__sync {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px;
+  background: hsl(var(--primary) / 8%);
+  border: 1px solid hsl(var(--primary) / 26%);
+  border-radius: 8px;
+}
+
+:global(.user-editor-dialog .ant-modal-footer) {
+  padding: 14px 22px 18px;
+  margin-top: 0;
+  border-top: 1px solid hsl(var(--border));
+}
+
+@media (max-width: 768px) {
+  .user-editor {
+    padding: 14px;
+  }
+
+  .user-editor__layout,
+  .user-editor__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .user-editor__sync {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+</style>

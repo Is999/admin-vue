@@ -899,9 +899,11 @@ async function submitWithMfa<T>(
                   </div>
                   <div class="profile-mfa-qr-board">
                     <QRCode
+                      class="profile-mfa-qr-code"
+                      :bordered="false"
                       bg-color="#ffffff"
                       color="#000000"
-                      :size="176"
+                      :size="202"
                       :value="profileMfaUrl"
                     />
                   </div>
@@ -945,7 +947,7 @@ async function submitWithMfa<T>(
                       </div>
                     </DescriptionsItem>
                   </Descriptions>
-                  <Space class="profile-mfa-actions" wrap>
+                  <div class="profile-mfa-actions">
                     <VbenButton
                       v-if="profileMfaStatus !== 1"
                       type="primary"
@@ -962,7 +964,7 @@ async function submitWithMfa<T>(
                     >
                       {{ $t('business.message.mfaGoStaticBind') }}
                     </VbenButton>
-                  </Space>
+                  </div>
                 </div>
               </div>
               <div v-else class="profile-mfa-empty">
@@ -1194,9 +1196,9 @@ async function submitWithMfa<T>(
 
 .profile-mfa-layout {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 192px minmax(0, 1fr);
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .profile-mfa-layout-single {
@@ -1208,10 +1210,12 @@ async function submitWithMfa<T>(
   display: flex;
   flex-direction: column;
   align-self: start;
+  width: 192px;
+  max-width: 100%;
   overflow: hidden;
   background: rgb(127 127 127 / 6%);
   border: 1px solid var(--vben-border-color);
-  border-radius: 14px;
+  border-radius: 10px;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%);
 }
 
@@ -1220,7 +1224,7 @@ async function submitWithMfa<T>(
   gap: 10px;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px;
+  padding: 8px 10px;
   background: rgb(59 130 246 / 8%);
 }
 
@@ -1239,12 +1243,20 @@ async function submitWithMfa<T>(
   align-items: center;
   justify-content: center;
   min-height: 0;
-  padding: 10px 12px 12px;
-  background: linear-gradient(180deg, rgb(255 255 255), rgb(248 250 252));
+  padding: 4px 8px 8px;
+  background: #fff;
+}
+
+.profile-mfa-qr-board :deep(.ant-qrcode) {
+  width: 176px !important;
+  height: 176px !important;
+  padding: 0;
+  background: #fff;
+  border: 0;
 }
 
 .profile-mfa-qr-account {
-  max-width: 132px;
+  max-width: 92px;
   padding: 2px 8px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1287,8 +1299,16 @@ async function submitWithMfa<T>(
 }
 
 .profile-mfa-actions {
-  padding-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding-top: 8px;
   margin-top: auto;
+}
+
+.profile-mfa-actions :deep(button) {
+  height: 40px;
 }
 
 .profile-mfa-empty {
@@ -1332,7 +1352,7 @@ async function submitWithMfa<T>(
   }
 
   .profile-mfa-qr-panel {
-    max-width: 220px;
+    max-width: 192px;
   }
 
   .profile-mfa-detail {
