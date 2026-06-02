@@ -3,7 +3,7 @@
 import type { AuthApi } from '#/api';
 import type { SystemAdminApi, SystemProfileApi } from '#/api/system';
 
-import { computed, onMounted, ref } from 'vue';
+import { computed, h, onMounted, ref } from 'vue';
 
 import { Page, VbenButton } from '@vben/common-ui';
 
@@ -16,7 +16,6 @@ import {
   message,
   Modal,
   QRCode,
-  Space,
   Steps,
 } from 'ant-design-vue';
 
@@ -31,6 +30,7 @@ import {
   extractMfaManualInfo,
   extractMfaSecret,
   getMfaAuthenticatorApps,
+  getMfaAuthenticatorHelpLinks,
   getMfaBindSteps,
   getMfaGuideSteps,
   getMfaMicrosoftScanTip,
@@ -85,12 +85,77 @@ const profileMfaDeviceUnavailable = computed(
 const bindDisabled = computed(() => !profileMfaInfo.value.secret);
 // mfaAuthenticatorApps 渲染推荐身份验证器列表，语言切换时重新取当前文案。
 const mfaAuthenticatorApps = computed(() => getMfaAuthenticatorApps());
+// mfaAuthenticatorHelpLinks 渲染身份验证器帮助入口，语言切换时重新取当前文案。
+const mfaAuthenticatorHelpLinks = computed(() =>
+  getMfaAuthenticatorHelpLinks(),
+);
 // mfaBindSteps 渲染绑定步骤，避免语言包加载前固定成原始 key。
 const mfaBindSteps = computed(() => getMfaBindSteps());
-// mfaGuideSteps 渲染 MFA 说明步骤，避免语言包加载前固定成原始 key。
-const mfaGuideSteps = computed(() => getMfaGuideSteps());
+// mfaGuideSteps 渲染 MFA 说明步骤，并在安装说明内联应用帮助链接。
+const mfaGuideSteps = computed(() =>
+  getMfaGuideSteps().map((step, index) => ({
+    ...step,
+    description:
+      index === 0
+        ? buildMfaInstallDescription(step.description)
+        : step.description,
+  })),
+);
 // mfaMicrosoftScanTip 渲染微软身份验证器扫码提示。
 const mfaMicrosoftScanTip = computed(() => getMfaMicrosoftScanTip());
+
+// buildMfaAuthenticatorLink 渲染说明句内的身份验证器应用链接。
+function buildMfaAuthenticatorLink(label: string, href: string) {
+  return h(
+    'a',
+    {
+      class: 'mfa-guide-app-link',
+      href,
+      rel: 'noopener noreferrer',
+      target: '_blank',
+    },
+    label,
+  );
+}
+
+// buildMfaInstallDescription 把安装说明里的应用名替换为官方帮助链接。
+function buildMfaInstallDescription(description: string) {
+  const appLinks = [
+    {
+      href: getMfaHelpUrl('Google Authenticator'),
+      label: 'Google Authenticator',
+    },
+    {
+      href: getMfaHelpUrl('Microsoft Authenticator'),
+      label: 'Microsoft Authenticator',
+    },
+  ];
+  let cursor = 0;
+  const nodes: Array<ReturnType<typeof h> | string> = [];
+  for (const link of appLinks) {
+    const index = description.indexOf(link.label, cursor);
+    if (index === -1) {
+      continue;
+    }
+    if (index > cursor) {
+      nodes.push(description.slice(cursor, index));
+    }
+    nodes.push(buildMfaAuthenticatorLink(link.label, link.href));
+    cursor = index + link.label.length;
+  }
+  if (cursor < description.length) {
+    nodes.push(description.slice(cursor));
+  }
+  return nodes.length > 0 ? nodes : description;
+}
+
+// getMfaHelpUrl 通过应用名匹配现有帮助链接，避免模板里再展示“帮助”链接行。
+function getMfaHelpUrl(appName: string) {
+  return (
+    mfaAuthenticatorHelpLinks.value.find((link) => link.label.includes(appName))
+      ?.href || '#'
+  );
+}
 
 // onMounted 进入页面时加载当前管理员 MFA 资料。
 onMounted(() => {
@@ -241,77 +306,76 @@ function confirmForceDisableMfa() {
 
 <template>
   <Page auto-content-height>
-    <div class="grid gap-3 xl:grid-cols-[360px_1fr]">
-      <Card
-        size="small"
-        :title="$t('business.message.mfaStatusCardTitle')"
-        :loading="loading"
-      >
-        <Descriptions :column="1" size="small" bordered>
-          <DescriptionsItem :label="$t('business.message.mfaLoginAccount')">
-            {{ profileName }}
-          </DescriptionsItem>
-          <DescriptionsItem :label="$t('business.message.mfaIssuer')">
-            {{ profileMfaIssuer }}
-          </DescriptionsItem>
-          <DescriptionsItem :label="$t('business.message.mfaBoundAccount')">
-            {{ profileMfaAccount }}
-          </DescriptionsItem>
-          <DescriptionsItem :label="$t('business.message.mfaStatus')">
-            {{
-              profileMfaStatus === 1
-                ? $t('business.message.enabled')
-                : $t('business.message.disabled')
-            }}
-          </DescriptionsItem>
-        </Descriptions>
-        <Alert
-          class="mt-3"
-          :message="mfaMicrosoftScanTip"
-          show-icon
-          type="info"
-        />
-        <Alert
-          v-if="profileForceMfaEnabled && profileMfaStatus !== 1"
-          class="mt-3"
-          :description="$t('business.message.mfaForceBindRequiredDesc')"
-          :message="$t('business.message.mfaForceBindRequiredTitle')"
-          show-icon
-          type="warning"
-        />
-        <Alert
-          v-else-if="profileMfaDeviceUnavailable"
-          class="mt-3"
-          :description="$t('business.message.mfaDeviceUnavailable')"
-          :message="$t('business.message.mfaDeviceUnavailableTitle')"
-          show-icon
-          type="error"
-        />
-        <Alert
-          v-else-if="profileMfaBindRequired"
-          class="mt-3"
-          :description="$t('business.message.mfaBindRequiredDesc')"
-          :message="$t('business.message.mfaBindRequiredTitle')"
-          show-icon
-          type="warning"
-        />
-      </Card>
+    <div class="mfa-page-stack">
+      <div class="mfa-main-grid">
+        <Card
+          class="mfa-page-card"
+          size="small"
+          :title="$t('business.message.mfaStatusCardTitle')"
+          :loading="loading"
+        >
+          <div class="mfa-status-stack">
+            <Descriptions :column="1" size="small" bordered>
+              <DescriptionsItem :label="$t('business.message.mfaLoginAccount')">
+                {{ profileName }}
+              </DescriptionsItem>
+              <DescriptionsItem :label="$t('business.message.mfaIssuer')">
+                {{ profileMfaIssuer }}
+              </DescriptionsItem>
+              <DescriptionsItem :label="$t('business.message.mfaBoundAccount')">
+                {{ profileMfaAccount }}
+              </DescriptionsItem>
+              <DescriptionsItem :label="$t('business.message.mfaStatus')">
+                {{
+                  profileMfaStatus === 1
+                    ? $t('business.message.enabled')
+                    : $t('business.message.disabled')
+                }}
+              </DescriptionsItem>
+            </Descriptions>
+            <div class="mfa-status-alerts">
+              <Alert :message="mfaMicrosoftScanTip" show-icon type="info" />
+              <Alert
+                v-if="profileForceMfaEnabled && profileMfaStatus !== 1"
+                :description="$t('business.message.mfaForceBindRequiredDesc')"
+                :message="$t('business.message.mfaForceBindRequiredTitle')"
+                show-icon
+                type="warning"
+              />
+              <Alert
+                v-else-if="profileMfaDeviceUnavailable"
+                :description="$t('business.message.mfaDeviceUnavailable')"
+                :message="$t('business.message.mfaDeviceUnavailableTitle')"
+                show-icon
+                type="error"
+              />
+              <Alert
+                v-else-if="profileMfaBindRequired"
+                :description="$t('business.message.mfaBindRequiredDesc')"
+                :message="$t('business.message.mfaBindRequiredTitle')"
+                show-icon
+                type="warning"
+              />
+            </div>
+          </div>
+        </Card>
 
-      <Card
-        size="small"
-        :title="$t('business.message.mfaStaticBindCardTitle')"
-        :loading="loading"
-      >
-        <div class="grid gap-4 lg:grid-cols-[220px_1fr]">
-          <div class="space-y-3">
-            <div class="flex justify-center">
-              <div v-if="profileMfaUrl" class="mfa-qr-shell">
-                <div class="mfa-qr-glow"></div>
+        <Card
+          class="mfa-page-card"
+          size="small"
+          :title="$t('business.message.mfaStaticBindCardTitle')"
+          :loading="loading"
+        >
+          <div class="mfa-bind-layout">
+            <div class="mfa-qr-column">
+              <div v-if="profileMfaUrl" class="mfa-qr-panel">
                 <div class="mfa-qr-frame">
                   <div class="mfa-qr-header">
-                    <div class="mfa-qr-badge">MFA SECURE</div>
-                    <div class="mfa-qr-caption">
-                      {{ profileMfaIssuer }}
+                    <div class="mfa-qr-title">
+                      {{ $t('business.message.mfaScanBind') }}
+                    </div>
+                    <div class="mfa-qr-account" :title="profileMfaAccount">
+                      {{ profileMfaAccount }}
                     </div>
                   </div>
                   <div class="mfa-qr-board">
@@ -319,221 +383,297 @@ function confirmForceDisableMfa() {
                       bg-color="#ffffff"
                       color="#000000"
                       :key="profileMfaUrl"
-                      :size="192"
+                      :size="176"
                       :value="profileMfaUrl"
                     />
                   </div>
-                  <div class="mfa-qr-footer">
-                    <div class="mfa-qr-account">
-                      {{ profileMfaAccount }}
-                    </div>
-                    <div class="mfa-qr-tip">
-                      {{ $t('business.message.mfaQrManualSwitchTip') }}
-                    </div>
-                  </div>
                 </div>
               </div>
-            </div>
-            <VbenButton
-              v-if="profileMfaStatus !== 1"
-              block
-              @click="onRefreshQr"
-            >
-              {{ $t('business.message.mfaRegenerateQr') }}
-            </VbenButton>
-          </div>
-          <div class="space-y-4">
-            <Steps
-              :current="profileMfaStatus === 1 ? 2 : 1"
-              :items="mfaBindSteps"
-            />
-            <Descriptions :column="1" size="small" bordered>
-              <DescriptionsItem :label="$t('business.message.mfaIssuer')">
-                {{ profileMfaIssuer }}
-              </DescriptionsItem>
-              <DescriptionsItem :label="$t('business.message.mfaAccount')">
-                {{ profileMfaAccount }}
-              </DescriptionsItem>
-              <DescriptionsItem :label="$t('business.message.mfaManualSecret')">
-                <Space class="w-full" wrap>
-                  <Input
-                    :value="profileMfaInfo.formattedSecret || '-'"
-                    class="min-w-[260px]"
-                    readonly
-                  />
-                  <VbenButton :disabled="bindDisabled" @click="onCopySecret">
-                    {{ $t('business.message.mfaCopySecret') }}
-                  </VbenButton>
-                </Space>
-              </DescriptionsItem>
-            </Descriptions>
-            <Space wrap>
-              <Input
-                v-model:value="secure"
-                class="w-[220px]"
-                :maxlength="6"
-                :placeholder="$t('business.message.mfaCodePlaceholder')"
-                @press-enter="
-                  profileMfaStatus === 1 ? onDisableMfa() : onEnableMfa()
-                "
-              />
               <VbenButton
                 v-if="profileMfaStatus !== 1"
-                :disabled="bindDisabled"
-                :loading="submitLoading"
-                type="primary"
-                @click="onEnableMfa"
+                block
+                class="mfa-qr-refresh"
+                @click="onRefreshQr"
               >
-                {{ $t('business.message.mfaEnableButton') }}
+                {{ $t('business.message.mfaRegenerateQr') }}
               </VbenButton>
-              <VbenButton
-                v-else
-                danger
-                :loading="submitLoading"
-                @click="onDisableMfa"
+            </div>
+            <div class="mfa-bind-detail">
+              <Steps
+                class="mfa-bind-steps"
+                :current="profileMfaStatus === 1 ? 2 : 1"
+                :items="mfaBindSteps"
+              />
+              <Descriptions
+                class="mfa-bind-descriptions"
+                :column="1"
+                size="small"
+                bordered
               >
-                {{ $t('business.message.mfaDisableButton') }}
-              </VbenButton>
-              <VbenButton @click="onReloadProfile">
-                {{ $t('business.message.refresh') }}
-              </VbenButton>
-            </Space>
+                <DescriptionsItem :label="$t('business.message.mfaIssuer')">
+                  {{ profileMfaIssuer }}
+                </DescriptionsItem>
+                <DescriptionsItem :label="$t('business.message.mfaAccount')">
+                  {{ profileMfaAccount }}
+                </DescriptionsItem>
+                <DescriptionsItem
+                  :label="$t('business.message.mfaManualSecret')"
+                >
+                  <div class="mfa-secret-row">
+                    <Input
+                      :value="profileMfaInfo.formattedSecret || '-'"
+                      class="mfa-secret-input"
+                      readonly
+                    />
+                    <VbenButton :disabled="bindDisabled" @click="onCopySecret">
+                      {{ $t('business.message.mfaCopySecret') }}
+                    </VbenButton>
+                  </div>
+                </DescriptionsItem>
+              </Descriptions>
+              <div class="mfa-verify-row">
+                <Input
+                  v-model:value="secure"
+                  class="mfa-code-input"
+                  :maxlength="6"
+                  :placeholder="$t('business.message.mfaCodePlaceholder')"
+                  @press-enter="
+                    profileMfaStatus === 1 ? onDisableMfa() : onEnableMfa()
+                  "
+                />
+                <VbenButton
+                  v-if="profileMfaStatus !== 1"
+                  :disabled="bindDisabled"
+                  :loading="submitLoading"
+                  type="primary"
+                  @click="onEnableMfa"
+                >
+                  {{ $t('business.message.mfaEnableButton') }}
+                </VbenButton>
+                <VbenButton
+                  v-else
+                  danger
+                  :loading="submitLoading"
+                  @click="onDisableMfa"
+                >
+                  {{ $t('business.message.mfaDisableButton') }}
+                </VbenButton>
+                <VbenButton @click="onReloadProfile">
+                  {{ $t('business.message.refresh') }}
+                </VbenButton>
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      <Card
+        class="mfa-page-card"
+        size="small"
+        :title="$t('business.message.mfaBindingGuideCardTitle')"
+      >
+        <div class="mfa-guide-grid">
+          <div class="mfa-guide-summary">
+            <Alert
+              :message="$t('business.message.mfaTotpIntro')"
+              show-icon
+              type="info"
+            />
+            <Descriptions :column="1" size="small" bordered>
+              <DescriptionsItem
+                :label="$t('business.message.mfaApplicableApps')"
+              >
+                {{ mfaAuthenticatorApps.join('、') }}
+              </DescriptionsItem>
+              <DescriptionsItem
+                :label="$t('business.message.mfaOfflineAvailable')"
+              >
+                {{ $t('business.message.mfaOfflineAvailableDesc') }}
+              </DescriptionsItem>
+              <DescriptionsItem :label="$t('business.message.mfaScanFailed')">
+                {{ $t('business.message.mfaScanFailedDesc') }}
+              </DescriptionsItem>
+            </Descriptions>
+          </div>
+          <div class="mfa-guide-detail">
+            <Steps direction="vertical" :items="mfaGuideSteps" />
           </div>
         </div>
       </Card>
     </div>
-
-    <Card
-      class="mt-3"
-      size="small"
-      :title="$t('business.message.mfaBindingGuideCardTitle')"
-    >
-      <div class="grid gap-4 xl:grid-cols-[420px_1fr]">
-        <div class="space-y-3">
-          <Alert
-            :message="$t('business.message.mfaTotpIntro')"
-            show-icon
-            type="info"
-          />
-          <Descriptions :column="1" size="small" bordered>
-            <DescriptionsItem :label="$t('business.message.mfaApplicableApps')">
-              {{ mfaAuthenticatorApps.join('、') }}
-            </DescriptionsItem>
-            <DescriptionsItem
-              :label="$t('business.message.mfaOfflineAvailable')"
-            >
-              {{ $t('business.message.mfaOfflineAvailableDesc') }}
-            </DescriptionsItem>
-            <DescriptionsItem :label="$t('business.message.mfaScanFailed')">
-              {{ $t('business.message.mfaScanFailedDesc') }}
-            </DescriptionsItem>
-          </Descriptions>
-        </div>
-        <div class="space-y-4">
-          <Steps direction="vertical" :items="mfaGuideSteps" />
-          <div class="flex flex-wrap gap-2 text-sm">
-            <a
-              href="https://support.google.com/accounts/answer/1066447"
-              rel="noreferrer"
-              target="_blank"
-            >
-              {{ $t('business.message.mfaGoogleHelp') }}
-            </a>
-            <a
-              href="https://support.microsoft.com/account-billing/use-microsoft-authenticator-with-microsoft-365-1412611f-ad8d-43ab-807c-7965e5155411"
-              rel="noreferrer"
-              target="_blank"
-            >
-              {{ $t('business.message.mfaMicrosoftHelp') }}
-            </a>
-          </div>
-        </div>
-      </div>
-    </Card>
   </Page>
 </template>
 
 <style scoped>
-.mfa-qr-shell {
-  position: relative;
+.mfa-page-stack {
+  display: grid;
+  gap: 8px;
 }
 
-.mfa-qr-glow {
-  position: absolute;
-  inset: 18px;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at top, rgb(59 130 246 / 28%), transparent 58%),
-    radial-gradient(circle at bottom, rgb(168 85 247 / 22%), transparent 60%);
-  border-radius: 24px;
-  filter: blur(18px);
+.mfa-main-grid {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.mfa-page-card :deep(.ant-card-body) {
+  padding: 12px 14px;
+}
+
+.mfa-status-stack,
+.mfa-status-alerts,
+.mfa-guide-summary,
+.mfa-guide-detail {
+  display: grid;
+  gap: 8px;
+}
+
+.mfa-bind-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.mfa-qr-column {
+  display: grid;
+  gap: 8px;
+  align-items: start;
+}
+
+.mfa-qr-panel {
+  width: 220px;
+  max-width: 100%;
 }
 
 .mfa-qr-frame {
-  position: relative;
-  min-width: 236px;
   overflow: hidden;
-  background: linear-gradient(
-    135deg,
-    rgb(255 255 255 / 98%),
-    rgb(248 250 252 / 94%)
-  );
-  border: 1px solid rgb(59 130 246 / 22%);
-  border-radius: 24px;
-  box-shadow:
-    0 18px 50px rgb(15 23 42 / 16%),
-    inset 0 1px 0 rgb(255 255 255 / 85%);
+  background: rgb(127 127 127 / 6%);
+  border: 1px solid var(--vben-border-color);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%);
 }
 
 .mfa-qr-header {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px 10px;
-  background: linear-gradient(135deg, rgb(239 246 255), rgb(245 243 255));
+  padding: 10px 12px;
+  background: rgb(59 130 246 / 8%);
 }
 
-.mfa-qr-badge {
-  padding: 4px 10px;
-  font-size: 12px;
+.mfa-qr-title {
+  min-width: 0;
+  font-size: 13px;
   font-weight: 700;
-  color: #fff;
-  letter-spacing: 0.08em;
-  background: linear-gradient(135deg, rgb(37 99 235), rgb(139 92 246));
-  border-radius: 999px;
-}
-
-.mfa-qr-caption {
-  font-size: 12px;
-  font-weight: 600;
-  color: rgb(71 85 105);
+  line-height: 20px;
+  color: var(--vben-text-color);
+  white-space: nowrap;
 }
 
 .mfa-qr-board {
   display: flex;
+  align-items: center;
   justify-content: center;
-  padding: 18px 18px 12px;
+  padding: 10px 12px 12px;
   background: linear-gradient(180deg, rgb(255 255 255), rgb(248 250 252));
 }
 
-.mfa-qr-footer {
-  padding: 0 16px 16px;
-  text-align: center;
-}
-
 .mfa-qr-account {
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 20px;
-  color: rgb(15 23 42);
-  word-break: break-all;
+  max-width: 132px;
+  padding: 2px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--vben-text-color-secondary);
+  white-space: nowrap;
+  background: rgb(127 127 127 / 10%);
+  border: 1px solid rgb(127 127 127 / 14%);
+  border-radius: 999px;
 }
 
-.mfa-qr-tip {
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 18px;
-  color: rgb(100 116 139);
+.mfa-qr-refresh {
+  width: 100%;
+}
+
+.mfa-bind-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.mfa-bind-steps {
+  margin-bottom: 0;
+}
+
+.mfa-bind-descriptions :deep(.ant-descriptions-item-label) {
+  width: 132px;
+  color: var(--vben-text-color-secondary);
+}
+
+.mfa-secret-row,
+.mfa-verify-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.mfa-secret-row {
+  padding: 2px 0;
+}
+
+.mfa-secret-input {
+  flex: 1 1 320px;
+  min-width: 260px;
+}
+
+.mfa-code-input {
+  width: 220px;
+}
+
+.mfa-guide-app-link {
+  font-weight: 600;
+  color: hsl(var(--primary));
+}
+
+.mfa-guide-app-link:hover {
+  color: hsl(var(--primary) / 80%);
+  text-decoration: underline;
+}
+
+.mfa-guide-grid {
+  display: grid;
+  grid-template-columns: 420px minmax(0, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 1280px) {
+  .mfa-main-grid,
+  .mfa-guide-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mfa-bind-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mfa-qr-column {
+    max-width: 220px;
+  }
+}
+
+@media (max-width: 640px) {
+  .mfa-qr-column,
+  .mfa-code-input,
+  .mfa-secret-input {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
 }
 </style>

@@ -10,6 +10,8 @@ import {
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 
+import { enabledStatusTagMap } from '../table-tags';
+
 // STATUS_OPTIONS 定义后台账号状态选项。
 export const STATUS_OPTIONS = [
   { label: $t('business.message.enabled'), value: 1 },
@@ -173,7 +175,12 @@ export function useColumns<T = SystemAdminApi.Item>(
     ),
     {
       cellRender: {
-        attrs: { beforeChange: onStatusChange },
+        attrs: {
+          auth: asActionPermission(
+            SYSTEM_ACTION_PERMISSION_CODES.ADMIN_STATUS_UPDATE,
+          ),
+          beforeChange: onStatusChange,
+        },
         name: onStatusChange ? 'CellSwitch' : 'CellTag',
       },
       field: 'status',
@@ -181,7 +188,11 @@ export function useColumns<T = SystemAdminApi.Item>(
       width: 100,
     },
     {
-      cellRender: { name: 'CellTag' },
+      align: 'center',
+      cellRender: {
+        attrs: { tagMap: enabledStatusTagMap() },
+        name: 'CellTag',
+      },
       field: 'mfaStatus',
       title: 'MFA',
       width: 90,

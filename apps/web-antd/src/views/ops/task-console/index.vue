@@ -41,6 +41,14 @@ import {
   splitTextToItems,
 } from '../shared';
 import { useEnqueueTaskSchema, useTriggerWorkflowSchema } from './data';
+import {
+  buildTaskConsoleTime,
+  clearTaskConsoleSchedule,
+  fillTaskConsoleDelay,
+  fillTaskConsoleFields,
+  fillTaskConsoleProcessAt,
+  taskConsoleDefaults,
+} from './defaults';
 
 // ================= 表单配置 =================
 // 工作流触发表单。
@@ -129,16 +137,6 @@ type TaskDefaultOptions = {
   previousTaskType?: string;
   silent?: boolean;
 };
-
-const minimalTaskPayloadText = '{\n  "appId": "203"\n}';
-const defaultTaskQueue = 'default';
-const defaultTaskRetry = 3;
-const defaultTaskTimeoutSeconds = 120;
-const defaultTaskUniqueTTLSeconds = 60;
-const defaultWorkflowShardTotal = 1;
-const defaultWorkflowGrayPercent = 100;
-const defaultProcessInSeconds = 0;
-const defaultDeadlineSeconds = 7200;
 
 // taskQueueHintText 用于在“展开说明”区域展示队列用途说明，降低配置猜测成本。
 const taskQueueHintText = computed(() =>
@@ -545,7 +543,9 @@ function isTaskPayloadExample(text: string) {
   if (!normalizedText) {
     return false;
   }
-  if (normalizedText === normalizeFormText(minimalTaskPayloadText)) {
+  if (
+    normalizedText === normalizeFormText(taskConsoleDefaults.minimalPayloadText)
+  ) {
     return true;
   }
   return taskTypeRegistryItems.value.some(
@@ -564,16 +564,6 @@ function buildManualUniqueKey(kind: string, name: string, targetsText = '') {
 // isManualUniqueKey 判断当前去重键是否仍是总控台自动生成值。
 function isManualUniqueKey(value: unknown) {
   return /^manual[-_a-z]*:/.test(normalizeFormText(value));
-}
-
-// buildRFC3339TimeString 统一生成 RFC3339 时间文本，降低人工填写成本。
-function buildRFC3339TimeString(addSeconds = 0) {
-  return new Date(Date.now() + addSeconds * 1000).toISOString();
-}
-
-// shouldFillDefaultValue 判断字段是否适合被默认值补齐。
-function shouldFillDefaultValue(value: unknown, force = false) {
-  return force || value === '' || value === null || value === undefined;
 }
 
 // rebuildTaskConsoleSchemas 按当前队列和注册清单重建表单 schema，统一维护联动逻辑。
@@ -673,71 +663,43 @@ async function loadTaskRegistryOptions() {
 
 // fillTriggerWorkflowDelay 帮助用户快速填写“延迟执行秒”并清空绝对执行时间。
 async function fillTriggerWorkflowDelay(seconds: number) {
-  await triggerWorkflowFormApi.setFieldValue('processAt', '', false);
-  await triggerWorkflowFormApi.setFieldValue(
-    'processInSeconds',
-    seconds,
-    false,
-  );
+  await fillTaskConsoleDelay(triggerWorkflowFormApi, seconds);
   message.success($t('business.message.workflowDelayFilled', [seconds]));
 }
 
 // fillEnqueueTaskDelay 帮助用户快速填写“延迟执行秒”并清空绝对执行时间。
 async function fillEnqueueTaskDelay(seconds: number) {
-  await enqueueTaskFormApi.setFieldValue('processAt', '', false);
-  await enqueueTaskFormApi.setFieldValue('processInSeconds', seconds, false);
+  await fillTaskConsoleDelay(enqueueTaskFormApi, seconds);
   message.success($t('business.message.taskDelayFilled', [seconds]));
 }
 
 // fillTriggerWorkflowProcessAt 回填工作流绝对执行时间，并清空相对延迟。
 async function fillTriggerWorkflowProcessAt(addSeconds = 0) {
-  await triggerWorkflowFormApi.setFieldValue(
-    'processAt',
-    buildRFC3339TimeString(addSeconds),
-    false,
-  );
-  await triggerWorkflowFormApi.setFieldValue(
-    'processInSeconds',
-    undefined,
-    false,
-  );
+  await fillTaskConsoleProcessAt(triggerWorkflowFormApi, addSeconds);
   message.success($t('business.message.workflowAbsoluteRunTimeFilled'));
 }
 
 // fillEnqueueTaskProcessAt 回填任务绝对执行时间，并清空相对延迟。
 async function fillEnqueueTaskProcessAt(addSeconds = 0) {
-  await enqueueTaskFormApi.setFieldValue(
-    'processAt',
-    buildRFC3339TimeString(addSeconds),
-    false,
-  );
-  await enqueueTaskFormApi.setFieldValue('processInSeconds', undefined, false);
+  await fillTaskConsoleProcessAt(enqueueTaskFormApi, addSeconds);
   message.success($t('business.message.taskAbsoluteRunTimeFilled'));
 }
 
 // clearTriggerWorkflowSchedule 清空工作流触发时间相关字段。
 async function clearTriggerWorkflowSchedule() {
-  await triggerWorkflowFormApi.setFieldValue('processAt', '', false);
-  await triggerWorkflowFormApi.setFieldValue(
-    'processInSeconds',
-    undefined,
-    false,
-  );
-  await triggerWorkflowFormApi.setFieldValue('deadline', '', false);
+  await clearTaskConsoleSchedule(triggerWorkflowFormApi);
 }
 
 // clearEnqueueTaskSchedule 清空任务投递时间相关字段。
 async function clearEnqueueTaskSchedule() {
-  await enqueueTaskFormApi.setFieldValue('processAt', '', false);
-  await enqueueTaskFormApi.setFieldValue('processInSeconds', undefined, false);
-  await enqueueTaskFormApi.setFieldValue('deadline', '', false);
+  await clearTaskConsoleSchedule(enqueueTaskFormApi);
 }
 
 // fillSampleTaskPayload 回填一个最小 JSON 示例，方便手动投递任务时起步。
 async function fillSampleTaskPayload() {
   await enqueueTaskFormApi.setFieldValue(
     'payloadText',
-    minimalTaskPayloadText,
+    taskConsoleDefaults.minimalPayloadText,
     false,
   );
   message.success($t('business.message.minimalTaskPayloadExampleFilled'));
@@ -750,20 +712,6 @@ async function fillTriggerWorkflowDefaultParams(
   values: Record<string, any>,
   force = false,
 ) {
-  if (shouldFillDefaultValue(values.shardTotal, force)) {
-    await triggerWorkflowFormApi.setFieldValue(
-      'shardTotal',
-      defaultWorkflowShardTotal,
-      false,
-    );
-  }
-  if (shouldFillDefaultValue(values.grayPercent, force)) {
-    await triggerWorkflowFormApi.setFieldValue(
-      'grayPercent',
-      defaultWorkflowGrayPercent,
-      false,
-    );
-  }
   if (
     force ||
     !normalizeFormText(values.uniqueKey) ||
@@ -775,48 +723,30 @@ async function fillTriggerWorkflowDefaultParams(
       false,
     );
   }
-  if (shouldFillDefaultValue(values.uniqueTTLSeconds, force)) {
-    await triggerWorkflowFormApi.setFieldValue(
-      'uniqueTTLSeconds',
-      defaultTaskUniqueTTLSeconds,
-      false,
-    );
-  }
-  if (shouldFillDefaultValue(values.retry, force)) {
-    await triggerWorkflowFormApi.setFieldValue(
-      'retry',
-      defaultTaskRetry,
-      false,
-    );
-  }
-  if (shouldFillDefaultValue(values.timeoutSeconds, force)) {
-    await triggerWorkflowFormApi.setFieldValue(
-      'timeoutSeconds',
-      defaultTaskTimeoutSeconds,
-      false,
-    );
-  }
-  if (shouldFillDefaultValue(values.processAt, force)) {
-    await triggerWorkflowFormApi.setFieldValue(
-      'processAt',
-      buildRFC3339TimeString(0),
-      false,
-    );
-  }
-  if (shouldFillDefaultValue(values.processInSeconds, force)) {
-    await triggerWorkflowFormApi.setFieldValue(
-      'processInSeconds',
-      defaultProcessInSeconds,
-      false,
-    );
-  }
-  if (shouldFillDefaultValue(values.deadline, force)) {
-    await triggerWorkflowFormApi.setFieldValue(
-      'deadline',
-      buildRFC3339TimeString(defaultDeadlineSeconds),
-      false,
-    );
-  }
+  await fillTaskConsoleFields(
+    triggerWorkflowFormApi,
+    values,
+    [
+      { field: 'shardTotal', value: taskConsoleDefaults.shardTotal },
+      { field: 'grayPercent', value: taskConsoleDefaults.grayPercent },
+      {
+        field: 'uniqueTTLSeconds',
+        value: taskConsoleDefaults.uniqueTTLSeconds,
+      },
+      { field: 'retry', value: taskConsoleDefaults.retry },
+      { field: 'timeoutSeconds', value: taskConsoleDefaults.timeoutSeconds },
+      { field: 'processAt', value: () => buildTaskConsoleTime(0) },
+      {
+        field: 'processInSeconds',
+        value: taskConsoleDefaults.processInSeconds,
+      },
+      {
+        field: 'deadline',
+        value: () => buildTaskConsoleTime(taskConsoleDefaults.deadlineSeconds),
+      },
+    ],
+    force,
+  );
 }
 
 // applySelectedWorkflowDefaults 自动套用当前工作流默认队列和目标示例。
@@ -908,47 +838,29 @@ async function fillEnqueueTaskDefaultParams(
   if (force) {
     await enqueueTaskFormApi.setFieldValue('group', '', false);
   }
-  if (shouldFillDefaultValue(values.queue, force)) {
-    await enqueueTaskFormApi.setFieldValue('queue', defaultTaskQueue, false);
-  }
-  if (shouldFillDefaultValue(values.retry, force)) {
-    await enqueueTaskFormApi.setFieldValue('retry', defaultTaskRetry, false);
-  }
-  if (shouldFillDefaultValue(values.timeoutSeconds, force)) {
-    await enqueueTaskFormApi.setFieldValue(
-      'timeoutSeconds',
-      defaultTaskTimeoutSeconds,
-      false,
-    );
-  }
-  if (shouldFillDefaultValue(values.processAt, force)) {
-    await enqueueTaskFormApi.setFieldValue(
-      'processAt',
-      buildRFC3339TimeString(0),
-      false,
-    );
-  }
-  if (shouldFillDefaultValue(values.processInSeconds, force)) {
-    await enqueueTaskFormApi.setFieldValue(
-      'processInSeconds',
-      defaultProcessInSeconds,
-      false,
-    );
-  }
-  if (shouldFillDefaultValue(values.deadline, force)) {
-    await enqueueTaskFormApi.setFieldValue(
-      'deadline',
-      buildRFC3339TimeString(defaultDeadlineSeconds),
-      false,
-    );
-  }
-  if (shouldFillDefaultValue(values.uniqueTTLSeconds, force)) {
-    await enqueueTaskFormApi.setFieldValue(
-      'uniqueTTLSeconds',
-      defaultTaskUniqueTTLSeconds,
-      false,
-    );
-  }
+  await fillTaskConsoleFields(
+    enqueueTaskFormApi,
+    values,
+    [
+      { field: 'queue', value: taskConsoleDefaults.queue },
+      { field: 'retry', value: taskConsoleDefaults.retry },
+      { field: 'timeoutSeconds', value: taskConsoleDefaults.timeoutSeconds },
+      { field: 'processAt', value: () => buildTaskConsoleTime(0) },
+      {
+        field: 'processInSeconds',
+        value: taskConsoleDefaults.processInSeconds,
+      },
+      {
+        field: 'deadline',
+        value: () => buildTaskConsoleTime(taskConsoleDefaults.deadlineSeconds),
+      },
+      {
+        field: 'uniqueTTLSeconds',
+        value: taskConsoleDefaults.uniqueTTLSeconds,
+      },
+    ],
+    force,
+  );
 }
 
 // applySelectedTaskDefaults 自动套用当前任务类型推荐 payload 和默认投递参数。
@@ -968,7 +880,8 @@ async function applySelectedTaskDefaults(options: TaskDefaultOptions = {}) {
     previousMeta?.payloadExample,
   );
   const nextPayloadText =
-    normalizeFormText(taskMeta.payloadExample) || minimalTaskPayloadText;
+    normalizeFormText(taskMeta.payloadExample) ||
+    taskConsoleDefaults.minimalPayloadText;
   const shouldReplacePayload =
     options.force ||
     !currentPayload ||
@@ -1183,12 +1096,12 @@ onMounted(() => {
 
 <template>
   <Page :title="$t('business.message.taskConsole')">
-    <div class="space-y-4">
+    <div class="grid gap-2">
       <section
         class="overflow-hidden rounded-2xl border border-cyan-500/20 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.16),_transparent_34%),linear-gradient(135deg,_rgba(15,23,42,0.98),_rgba(15,23,42,0.9))] px-5 py-4 text-slate-100 shadow-[0_16px_44px_rgba(15,23,42,0.3)]"
       >
         <div
-          class="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] xl:items-start"
+          class="grid gap-4 xl:grid-cols-[minmax(320px,0.78fr)_minmax(0,1.22fr)] xl:items-start"
         >
           <div>
             <div
@@ -1203,7 +1116,7 @@ onMounted(() => {
               {{ $t('business.message.taskConsoleDesc') }}
             </div>
           </div>
-          <div class="grid grid-cols-2 gap-2 xl:grid-cols-3">
+          <div class="grid grid-cols-2 gap-2 md:grid-cols-3 2xl:grid-cols-6">
             <div
               v-for="item in taskConsoleOverviewCards"
               :key="item.label"
@@ -1214,11 +1127,15 @@ onMounted(() => {
               >
                 {{ item.label }}
               </div>
-              <div class="mt-1 break-all text-lg font-semibold text-white">
+              <div
+                class="mt-1 truncate text-lg font-semibold text-white"
+                :title="String(item.value || '-')"
+              >
                 {{ item.value }}
               </div>
               <div
                 class="mt-1 line-clamp-1 text-[11px] leading-4 text-slate-400"
+                :title="String(item.description || '-')"
               >
                 {{ item.description }}
               </div>
@@ -1227,7 +1144,7 @@ onMounted(() => {
         </div>
       </section>
 
-      <div class="grid grid-cols-1 gap-5">
+      <div class="grid grid-cols-1 gap-2">
         <Card
           class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
           :title="$t('business.message.schedulerStatus')"

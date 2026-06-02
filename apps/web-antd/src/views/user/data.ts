@@ -1,21 +1,24 @@
 import type { VbenFormSchema } from '#/adapter/form';
 import type { OnActionClickFn, VxeTableGridOptions } from '#/adapter/vxe-table';
-import type { SystemAPIUserApi } from '#/api/system';
+import type { UserApi } from '#/api/user';
 
 import { buildClampTextColumn } from '#/adapter/vxe-table';
 import {
   asActionPermission,
-  SYSTEM_ACTION_PERMISSION_CODES,
+  USER_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 
-// API_USER_STATUS_OPTIONS 定义前台用户账号状态选项。
-export const API_USER_STATUS_OPTIONS = [
+// USER_STATUS_OPTIONS 定义用户账号状态选项。
+export const USER_STATUS_OPTIONS = [
   { label: $t('business.message.enabled'), value: 1 },
   { label: $t('business.message.disabled'), value: 0 },
 ];
 
-// useGridFormSchema 返回前台用户列表筛选表单配置。
+// USER_SHARD_NO_MAX 表示用户分片号最大值。
+const USER_SHARD_NO_MAX = 999;
+
+// useGridFormSchema 返回用户列表筛选表单配置。
 export function useGridFormSchema(): VbenFormSchema[] {
   return [
     {
@@ -30,12 +33,24 @@ export function useGridFormSchema(): VbenFormSchema[] {
       },
     },
     {
+      component: 'InputNumber',
+      fieldName: 'shardNo',
+      label: $t('business.message.shardNo'),
+      componentProps: {
+        max: USER_SHARD_NO_MAX,
+        min: 0,
+        placeholder: $t('business.message.filterByShardNo'),
+        precision: 0,
+        style: { width: '100%' },
+      },
+    },
+    {
       component: 'Input',
       fieldName: 'username',
-      label: $t('business.message.apiUsername'),
+      label: $t('business.message.username'),
       componentProps: {
         allowClear: true,
-        placeholder: $t('business.message.filterByApiUsername'),
+        placeholder: $t('business.message.filterByUsername'),
       },
     },
     {
@@ -62,25 +77,30 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.accountStatus'),
       componentProps: {
         allowClear: true,
-        options: API_USER_STATUS_OPTIONS,
+        options: USER_STATUS_OPTIONS,
         placeholder: $t('business.message.filterByStatus'),
       },
     },
   ];
 }
 
-// useColumns 返回前台用户管理表格列配置。
-export function useColumns<T = SystemAPIUserApi.Item>(
+// useColumns 返回用户管理表格列配置。
+export function useColumns<T = UserApi.Item>(
   onActionClick: OnActionClickFn<T>,
   onStatusChange?: (newStatus: any, row: T) => PromiseLike<boolean | undefined>,
 ): VxeTableGridOptions['columns'] {
   return [
     { field: 'id', fixed: 'left', title: 'ID', width: 90 },
+    {
+      field: 'shardNo',
+      title: $t('business.message.shardNo'),
+      width: 100,
+    },
     buildClampTextColumn({
       field: 'username',
       fixed: 'left',
       minWidth: 150,
-      title: $t('business.message.apiUsername'),
+      title: $t('business.message.username'),
     }),
     buildClampTextColumn({
       field: 'nickname',
@@ -99,7 +119,12 @@ export function useColumns<T = SystemAPIUserApi.Item>(
     }),
     {
       cellRender: {
-        attrs: { beforeChange: onStatusChange },
+        attrs: {
+          auth: asActionPermission(
+            USER_ACTION_PERMISSION_CODES.USER_STATUS_UPDATE,
+          ),
+          beforeChange: onStatusChange,
+        },
         name: onStatusChange ? 'CellSwitch' : 'CellTag',
       },
       field: 'status',
@@ -136,16 +161,14 @@ export function useColumns<T = SystemAPIUserApi.Item>(
         name: 'CellOperation',
         options: [
           {
-            auth: asActionPermission(
-              SYSTEM_ACTION_PERMISSION_CODES.API_USER_UPDATE,
-            ),
+            auth: asActionPermission(USER_ACTION_PERMISSION_CODES.USER_UPDATE),
             code: 'edit',
             iconOnly: true,
             text: $t('business.message.edit'),
           },
           {
             auth: asActionPermission(
-              SYSTEM_ACTION_PERMISSION_CODES.API_USER_PASSWORD_RESET,
+              USER_ACTION_PERMISSION_CODES.USER_PASSWORD_RESET,
             ),
             code: 'resetPassword',
             iconOnly: true,
@@ -153,7 +176,7 @@ export function useColumns<T = SystemAPIUserApi.Item>(
           },
           {
             auth: asActionPermission(
-              SYSTEM_ACTION_PERMISSION_CODES.API_USER_RUNTIME_SYNC,
+              USER_ACTION_PERMISSION_CODES.USER_RUNTIME_SYNC,
             ),
             code: 'syncRuntime',
             iconOnly: true,

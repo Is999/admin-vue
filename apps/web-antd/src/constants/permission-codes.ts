@@ -7,7 +7,6 @@ type ValueOf<T> = T[keyof T];
 export const SYSTEM_ROUTE_PERMISSION_CODES = {
   ADMIN_LIST: '100023',
   ADMIN_LOG_QUERY: '100052',
-  API_USER_LIST: '100092',
   CACHE_LIST: '100043',
   PERMISSION_LIST: '100011',
   PROJECT_DIR: '100065',
@@ -25,13 +24,8 @@ export const SYSTEM_ACTION_PERMISSION_CODES = {
   ADMIN_EXPORT: '100074',
   ADMIN_PASSWORD_RESET: '100033',
   ADMIN_ROLE_LIST: '100029',
+  ADMIN_STATUS_UPDATE: '100028',
   ADMIN_UPDATE: '100027',
-  API_USER_ADD: '100094',
-  API_USER_INFO: '100093',
-  API_USER_PASSWORD_RESET: '100097',
-  API_USER_RUNTIME_SYNC: '100098',
-  API_USER_STATUS_UPDATE: '100096',
-  API_USER_UPDATE: '100095',
   CACHE_KEY_INFO: '100044',
   CACHE_RENEW: '100045',
   CACHE_RENEW_ALL: '100046',
@@ -62,6 +56,22 @@ export const SYSTEM_ACTION_PERMISSION_CODES = {
   SYSTEM_CONFIG_UPDATE: '100040',
 } as const satisfies Record<string, PermissionCode>;
 
+// USER_ROUTE_PERMISSION_CODES 统一维护用户管理模块的页面级 uuid 权限码。
+export const USER_ROUTE_PERMISSION_CODES = {
+  USER_MANAGE: '100099',
+  USER_LIST: '100092',
+} as const satisfies Record<string, PermissionCode>;
+
+// USER_ACTION_PERMISSION_CODES 统一维护用户管理模块的按钮与接口级 uuid 权限码。
+export const USER_ACTION_PERMISSION_CODES = {
+  USER_ADD: '100094',
+  USER_INFO: '100093',
+  USER_PASSWORD_RESET: '100097',
+  USER_RUNTIME_SYNC: '100098',
+  USER_STATUS_UPDATE: '100096',
+  USER_UPDATE: '100095',
+} as const satisfies Record<string, PermissionCode>;
+
 // OPS_ROUTE_PERMISSION_CODES 统一维护任务运维模块页面级 uuid 权限码。
 export const OPS_ROUTE_PERMISSION_CODES = {
   API_DOCS: '200029',
@@ -78,6 +88,7 @@ export const OPS_ROUTE_PERMISSION_CODES = {
 
 // OPS_ACTION_PERMISSION_CODES 统一维护任务运维模块按钮与接口级 uuid 权限码。
 export const OPS_ACTION_PERMISSION_CODES = {
+  API_RUNTIME_CONFIG_RELOAD_ITEMS: '200070',
   API_RUNTIME_CONFIG_RELOAD_RUN: '200058',
   API_RUNTIME_CONFIG_RELOAD_STATUS: '200057',
   COLLECTOR_OVERVIEW: '200044',
@@ -109,12 +120,14 @@ export const OPS_ACTION_PERMISSION_CODES = {
 export const ROUTE_PERMISSION_CODE_GROUPS = {
   ops: OPS_ROUTE_PERMISSION_CODES,
   system: SYSTEM_ROUTE_PERMISSION_CODES,
+  user: USER_ROUTE_PERMISSION_CODES,
 } as const;
 
 // ACTION_PERMISSION_CODE_GROUPS 便于按业务模块聚合按钮与接口权限。
 export const ACTION_PERMISSION_CODE_GROUPS = {
   ops: OPS_ACTION_PERMISSION_CODES,
   system: SYSTEM_ACTION_PERMISSION_CODES,
+  user: USER_ACTION_PERMISSION_CODES,
 } as const;
 
 // SystemRoutePermissionCode 表示系统管理模块页面级权限码联合类型。
@@ -125,6 +138,14 @@ export type SystemRoutePermissionCode = ValueOf<
 export type SystemActionPermissionCode = ValueOf<
   typeof SYSTEM_ACTION_PERMISSION_CODES
 >;
+// UserRoutePermissionCode 表示用户管理模块页面级权限码联合类型。
+export type UserRoutePermissionCode = ValueOf<
+  typeof USER_ROUTE_PERMISSION_CODES
+>;
+// UserActionPermissionCode 表示用户管理模块按钮与接口级权限码联合类型。
+export type UserActionPermissionCode = ValueOf<
+  typeof USER_ACTION_PERMISSION_CODES
+>;
 // OpsRoutePermissionCode 表示任务运维模块页面级权限码联合类型。
 export type OpsRoutePermissionCode = ValueOf<typeof OPS_ROUTE_PERMISSION_CODES>;
 // OpsActionPermissionCode 表示任务运维模块按钮与接口级权限码联合类型。
@@ -134,21 +155,25 @@ export type OpsActionPermissionCode = ValueOf<
 // RoutePermissionCode 表示所有页面级权限码联合类型。
 export type RoutePermissionCode =
   | OpsRoutePermissionCode
-  | SystemRoutePermissionCode;
+  | SystemRoutePermissionCode
+  | UserRoutePermissionCode;
 // ActionPermissionCode 表示所有按钮与接口级权限码联合类型。
 export type ActionPermissionCode =
   | OpsActionPermissionCode
-  | SystemActionPermissionCode;
+  | SystemActionPermissionCode
+  | UserActionPermissionCode;
 
 // ALL_ROUTE_PERMISSION_CODES 汇总全部页面级权限码，便于做调试、校验和文档输出。
 export const ALL_ROUTE_PERMISSION_CODES = [
   ...Object.values(SYSTEM_ROUTE_PERMISSION_CODES),
+  ...Object.values(USER_ROUTE_PERMISSION_CODES),
   ...Object.values(OPS_ROUTE_PERMISSION_CODES),
 ] as const satisfies readonly RoutePermissionCode[];
 
 // ALL_ACTION_PERMISSION_CODES 汇总全部按钮与接口级权限码，便于做调试、校验和文档输出。
 export const ALL_ACTION_PERMISSION_CODES = [
   ...Object.values(SYSTEM_ACTION_PERMISSION_CODES),
+  ...Object.values(USER_ACTION_PERMISSION_CODES),
   ...Object.values(OPS_ACTION_PERMISSION_CODES),
 ] as const satisfies readonly ActionPermissionCode[];
 

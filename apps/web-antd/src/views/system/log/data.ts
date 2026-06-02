@@ -5,11 +5,46 @@ import type { SystemAdminLogApi } from '#/api/system';
 import { buildClampTextColumn } from '#/adapter/vxe-table';
 import { $t } from '#/locales';
 
+import { bizCodeTagMeta } from '../table-tags';
+
 // SUCCESS_TAG_MAP 定义日志执行结果标签样式。
 const SUCCESS_TAG_MAP = {
   false: { color: 'error', text: $t('business.message.failed') },
   true: { color: 'success', text: $t('business.message.success') },
 };
+
+// httpStatusTagMeta 根据 HTTP 状态码区间返回标签样式。
+function httpStatusTagMeta(value: any) {
+  const status = Number(value);
+  if (!status) {
+    return { color: 'default', text: '-' };
+  }
+  if (status >= 500) {
+    return { color: 'error', text: status };
+  }
+  if (status >= 400) {
+    return { color: 'warning', text: status };
+  }
+  if (status >= 300) {
+    return { color: 'processing', text: status };
+  }
+  return { color: 'success', text: status };
+}
+
+// latencyTagMeta 按接口耗时突出慢请求。
+function latencyTagMeta(value: any) {
+  const latency = Number(value);
+  if (!latency) {
+    return { color: 'default', text: value ?? '-' };
+  }
+  if (latency >= 1000) {
+    return { color: 'error', text: latency };
+  }
+  if (latency >= 300) {
+    return { color: 'warning', text: latency };
+  }
+  return { color: 'success', text: latency };
+}
 
 // useGridFormSchema 返回后台日志列表搜索表单配置。
 export function useGridFormSchema(): VbenFormSchema[] {
@@ -97,9 +132,42 @@ export function useColumns<T = SystemAdminLogApi.Item>(
       title: $t('business.message.result'),
       width: 90,
     },
-    { field: 'httpStatus', title: 'HTTP', width: 90 },
-    { field: 'bizCode', title: $t('business.message.bizCode'), width: 90 },
-    { field: 'latencyMs', title: $t('business.message.latencyMs'), width: 100 },
+    {
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ value }: { value: any }) => httpStatusTagMeta(value),
+        },
+        name: 'CellTag',
+      },
+      field: 'httpStatus',
+      title: 'HTTP',
+      width: 90,
+    },
+    {
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ value }: { value: any }) => bizCodeTagMeta(value),
+        },
+        name: 'CellTag',
+      },
+      field: 'bizCode',
+      title: $t('business.message.bizCode'),
+      width: 90,
+    },
+    {
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ value }: { value: any }) => latencyTagMeta(value),
+        },
+        name: 'CellTag',
+      },
+      field: 'latencyMs',
+      title: $t('business.message.latencyMs'),
+      width: 100,
+    },
     { field: 'ip', minWidth: 140, title: $t('business.message.ipAddress') },
     {
       field: 'ipaddr',

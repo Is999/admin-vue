@@ -432,14 +432,14 @@ function formatMilliseconds(ms: number) {
 
 <template>
   <Page :title="$t('business.message.collectorTask')">
-    <div class="space-y-4">
+    <div class="grid min-w-0 gap-2">
       <section
-        class="overflow-hidden rounded-2xl border border-cyan-500/20 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.16),_transparent_34%),linear-gradient(135deg,_rgba(15,23,42,0.98),_rgba(15,23,42,0.9))] px-5 py-4 text-slate-100 shadow-[0_16px_44px_rgba(15,23,42,0.3)]"
+        class="min-w-0 overflow-hidden rounded-2xl border border-cyan-500/20 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.16),_transparent_34%),linear-gradient(135deg,_rgba(15,23,42,0.98),_rgba(15,23,42,0.9))] px-5 py-4 text-slate-100 shadow-[0_16px_44px_rgba(15,23,42,0.3)]"
       >
         <div
-          class="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] xl:items-start"
+          class="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] xl:items-start"
         >
-          <div>
+          <div class="min-w-0">
             <div
               class="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300/80"
             >
@@ -452,11 +452,13 @@ function formatMilliseconds(ms: number) {
               {{ $t('business.message.collectorConsoleDesc') }}
             </div>
           </div>
-          <div class="grid grid-cols-2 gap-2 xl:grid-cols-3">
+          <div
+            class="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2"
+          >
             <div
               v-for="item in stateSummaryCards"
               :key="item.label"
-              class="rounded-xl border border-white/10 bg-white/5 px-3 py-3 backdrop-blur"
+              class="min-w-0 rounded-xl border border-white/10 bg-white/5 px-3 py-3 backdrop-blur"
             >
               <div
                 class="truncate text-[11px] uppercase tracking-[0.18em] text-slate-400"
@@ -481,16 +483,16 @@ function formatMilliseconds(ms: number) {
         :type="pageGuideText.type"
       />
 
-      <div class="grid gap-4 xl:grid-cols-2">
+      <div class="grid min-w-0 gap-2 xl:grid-cols-2">
         <Card
-          class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+          class="min-w-0 border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
           :title="$t('business.message.collectorGlobalBacklog')"
         >
-          <div class="grid gap-3 sm:grid-cols-2">
+          <div class="grid min-w-0 gap-3 sm:grid-cols-2">
             <div
               v-for="item in overviewBacklogCards"
               :key="item.label"
-              class="rounded-xl border border-slate-200/70 bg-slate-50/90 px-4 py-3 dark:border-slate-700/60 dark:bg-slate-800/60"
+              class="min-w-0 rounded-xl border border-slate-200/70 bg-slate-50/90 px-4 py-3 dark:border-slate-700/60 dark:bg-slate-800/60"
             >
               <div class="text-xs text-slate-500 dark:text-slate-300">
                 {{ item.label }}
@@ -508,14 +510,14 @@ function formatMilliseconds(ms: number) {
         </Card>
 
         <Card
-          class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+          class="min-w-0 border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
           :title="$t('business.message.collectorRecentWindowPerformance')"
         >
-          <div class="grid gap-3 md:grid-cols-3">
+          <div class="grid min-w-0 gap-3 md:grid-cols-3">
             <div
               v-for="item in overviewWindowCards"
               :key="item.label"
-              class="rounded-xl border border-slate-200/70 bg-slate-50/90 px-4 py-3 dark:border-slate-700/60 dark:bg-slate-800/60"
+              class="min-w-0 rounded-xl border border-slate-200/70 bg-slate-50/90 px-4 py-3 dark:border-slate-700/60 dark:bg-slate-800/60"
             >
               <div class="text-xs text-slate-500 dark:text-slate-300">
                 {{ item.label }}
@@ -525,34 +527,38 @@ function formatMilliseconds(ms: number) {
               >
                 {{ item.value }}
               </div>
-              <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              <div
+                class="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400"
+              >
                 {{ $t('business.message.successFailed') }};
                 {{ item.description }}
               </div>
             </div>
           </div>
           <div
-            class="mt-3 rounded-xl border border-dashed border-slate-200/70 px-3 py-2 text-xs text-slate-500 dark:border-slate-700/60 dark:text-slate-300"
+            class="mt-3 break-words rounded-xl border border-dashed border-slate-200/70 px-3 py-2 text-xs text-slate-500 dark:border-slate-700/60 dark:text-slate-300"
           >
             {{ $t('business.message.currentParameters') }}:
             {{ collectorConfigSummary }}
           </div>
-          <div class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          <div
+            class="mt-2 break-words text-xs text-slate-500 dark:text-slate-400"
+          >
             {{ overviewFreshnessText }}
           </div>
         </Card>
       </div>
 
-      <div class="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,0.95fr)]">
+      <div class="grid min-w-0 gap-2 xl:grid-cols-2">
         <Card
-          class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+          class="min-w-0 border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
           :title="$t('business.message.collectorBizTypeHotRank')"
         >
           <div v-if="bizTypeTopRows.length > 0" class="space-y-3">
             <div
               v-for="item in bizTypeTopRows"
               :key="item.bizType"
-              class="rounded-xl border border-slate-200/70 bg-slate-50/90 px-4 py-3 dark:border-slate-700/60 dark:bg-slate-800/60"
+              class="min-w-0 rounded-xl border border-slate-200/70 bg-slate-50/90 px-4 py-3 dark:border-slate-700/60 dark:bg-slate-800/60"
             >
               <div class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0">
@@ -601,17 +607,17 @@ function formatMilliseconds(ms: number) {
         </Card>
 
         <Card
-          class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+          class="min-w-0 border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
           :title="$t('business.message.collectorTransportDistribution')"
         >
           <div v-if="transportStatCards.length > 0" class="space-y-3">
             <div
               v-for="item in transportStatCards"
               :key="item.label"
-              class="rounded-xl border border-slate-200/70 bg-slate-50/90 px-4 py-3 dark:border-slate-700/60 dark:bg-slate-800/60"
+              class="min-w-0 rounded-xl border border-slate-200/70 bg-slate-50/90 px-4 py-3 dark:border-slate-700/60 dark:bg-slate-800/60"
             >
               <div class="flex items-start justify-between gap-3">
-                <div>
+                <div class="min-w-0">
                   <div
                     class="text-sm font-semibold uppercase text-slate-900 dark:text-slate-100"
                   >
@@ -641,7 +647,7 @@ function formatMilliseconds(ms: number) {
       </div>
 
       <div
-        class="rounded-2xl border border-slate-200/70 bg-white/95 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+        class="min-w-0 rounded-2xl border border-slate-200/70 bg-white/95 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
       >
         <div
           class="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200/70 px-4 py-3 dark:border-slate-700/60"
@@ -691,8 +697,8 @@ function formatMilliseconds(ms: number) {
           </Space>
         </div>
 
-        <div class="grid gap-3 px-4 py-3 md:grid-cols-2 xl:grid-cols-4">
-          <div>
+        <div class="grid min-w-0 gap-3 px-4 py-3 md:grid-cols-2 xl:grid-cols-4">
+          <div class="min-w-0">
             <div class="mb-1 text-xs text-slate-500 dark:text-slate-300">
               {{ $t('business.message.eventCategoryBizType') }}
             </div>
@@ -702,7 +708,7 @@ function formatMilliseconds(ms: number) {
               :placeholder="$t('business.message.collectorBizTypePlaceholder')"
             />
           </div>
-          <div>
+          <div class="min-w-0">
             <div class="mb-1 text-xs text-slate-500 dark:text-slate-300">
               {{ $t('business.message.transportChannel') }}
             </div>
@@ -714,7 +720,7 @@ function formatMilliseconds(ms: number) {
               :options="COLLECTOR_TRANSPORT_OPTIONS"
             />
           </div>
-          <div>
+          <div class="min-w-0">
             <div class="mb-1 text-xs text-slate-500 dark:text-slate-300">
               {{ $t('business.message.taskState') }}
             </div>
@@ -726,7 +732,7 @@ function formatMilliseconds(ms: number) {
               :options="collectorStateOptions"
             />
           </div>
-          <div class="flex items-end gap-2">
+          <div class="flex min-w-0 flex-wrap items-end gap-2">
             <Button type="primary" @click="handleQuery">
               {{ $t('business.message.search') }}
             </Button>
@@ -737,9 +743,9 @@ function formatMilliseconds(ms: number) {
         </div>
 
         <div
-          class="grid gap-3 border-t border-slate-200/70 px-4 py-3 md:grid-cols-3 dark:border-slate-700/60"
+          class="grid min-w-0 gap-3 border-t border-slate-200/70 px-4 py-3 md:grid-cols-3 dark:border-slate-700/60"
         >
-          <div>
+          <div class="min-w-0">
             <div class="mb-1 text-xs text-slate-500 dark:text-slate-300">
               {{ $t('business.message.runLimitLabel') }}
             </div>
@@ -751,7 +757,7 @@ function formatMilliseconds(ms: number) {
               :placeholder="$t('business.message.default200')"
             />
           </div>
-          <div>
+          <div class="min-w-0">
             <div class="mb-1 text-xs text-slate-500 dark:text-slate-300">
               {{ $t('business.message.retryDelaySecondsLabel') }}
             </div>
@@ -763,7 +769,7 @@ function formatMilliseconds(ms: number) {
               :placeholder="$t('business.message.default60')"
             />
           </div>
-          <div>
+          <div class="min-w-0">
             <div class="mb-1 text-xs text-slate-500 dark:text-slate-300">
               {{ $t('business.message.retryLimitLabel') }}
             </div>
@@ -778,7 +784,7 @@ function formatMilliseconds(ms: number) {
         </div>
 
         <div
-          class="border-t border-slate-200/70 px-4 py-3 text-xs text-slate-500 dark:border-slate-700/60 dark:text-slate-300"
+          class="break-words border-t border-slate-200/70 px-4 py-3 text-xs text-slate-500 dark:border-slate-700/60 dark:text-slate-300"
         >
           {{ $t('business.message.collectorMatchedTotalHint', [currentTotal]) }}
           <template v-if="resetAttempt">
@@ -799,12 +805,10 @@ function formatMilliseconds(ms: number) {
         </div>
       </div>
 
-      <Card
-        class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
-        :title="$t('business.message.taskList')"
-      >
-        <Grid :table-title="$t('business.message.collectorTaskList')" />
-      </Card>
+      <Grid
+        class="min-w-0"
+        :table-title="$t('business.message.collectorTaskList')"
+      />
     </div>
   </Page>
 </template>

@@ -20,6 +20,7 @@ import {
   Modal,
   QRCode,
   Space,
+  Tag,
 } from 'ant-design-vue';
 
 import { useVbenForm } from '#/adapter/form';
@@ -102,6 +103,17 @@ const profileMfaBindRequired = computed(() =>
 const profileMfaDeviceUnavailable = computed(
   () => profileMfaStatus.value === 1 && !profile.value.existMFA,
 );
+// profileAccountName 展示账号摘要区优先使用的姓名。
+const profileAccountName = computed(() =>
+  formatProfileText(profile.value.realName || profile.value.username),
+);
+// profileAccountInitial 生成无头像时展示的账号首字。
+const profileAccountInitial = computed(() => {
+  const name = String(
+    profile.value.realName || profile.value.username || '',
+  ).trim();
+  return name ? name.slice(0, 1).toUpperCase() : '-';
+});
 // profileNeedResetPassword 归一化必须改密状态。
 const profileNeedResetPassword = computed(
   () =>
@@ -119,6 +131,12 @@ const avatarPreviewURL = ref('');
 const avatarPreviewFailed = ref(false);
 // avatarInputRef 绑定头像文件选择器。
 const avatarInputRef = ref<HTMLInputElement | null>(null);
+
+// formatProfileText 归一化个人信息展示值，避免空字符串把表格撑成空白。
+function formatProfileText(value: unknown) {
+  const text = String(value ?? '').trim();
+  return text || '-';
+}
 
 // profileSchema 定义基础资料表单。
 const profileSchema: VbenFormSchema[] = [
@@ -498,42 +516,216 @@ async function submitWithMfa<T>(
 
 <template>
   <Page auto-content-height>
-    <div class="grid gap-3 xl:grid-cols-[360px_1fr]">
+    <div class="grid gap-2 xl:grid-cols-[360px_1fr]">
       <Card
+        class="profile-account-card"
         size="small"
         :title="$t('business.message.profileAccountInfoCardTitle')"
         :loading="loading"
       >
-        <Descriptions :column="1" size="small" bordered>
-          <DescriptionsItem :label="$t('business.message.userId')">
-            {{ profileId || '-' }}
-          </DescriptionsItem>
-          <DescriptionsItem :label="$t('business.message.loginUsername')">
-            {{ profile.username || '-' }}
-          </DescriptionsItem>
-          <DescriptionsItem :label="$t('business.message.accountStatus')">
+        <div class="profile-account-summary">
+          <div
+            v-if="avatarPreviewURL && !avatarPreviewFailed"
+            class="profile-account-avatar"
+          >
+            <img
+              :src="avatarPreviewURL"
+              :alt="$t('business.message.avatarPreviewAlt')"
+              @error="onAvatarPreviewError"
+            />
+          </div>
+          <div v-else class="profile-account-avatar-placeholder">
+            {{ profileAccountInitial }}
+          </div>
+          <div class="profile-account-identity">
+            <div class="profile-account-name" :title="profileAccountName">
+              {{ profileAccountName }}
+            </div>
+            <div class="profile-account-username" :title="profile.username">
+              @{{ formatProfileText(profile.username) }}
+            </div>
+            <div class="profile-account-id">
+              {{ $t('business.message.userId') }}: {{ profileId || '-' }}
+            </div>
+          </div>
+        </div>
+
+        <Space class="profile-account-tags" wrap>
+          <Tag
+            :color="
+              profile.status === 1
+                ? 'success'
+                : profile.status === 0
+                  ? 'error'
+                  : 'default'
+            "
+          >
             {{
               profile.status === 1
                 ? $t('business.message.enabled')
-                : $t('business.message.disabled')
+                : profile.status === 0
+                  ? $t('business.message.disabled')
+                  : '-'
             }}
-          </DescriptionsItem>
-          <DescriptionsItem :label="$t('business.message.mfaStatus')">
+          </Tag>
+          <Tag :color="profileMfaStatus === 1 ? 'success' : 'warning'">
             {{
               profileMfaStatus === 1
-                ? $t('business.message.enabled')
-                : $t('business.message.disabled')
+                ? $t('business.message.mfaEnabled')
+                : $t('business.message.mfaDisabled')
             }}
-          </DescriptionsItem>
-          <DescriptionsItem :label="$t('business.message.lastLoginIp')">
-            {{ profile.lastLoginIP || '-' }}
-          </DescriptionsItem>
-          <DescriptionsItem :label="$t('business.message.lastLoginTime')">
-            {{ profile.lastLoginTime || '-' }}
-          </DescriptionsItem>
-        </Descriptions>
+          </Tag>
+          <Tag :color="profileNeedResetPassword ? 'warning' : 'success'">
+            {{
+              profileNeedResetPassword
+                ? $t('business.message.passwordChangeRequiredShort')
+                : $t('business.message.passwordStatusNormal')
+            }}
+          </Tag>
+        </Space>
+
+        <section class="profile-account-section">
+          <div class="profile-account-section-title">
+            {{ $t('business.message.profileAccountBasicSection') }}
+          </div>
+          <Descriptions
+            class="profile-account-descriptions"
+            :column="1"
+            size="small"
+            bordered
+          >
+            <DescriptionsItem :label="$t('business.message.loginUsername')">
+              {{ formatProfileText(profile.username) }}
+            </DescriptionsItem>
+            <DescriptionsItem :label="$t('business.message.profileRealName')">
+              {{ formatProfileText(profile.realName) }}
+            </DescriptionsItem>
+            <DescriptionsItem :label="$t('business.message.profileEmail')">
+              {{ formatProfileText(profile.email) }}
+            </DescriptionsItem>
+            <DescriptionsItem :label="$t('business.message.profilePhone')">
+              {{ formatProfileText(profile.phone) }}
+            </DescriptionsItem>
+            <DescriptionsItem
+              :label="$t('business.message.profileDescription')"
+            >
+              <div class="profile-account-long-text">
+                {{ formatProfileText(profile.description) }}
+              </div>
+            </DescriptionsItem>
+          </Descriptions>
+        </section>
+
+        <section class="profile-account-section">
+          <div class="profile-account-section-title">
+            {{ $t('business.message.profileAccountSecuritySection') }}
+          </div>
+          <Descriptions
+            class="profile-account-descriptions"
+            :column="1"
+            size="small"
+            bordered
+          >
+            <DescriptionsItem :label="$t('business.message.accountStatus')">
+              <Tag
+                :color="
+                  profile.status === 1
+                    ? 'success'
+                    : profile.status === 0
+                      ? 'error'
+                      : 'default'
+                "
+              >
+                {{
+                  profile.status === 1
+                    ? $t('business.message.enabled')
+                    : profile.status === 0
+                      ? $t('business.message.disabled')
+                      : '-'
+                }}
+              </Tag>
+            </DescriptionsItem>
+            <DescriptionsItem
+              :label="$t('business.message.loginPasswordStatus')"
+            >
+              <Tag :color="profileNeedResetPassword ? 'warning' : 'success'">
+                {{
+                  profileNeedResetPassword
+                    ? $t('business.message.passwordChangeRequiredShort')
+                    : $t('business.message.passwordStatusNormal')
+                }}
+              </Tag>
+            </DescriptionsItem>
+            <DescriptionsItem :label="$t('business.message.mfaStatus')">
+              <Tag :color="profileMfaStatus === 1 ? 'success' : 'warning'">
+                {{
+                  profileMfaStatus === 1
+                    ? $t('business.message.enabled')
+                    : $t('business.message.disabled')
+                }}
+              </Tag>
+            </DescriptionsItem>
+            <DescriptionsItem :label="$t('business.message.mfaDevice')">
+              <Tag :color="profile.existMFA ? 'success' : 'warning'">
+                {{
+                  profile.existMFA
+                    ? $t('business.message.mfaDeviceBound')
+                    : $t('business.message.mfaDeviceUnbound')
+                }}
+              </Tag>
+            </DescriptionsItem>
+            <DescriptionsItem :label="$t('business.message.mfaForcePolicy')">
+              <Tag :color="profileForceMfaEnabled ? 'warning' : 'default'">
+                {{
+                  profileForceMfaEnabled
+                    ? $t('business.message.mfaForceEnabled')
+                    : $t('business.message.mfaForceDisabled')
+                }}
+              </Tag>
+            </DescriptionsItem>
+            <DescriptionsItem
+              :label="$t('business.message.mfaBindingRequirement')"
+            >
+              <Tag :color="profileMfaBindRequired ? 'warning' : 'success'">
+                {{
+                  profileMfaBindRequired
+                    ? $t('business.message.mfaBindRequiredShort')
+                    : $t('business.message.mfaBindCompleted')
+                }}
+              </Tag>
+            </DescriptionsItem>
+          </Descriptions>
+        </section>
+
+        <section class="profile-account-section">
+          <div class="profile-account-section-title">
+            {{ $t('business.message.profileAccountLoginSection') }}
+          </div>
+          <Descriptions
+            class="profile-account-descriptions"
+            :column="1"
+            size="small"
+            bordered
+          >
+            <DescriptionsItem :label="$t('business.message.lastLoginIp')">
+              {{ formatProfileText(profile.lastLoginIP) }}
+            </DescriptionsItem>
+            <DescriptionsItem :label="$t('business.message.lastLoginLocation')">
+              {{ formatProfileText(profile.lastLoginIpaddr) }}
+            </DescriptionsItem>
+            <DescriptionsItem :label="$t('business.message.lastLoginTime')">
+              {{ formatProfileText(profile.lastLoginTime) }}
+            </DescriptionsItem>
+            <DescriptionsItem :label="$t('business.message.createdAt')">
+              {{ formatProfileText(profile.createdAt) }}
+            </DescriptionsItem>
+            <DescriptionsItem :label="$t('business.message.updatedAt')">
+              {{ formatProfileText(profile.updatedAt) }}
+            </DescriptionsItem>
+          </Descriptions>
+        </section>
       </Card>
-      <div class="grid gap-3">
+      <div class="grid gap-2">
         <Card
           size="small"
           :title="$t('business.message.basicSettings')"
@@ -608,165 +800,222 @@ async function submitWithMfa<T>(
             </VbenButton>
           </Space>
         </Card>
-        <Card size="small" :title="$t('business.message.securitySettings')">
-          <Alert
-            v-if="profileNeedResetPassword"
-            class="mb-4"
-            :message="$t('business.message.profilePasswordResetRequiredTitle')"
-            :description="
-              $t('business.message.profilePasswordResetRequiredDesc')
-            "
-            show-icon
-            type="warning"
-          />
-          <Alert
-            class="mb-3"
-            :message="$t('business.message.profileMfaStandaloneTip')"
-            show-icon
-            type="info"
-          />
-          <Alert
-            v-if="profileForceMfaEnabled && profileMfaStatus !== 1"
-            class="mb-4"
-            :description="$t('business.message.mfaForceBindRequiredDesc')"
-            :message="$t('business.message.mfaForceBindRequiredTitle')"
-            show-icon
-            type="warning"
-          />
-          <Alert
-            v-else-if="profileMfaDeviceUnavailable"
-            class="mb-4"
-            :description="$t('business.message.mfaDeviceUnavailable')"
-            :message="$t('business.message.mfaDeviceUnavailableTitle')"
-            show-icon
-            type="error"
-          />
-          <Alert
-            v-else-if="profileMfaBindRequired"
-            class="mb-4"
-            :description="$t('business.message.mfaBindRequiredDesc')"
-            :message="$t('business.message.mfaBindRequiredTitle')"
-            show-icon
-            type="warning"
-          />
-          <div
-            v-if="profileHasMfaBindingMaterial"
-            class="mb-4 grid gap-3 xl:grid-cols-[168px_minmax(0,1fr)]"
-          >
-            <div v-if="profileMfaUrl" class="profile-mfa-qr-card">
-              <div class="profile-mfa-qr-header">
-                <div class="profile-mfa-qr-title">
-                  {{ $t('business.message.mfaScanBind') }}
+        <Card
+          class="profile-security-card"
+          size="small"
+          :title="$t('business.message.securitySettings')"
+        >
+          <div class="profile-security-stack">
+            <Alert
+              v-if="profileNeedResetPassword"
+              :message="
+                $t('business.message.profilePasswordResetRequiredTitle')
+              "
+              :description="
+                $t('business.message.profilePasswordResetRequiredDesc')
+              "
+              show-icon
+              type="warning"
+            />
+
+            <section class="profile-security-block">
+              <div class="profile-security-head">
+                <div class="min-w-0">
+                  <div class="profile-security-title">
+                    {{ $t('business.message.mfaStatusCardTitle') }}
+                  </div>
                 </div>
-                <div class="profile-mfa-qr-caption">
-                  {{ $t('business.message.mfaScanQrCaption') }}
-                </div>
+                <Tag
+                  class="profile-mfa-status-tag"
+                  :class="{
+                    'profile-mfa-status-tag-warning': profileMfaStatus !== 1,
+                  }"
+                  :color="profileMfaStatus === 1 ? 'success' : 'warning'"
+                >
+                  {{
+                    profileMfaStatus === 1
+                      ? $t('business.message.enabled')
+                      : $t('business.message.disabled')
+                  }}
+                </Tag>
               </div>
-              <div class="profile-mfa-qr-board">
-                <QRCode
-                  bg-color="#ffffff"
-                  color="#000000"
-                  :size="124"
-                  :value="profileMfaUrl"
+
+              <Alert
+                class="profile-mfa-guide-alert"
+                :message="$t('business.message.profileMfaStandaloneTip')"
+                show-icon
+                :type="profileMfaStatus === 1 ? 'info' : 'warning'"
+              >
+                <template #description>
+                  <div class="profile-mfa-guide-list">
+                    <span>{{ $t('business.message.mfaScanQrCaption') }}</span>
+                    <span>{{
+                      $t('business.message.mfaQrRightManualTip')
+                    }}</span>
+                  </div>
+                </template>
+              </Alert>
+
+              <div class="profile-security-alerts">
+                <Alert
+                  v-if="profileForceMfaEnabled && profileMfaStatus !== 1"
+                  :description="$t('business.message.mfaForceBindRequiredDesc')"
+                  :message="$t('business.message.mfaForceBindRequiredTitle')"
+                  show-icon
+                  type="warning"
+                />
+                <Alert
+                  v-else-if="profileMfaDeviceUnavailable"
+                  :description="$t('business.message.mfaDeviceUnavailable')"
+                  :message="$t('business.message.mfaDeviceUnavailableTitle')"
+                  show-icon
+                  type="error"
+                />
+                <Alert
+                  v-else-if="profileMfaBindRequired"
+                  :description="$t('business.message.mfaBindRequiredDesc')"
+                  :message="$t('business.message.mfaBindRequiredTitle')"
+                  show-icon
+                  type="warning"
                 />
               </div>
-              <div class="profile-mfa-qr-footer">
-                <div class="profile-mfa-qr-account">
-                  {{ profileMfaAccount }}
-                </div>
-                <div class="profile-mfa-qr-tip">
-                  {{ $t('business.message.mfaQrRightManualTip') }}
-                </div>
-              </div>
-            </div>
-            <div class="min-w-0 space-y-3">
-              <Descriptions :column="1" size="small" bordered>
-                <DescriptionsItem :label="$t('business.message.mfaIssuer')">
-                  {{ profileMfaIssuer }}
-                </DescriptionsItem>
-                <DescriptionsItem :label="$t('business.message.mfaAccount')">
-                  {{ profileMfaAccount }}
-                </DescriptionsItem>
-                <DescriptionsItem
-                  :label="$t('business.message.mfaManualSecret')"
-                >
-                  <Space class="w-full" wrap>
-                    <Input
-                      :value="profileMfaSecret || '-'"
-                      class="min-w-[260px]"
-                      readonly
-                    />
-                    <VbenButton
-                      :disabled="!profileMfaSecret"
-                      @click="
-                        copyTextToClipboard(
-                          profileMfaSecret,
-                          $t('business.message.mfaManualSecretCopied'),
-                          $t('business.message.mfaManualSecretUnavailable'),
-                        )
-                      "
+
+              <div
+                v-if="profileHasMfaBindingMaterial"
+                class="profile-mfa-layout"
+                :class="{ 'profile-mfa-layout-single': !profileMfaUrl }"
+              >
+                <div v-if="profileMfaUrl" class="profile-mfa-qr-panel">
+                  <div class="profile-mfa-qr-header">
+                    <div class="profile-mfa-qr-title">
+                      {{ $t('business.message.mfaScanBind') }}
+                    </div>
+                    <div
+                      class="profile-mfa-qr-account"
+                      :title="profileMfaAccount"
                     >
-                      {{ $t('business.message.mfaCopySecret') }}
+                      {{ profileMfaAccount }}
+                    </div>
+                  </div>
+                  <div class="profile-mfa-qr-board">
+                    <QRCode
+                      bg-color="#ffffff"
+                      color="#000000"
+                      :size="176"
+                      :value="profileMfaUrl"
+                    />
+                  </div>
+                </div>
+                <div class="profile-mfa-detail">
+                  <Descriptions
+                    class="profile-mfa-descriptions"
+                    :column="1"
+                    size="small"
+                    bordered
+                  >
+                    <DescriptionsItem :label="$t('business.message.mfaIssuer')">
+                      {{ profileMfaIssuer }}
+                    </DescriptionsItem>
+                    <DescriptionsItem
+                      :label="$t('business.message.mfaAccount')"
+                    >
+                      {{ profileMfaAccount }}
+                    </DescriptionsItem>
+                    <DescriptionsItem
+                      :label="$t('business.message.mfaManualSecret')"
+                    >
+                      <div class="profile-mfa-secret-row">
+                        <Input
+                          :value="profileMfaSecret || '-'"
+                          class="profile-mfa-secret-input"
+                          readonly
+                        />
+                        <VbenButton
+                          :disabled="!profileMfaSecret"
+                          @click="
+                            copyTextToClipboard(
+                              profileMfaSecret,
+                              $t('business.message.mfaManualSecretCopied'),
+                              $t('business.message.mfaManualSecretUnavailable'),
+                            )
+                          "
+                        >
+                          {{ $t('business.message.mfaCopySecret') }}
+                        </VbenButton>
+                      </div>
+                    </DescriptionsItem>
+                  </Descriptions>
+                  <Space class="profile-mfa-actions" wrap>
+                    <VbenButton
+                      v-if="profileMfaStatus !== 1"
+                      type="primary"
+                      @click="onToggleMfa(1)"
+                    >
+                      {{ $t('business.message.mfaEnableShort') }}
+                    </VbenButton>
+                    <VbenButton v-else danger @click="onToggleMfa(0)">
+                      {{ $t('business.message.mfaDisableShort') }}
+                    </VbenButton>
+                    <VbenButton
+                      v-if="profileMfaStatus !== 1"
+                      @click="onOpenMfaBinding"
+                    >
+                      {{ $t('business.message.mfaGoStaticBind') }}
                     </VbenButton>
                   </Space>
-                </DescriptionsItem>
-              </Descriptions>
-              <Space wrap>
-                <VbenButton
-                  v-if="profileMfaStatus !== 1"
-                  type="primary"
-                  @click="onToggleMfa(1)"
-                >
-                  {{ $t('business.message.mfaEnableShort') }}
-                </VbenButton>
-                <VbenButton v-else danger @click="onToggleMfa(0)">
-                  {{ $t('business.message.mfaDisableShort') }}
-                </VbenButton>
-                <VbenButton
-                  v-if="profileMfaStatus !== 1"
-                  @click="onOpenMfaBinding"
-                >
-                  {{ $t('business.message.mfaGoStaticBind') }}
-                </VbenButton>
-              </Space>
-            </div>
+                </div>
+              </div>
+              <div v-else class="profile-mfa-empty">
+                <div class="profile-mfa-empty-text">
+                  {{
+                    profileMfaStatus === 1
+                      ? $t('business.message.profileMfaEnabledNoMaterial')
+                      : $t('business.message.profileMfaNoMaterial')
+                  }}
+                </div>
+                <Space wrap>
+                  <VbenButton
+                    v-if="profileMfaStatus !== 1"
+                    type="primary"
+                    @click="onToggleMfa(1)"
+                  >
+                    {{ $t('business.message.mfaEnableShort') }}
+                  </VbenButton>
+                  <VbenButton v-else danger @click="onToggleMfa(0)">
+                    {{ $t('business.message.mfaDisableShort') }}
+                  </VbenButton>
+                  <VbenButton
+                    v-if="profileMfaStatus !== 1"
+                    @click="onOpenMfaBinding"
+                  >
+                    {{ $t('business.message.mfaGoStaticBind') }}
+                  </VbenButton>
+                </Space>
+              </div>
+            </section>
+
+            <section class="profile-security-block profile-password-block">
+              <div class="profile-security-head">
+                <div class="min-w-0">
+                  <div class="profile-security-title">
+                    {{ $t('business.message.password') }}
+                  </div>
+                  <div class="profile-security-desc">
+                    {{ $t('business.message.passwordRuleHelp') }}
+                  </div>
+                </div>
+              </div>
+              <PasswordForm />
+              <div class="profile-password-actions-row">
+                <div></div>
+                <Space class="profile-password-actions">
+                  <VbenButton type="primary" @click="onUpdatePassword">
+                    {{ $t('business.message.changePassword') }}
+                  </VbenButton>
+                </Space>
+              </div>
+            </section>
           </div>
-          <div
-            v-else
-            class="bg-[var(--vben-background-soft)]/35 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--vben-border-color)] px-4 py-3"
-          >
-            <div class="text-sm leading-6 text-foreground/70">
-              {{
-                profileMfaStatus === 1
-                  ? $t('business.message.profileMfaEnabledNoMaterial')
-                  : $t('business.message.profileMfaNoMaterial')
-              }}
-            </div>
-            <Space wrap>
-              <VbenButton
-                v-if="profileMfaStatus !== 1"
-                type="primary"
-                @click="onToggleMfa(1)"
-              >
-                {{ $t('business.message.mfaEnableShort') }}
-              </VbenButton>
-              <VbenButton v-else danger @click="onToggleMfa(0)">
-                {{ $t('business.message.mfaDisableShort') }}
-              </VbenButton>
-              <VbenButton
-                v-if="profileMfaStatus !== 1"
-                @click="onOpenMfaBinding"
-              >
-                {{ $t('business.message.mfaGoStaticBind') }}
-              </VbenButton>
-            </Space>
-          </div>
-          <PasswordForm />
-          <Space class="mt-4">
-            <VbenButton type="primary" @click="onUpdatePassword">
-              {{ $t('business.message.changePassword') }}
-            </VbenButton>
-          </Space>
         </Card>
       </div>
     </div>
@@ -774,64 +1023,328 @@ async function submitWithMfa<T>(
 </template>
 
 <style scoped>
-.profile-mfa-qr-card {
-  position: relative;
+.profile-account-card :deep(.ant-card-body) {
+  display: grid;
+  gap: 12px;
+}
+
+.profile-account-summary {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.profile-account-avatar,
+.profile-account-avatar-placeholder {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
   overflow: hidden;
-  background: linear-gradient(
-    180deg,
-    rgb(255 255 255 / 98%),
-    rgb(248 250 252 / 92%)
-  );
-  border: 1px solid rgb(59 130 246 / 18%);
-  border-radius: 18px;
-  box-shadow:
-    0 10px 24px rgb(15 23 42 / 10%),
-    inset 0 1px 0 rgb(255 255 255 / 88%);
+  border: 1px solid var(--vben-border-color);
+  border-radius: 50%;
+}
+
+.profile-account-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profile-account-avatar-placeholder {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--vben-text-color-secondary);
+  background: rgb(127 127 127 / 10%);
+}
+
+.profile-account-identity {
+  min-width: 0;
+}
+
+.profile-account-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+  color: var(--vben-text-color);
+  white-space: nowrap;
+}
+
+.profile-account-username,
+.profile-account-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--vben-text-color-secondary);
+  white-space: nowrap;
+}
+
+.profile-account-tags {
+  gap: 6px;
+}
+
+.profile-account-section {
+  min-width: 0;
+}
+
+.profile-account-section-title {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+  color: var(--vben-text-color-secondary);
+}
+
+.profile-account-descriptions {
+  min-width: 0;
+}
+
+.profile-account-descriptions :deep(.ant-descriptions-item-label) {
+  width: 116px;
+  color: var(--vben-text-color-secondary);
+}
+
+.profile-account-descriptions :deep(.ant-tag) {
+  margin-inline-end: 0;
+}
+
+.profile-account-long-text {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.profile-security-card :deep(.ant-card-body) {
+  padding: 14px;
+}
+
+.profile-security-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.profile-security-block {
+  min-width: 0;
+}
+
+.profile-security-block + .profile-security-block {
+  padding-top: 14px;
+  border-top: 1px solid var(--vben-border-color);
+}
+
+.profile-security-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.profile-security-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+  color: var(--vben-text-color);
+}
+
+.profile-security-desc {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--vben-text-color-secondary);
+}
+
+.profile-mfa-status-tag {
+  margin-inline-end: 0;
+  font-weight: 600;
+}
+
+.profile-mfa-status-tag-warning {
+  color: rgb(217 119 6);
+  background: rgb(245 158 11 / 14%);
+  border-color: rgb(245 158 11 / 45%);
+}
+
+.profile-mfa-guide-alert {
+  margin-bottom: 12px;
+}
+
+.profile-mfa-guide-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  line-height: 20px;
+}
+
+.profile-security-alerts {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.profile-security-alerts:empty {
+  display: none;
+  margin-bottom: 0;
+}
+
+.profile-mfa-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.profile-mfa-layout-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.profile-mfa-qr-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-self: start;
+  overflow: hidden;
+  background: rgb(127 127 127 / 6%);
+  border: 1px solid var(--vben-border-color);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%);
 }
 
 .profile-mfa-qr-header {
-  padding: 12px 14px 8px;
-  background: linear-gradient(135deg, rgb(239 246 255), rgb(245 243 255));
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: rgb(59 130 246 / 8%);
 }
 
 .profile-mfa-qr-title {
+  min-width: 0;
   font-size: 13px;
   font-weight: 700;
   line-height: 20px;
-  color: rgb(30 41 59);
-}
-
-.profile-mfa-qr-caption {
-  margin-top: 2px;
-  font-size: 11px;
-  line-height: 16px;
-  color: rgb(100 116 139);
+  color: var(--vben-text-color);
+  white-space: nowrap;
 }
 
 .profile-mfa-qr-board {
   display: flex;
+  flex: none;
+  align-items: center;
   justify-content: center;
-  padding: 10px 12px 6px;
+  min-height: 0;
+  padding: 10px 12px 12px;
   background: linear-gradient(180deg, rgb(255 255 255), rgb(248 250 252));
 }
 
-.profile-mfa-qr-footer {
-  padding: 0 14px 12px;
-  text-align: center;
-}
-
 .profile-mfa-qr-account {
-  font-size: 13px;
-  font-weight: 700;
+  max-width: 132px;
+  padding: 2px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  font-weight: 600;
   line-height: 18px;
-  color: rgb(15 23 42);
-  word-break: break-all;
+  color: var(--vben-text-color-secondary);
+  white-space: nowrap;
+  background: rgb(127 127 127 / 10%);
+  border: 1px solid rgb(127 127 127 / 14%);
+  border-radius: 999px;
 }
 
-.profile-mfa-qr-tip {
-  margin-top: 4px;
-  font-size: 11px;
-  line-height: 16px;
-  color: rgb(100 116 139);
+.profile-mfa-detail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 232px;
+}
+
+.profile-mfa-descriptions {
+  min-width: 0;
+}
+
+.profile-mfa-descriptions :deep(.ant-descriptions-item-label) {
+  width: 132px;
+  color: var(--vben-text-color-secondary);
+}
+
+.profile-mfa-secret-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.profile-mfa-secret-input {
+  flex: 1 1 320px;
+  min-width: 240px;
+}
+
+.profile-mfa-actions {
+  padding-top: 12px;
+  margin-top: auto;
+}
+
+.profile-mfa-empty {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  background: rgb(127 127 127 / 6%);
+  border: 1px solid var(--vben-border-color);
+  border-radius: 12px;
+}
+
+.profile-mfa-empty-text {
+  flex: 1 1 360px;
+  min-width: 240px;
+  font-size: 13px;
+  line-height: 22px;
+  color: var(--vben-text-color-secondary);
+}
+
+.profile-password-block :deep(.ant-form) {
+  margin-top: -2px;
+}
+
+.profile-password-actions-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: -2px;
+}
+
+.profile-password-actions {
+  justify-content: flex-start;
+}
+
+@media (max-width: 1280px) {
+  .profile-mfa-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .profile-mfa-qr-panel {
+    max-width: 220px;
+  }
+
+  .profile-mfa-detail {
+    min-height: 0;
+  }
+
+  .profile-password-actions-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .profile-password-actions-row > div:first-child {
+    display: none;
+  }
 }
 </style>

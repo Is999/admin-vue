@@ -1198,101 +1198,104 @@ function showTaskDetailModal(task: TaskApi.TaskItem) {
           ]),
         ],
       ),
-      h(Alert, {
-        description: operationGuide.description,
-        message: operationGuide.message,
-        showIcon: true,
-        type: operationGuide.type,
-      }),
-      h(Alert, {
-        description: task.lastErr || $t('business.message.taskNoFailureError'),
-        message: $t('business.message.latestFailureReason'),
-        showIcon: true,
-        type: task.lastErr ? 'error' : 'success',
-      }),
-      h(Space, { size: 8, wrap: true }, () => [
-        h(
-          Button,
-          {
-            size: 'small',
-            onClick: () =>
-              copyTextToClipboard(
-                task.id || '',
-                $t('business.message.taskIdCopied'),
-                $t('business.message.noTaskIdToCopy'),
-              ),
-          },
-          () => $t('business.message.copyTaskId'),
-        ),
-        primaryWorkflowId
-          ? h(
-              Button,
-              {
-                size: 'small',
-                onClick: () =>
-                  copyTextToClipboard(
-                    String(primaryWorkflowId || ''),
-                    $t('business.message.workflowIdCopied'),
-                    $t('business.message.noWorkflowIdToCopy'),
-                  ),
-              },
-              () => $t('business.message.copyWorkflowId'),
-            )
-          : null,
-        primaryWorkflowId
-          ? h(
-              Button,
-              {
-                size: 'small',
-                onClick: async () => {
-                  searchWorkflowId.value = String(primaryWorkflowId || '');
-                  await handleSearch();
+      h('section', { class: 'grid gap-3' }, [
+        h(Alert, {
+          description: operationGuide.description,
+          message: operationGuide.message,
+          showIcon: true,
+          type: operationGuide.type,
+        }),
+        h(Alert, {
+          description:
+            task.lastErr || $t('business.message.taskNoFailureError'),
+          message: $t('business.message.latestFailureReason'),
+          showIcon: true,
+          type: task.lastErr ? 'error' : 'success',
+        }),
+        h('div', { class: 'flex flex-wrap items-center gap-2 pt-1' }, [
+          h(
+            Button,
+            {
+              size: 'small',
+              onClick: () =>
+                copyTextToClipboard(
+                  task.id || '',
+                  $t('business.message.taskIdCopied'),
+                  $t('business.message.noTaskIdToCopy'),
+                ),
+            },
+            () => $t('business.message.copyTaskId'),
+          ),
+          primaryWorkflowId
+            ? h(
+                Button,
+                {
+                  size: 'small',
+                  onClick: () =>
+                    copyTextToClipboard(
+                      String(primaryWorkflowId || ''),
+                      $t('business.message.workflowIdCopied'),
+                      $t('business.message.noWorkflowIdToCopy'),
+                    ),
                 },
-              },
-              () => $t('business.message.filterSameWorkflowTasks'),
-            )
-          : null,
-        workflowId
-          ? h(
-              Button,
-              {
-                size: 'small',
-                type: 'primary',
-                onClick: async () => {
-                  closeTaskDetailModal();
-                  await openWorkflowStatusFromTask(task);
+                () => $t('business.message.copyWorkflowId'),
+              )
+            : null,
+          primaryWorkflowId
+            ? h(
+                Button,
+                {
+                  size: 'small',
+                  onClick: async () => {
+                    searchWorkflowId.value = String(primaryWorkflowId || '');
+                    await handleSearch();
+                  },
                 },
-              },
-              () => $t('business.message.viewWorkflowStatus'),
-            )
-          : null,
-        canRunTask(task)
-          ? h(
-              Button,
-              {
-                size: 'small',
-                onClick: () => {
-                  closeTaskDetailModal();
-                  handleRunTask(task);
+                () => $t('business.message.filterSameWorkflowTasks'),
+              )
+            : null,
+          workflowId
+            ? h(
+                Button,
+                {
+                  size: 'small',
+                  type: 'primary',
+                  onClick: async () => {
+                    closeTaskDetailModal();
+                    await openWorkflowStatusFromTask(task);
+                  },
                 },
-              },
-              () => $t('business.message.runThisTaskNow'),
-            )
-          : null,
-        canDeleteTask(task)
-          ? h(
-              Button,
-              {
-                danger: true,
-                size: 'small',
-                onClick: () => {
-                  closeTaskDetailModal();
-                  handleDeleteTask(task);
+                () => $t('business.message.viewWorkflowStatus'),
+              )
+            : null,
+          canRunTask(task)
+            ? h(
+                Button,
+                {
+                  size: 'small',
+                  onClick: () => {
+                    closeTaskDetailModal();
+                    handleRunTask(task);
+                  },
                 },
-              },
-              () => $t('business.message.deleteThisTask'),
-            )
-          : null,
+                () => $t('business.message.runThisTaskNow'),
+              )
+            : null,
+          canDeleteTask(task)
+            ? h(
+                Button,
+                {
+                  danger: true,
+                  size: 'small',
+                  onClick: () => {
+                    closeTaskDetailModal();
+                    handleDeleteTask(task);
+                  },
+                },
+                () => $t('business.message.deleteThisTask'),
+              )
+            : null,
+        ]),
       ]),
       workflowSummaryRows.length > 0
         ? renderTaskDetailSection(
@@ -1763,14 +1766,14 @@ watch(
 
 <template>
   <Page :title="$t('business.message.taskList')">
-    <div class="space-y-4">
+    <div class="grid min-w-0 gap-2">
       <section
-        class="overflow-hidden rounded-2xl border border-cyan-500/20 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.16),_transparent_34%),linear-gradient(135deg,_rgba(15,23,42,0.98),_rgba(15,23,42,0.9))] px-5 py-4 text-slate-100 shadow-[0_16px_44px_rgba(15,23,42,0.3)]"
+        class="min-w-0 overflow-hidden rounded-2xl border border-cyan-500/20 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.16),_transparent_34%),linear-gradient(135deg,_rgba(15,23,42,0.98),_rgba(15,23,42,0.9))] px-5 py-4 text-slate-100 shadow-[0_16px_44px_rgba(15,23,42,0.3)]"
       >
         <div
-          class="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] xl:items-start"
+          class="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] xl:items-start"
         >
-          <div>
+          <div class="min-w-0">
             <div
               class="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300/80"
             >
@@ -1783,11 +1786,13 @@ watch(
               {{ $t('business.message.taskListConsoleDesc') }}
             </div>
           </div>
-          <div class="grid grid-cols-2 gap-2 xl:grid-cols-3">
+          <div
+            class="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2"
+          >
             <div
               v-for="item in taskListOverviewCards"
               :key="item.label"
-              class="rounded-xl border border-white/10 bg-white/5 px-3 py-3 backdrop-blur"
+              class="min-w-0 rounded-xl border border-white/10 bg-white/5 px-3 py-3 backdrop-blur"
             >
               <div
                 class="truncate text-[11px] uppercase tracking-[0.18em] text-slate-400"
@@ -1845,15 +1850,15 @@ watch(
       />
 
       <Card
-        class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+        class="min-w-0 border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
         :title="$t('business.message.taskFilterQuickSwitch')"
       >
-        <div class="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_360px]">
-          <div>
+        <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.2fr)_360px]">
+          <div class="min-w-0">
             <div
-              class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1.45fr)_auto]"
+              class="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1.45fr)_auto]"
             >
-              <div>
+              <div class="min-w-0">
                 <div class="mb-2 text-sm font-medium">
                   {{ $t('business.message.queueName') }}
                 </div>
@@ -1866,7 +1871,7 @@ watch(
                   show-search
                 />
               </div>
-              <div>
+              <div class="min-w-0">
                 <div class="mb-2 text-sm font-medium">
                   {{ $t('business.message.taskStatus') }}
                 </div>
@@ -1877,7 +1882,7 @@ watch(
                   :placeholder="$t('business.message.taskStatusAllPlaceholder')"
                 />
               </div>
-              <div>
+              <div class="min-w-0">
                 <div class="mb-2 text-sm font-medium">
                   {{ $t('business.message.aggregateGroup') }}
                 </div>
@@ -1889,7 +1894,7 @@ watch(
                   "
                 />
               </div>
-              <div>
+              <div class="min-w-0">
                 <div class="mb-2 text-sm font-medium">
                   {{ $t('business.message.taskName') }}
                 </div>
@@ -1901,7 +1906,7 @@ watch(
                   "
                 />
               </div>
-              <div>
+              <div class="min-w-0">
                 <div class="mb-2 text-sm font-medium">
                   {{ $t('business.message.workflowId') }}
                 </div>
@@ -1913,7 +1918,7 @@ watch(
                   "
                 />
               </div>
-              <div>
+              <div class="min-w-0">
                 <div class="mb-2 text-sm font-medium">
                   {{ $t('business.message.timeRange') }}
                 </div>
@@ -1928,7 +1933,7 @@ watch(
                   show-time
                 />
               </div>
-              <div class="flex items-end justify-end gap-2">
+              <div class="flex min-w-0 flex-wrap items-end justify-end gap-2">
                 <VbenButton @click="handleReset">
                   {{ $t('business.message.reset') }}
                 </VbenButton>
@@ -1960,7 +1965,7 @@ watch(
               </div>
             </div>
           </div>
-          <div class="space-y-3">
+          <div class="min-w-0 space-y-3">
             <div
               class="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-3 py-3"
             >
@@ -1982,11 +1987,13 @@ watch(
             </div>
           </div>
         </div>
-        <div class="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-6">
+        <div
+          class="mt-4 grid min-w-0 grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3"
+        >
           <div
             v-for="item in currentTaskSummaryRows"
             :key="item.label"
-            class="rounded-xl border border-slate-200/70 bg-slate-50/80 px-3 py-3 dark:border-slate-700 dark:bg-slate-950/40"
+            class="min-w-0 rounded-xl border border-slate-200/70 bg-slate-50/80 px-3 py-3 dark:border-slate-700 dark:bg-slate-950/40"
           >
             <div class="text-[11px] text-[var(--vben-text-color-secondary)]">
               {{ item.label }}
@@ -2005,10 +2012,10 @@ watch(
           canBatchRun ||
           canBatchDelete
         "
-        class="rounded-2xl border border-slate-200/70 bg-white/95 px-4 py-3 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+        class="min-w-0 rounded-2xl border border-slate-200/70 bg-white/95 px-4 py-3 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
       >
         <div
-          class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] xl:items-start"
+          class="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] xl:items-start"
         >
           <div v-if="quickSummaryActionButtons.length > 0" class="space-y-2">
             <div
@@ -2111,7 +2118,7 @@ watch(
       </div>
 
       <div
-        class="rounded-2xl border border-slate-200/70 bg-white/95 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+        class="min-w-0 rounded-2xl border border-slate-200/70 bg-white/95 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
       >
         <div
           class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 px-4 py-3 dark:border-slate-700/60"
@@ -2131,7 +2138,7 @@ watch(
       </div>
 
       <Card
-        class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+        class="min-w-0 border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
         :title="$t('business.message.queueNameGuide')"
       >
         <div class="flex flex-wrap items-center justify-between gap-3">

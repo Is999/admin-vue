@@ -853,12 +853,12 @@ onMounted(() => {
 
 <template>
   <Page :title="$t('business.message.userTagOps')">
-    <div class="space-y-4">
+    <div class="grid gap-2">
       <section
         class="overflow-hidden rounded-2xl border border-cyan-500/20 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.16),_transparent_34%),linear-gradient(135deg,_rgba(15,23,42,0.98),_rgba(15,23,42,0.9))] px-5 py-4 text-slate-100 shadow-[0_16px_44px_rgba(15,23,42,0.3)]"
       >
         <div
-          class="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] xl:items-start"
+          class="grid gap-4 xl:grid-cols-[minmax(320px,0.78fr)_minmax(0,1.22fr)] xl:items-start"
         >
           <div>
             <div
@@ -873,7 +873,7 @@ onMounted(() => {
               {{ $t('business.message.userTagOpsDesc') }}
             </div>
           </div>
-          <div class="grid grid-cols-2 gap-2 xl:grid-cols-2">
+          <div class="grid grid-cols-2 gap-2 md:grid-cols-3 2xl:grid-cols-5">
             <div
               v-for="item in userTagOverviewCards"
               :key="item.label"
@@ -884,11 +884,15 @@ onMounted(() => {
               >
                 {{ item.label }}
               </div>
-              <div class="mt-1 break-all text-lg font-semibold text-white">
+              <div
+                class="mt-1 truncate text-lg font-semibold text-white"
+                :title="String(item.value || '-')"
+              >
                 {{ item.value }}
               </div>
               <div
                 class="mt-1 line-clamp-1 text-[11px] leading-4 text-slate-400"
+                :title="String(item.description || '-')"
               >
                 {{ item.description }}
               </div>
@@ -897,7 +901,7 @@ onMounted(() => {
         </div>
       </section>
 
-      <div class="space-y-5">
+      <div class="grid gap-2">
         <Card
           class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
           :title="$t('business.message.triggerUserTagWorkflow')"

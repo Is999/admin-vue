@@ -37,6 +37,20 @@ export function getMfaAuthenticatorApps() {
   ];
 }
 
+// getMfaAuthenticatorHelpLinks 返回身份验证器帮助入口，供绑定页与弹框共用。
+export function getMfaAuthenticatorHelpLinks() {
+  return [
+    {
+      href: MFA_GOOGLE_AUTHENTICATOR_HELP_URL,
+      label: 'Google Authenticator',
+    },
+    {
+      href: MFA_MICROSOFT_AUTHENTICATOR_HELP_URL,
+      label: 'Microsoft Authenticator',
+    },
+  ];
+}
+
 // getMfaBindSteps 返回静态绑定与首次绑定通用步骤。
 export function getMfaBindSteps() {
   return [
@@ -119,6 +133,12 @@ type CachedMFATwoStep = {
 const MFA_TWO_STEP_CACHE_KEY = 'admin:mfa-two-step-ticket';
 // MFA_TWO_STEP_EXPIRE_SAFETY_MS 表示前端本地复用票据时预留的安全余量，避免边界时刻刚好撞上后端过期。
 const MFA_TWO_STEP_EXPIRE_SAFETY_MS = 3000;
+// MFA_GOOGLE_AUTHENTICATOR_HELP_URL 指向 Google Authenticator 官方帮助页。
+const MFA_GOOGLE_AUTHENTICATOR_HELP_URL =
+  'https://support.google.com/accounts/answer/1066447';
+// MFA_MICROSOFT_AUTHENTICATOR_HELP_URL 指向 Microsoft Authenticator 官方帮助页。
+const MFA_MICROSOFT_AUTHENTICATOR_HELP_URL =
+  'https://support.microsoft.com/account-billing/use-microsoft-authenticator-with-microsoft-365-1412611f-ad8d-43ab-807c-7965e5155411';
 
 // cachedMFATwoStep 保存当前会话最近一次可复用的 MFA 二次票据。
 let cachedMFATwoStep: CachedMFATwoStep | null = null;
@@ -303,6 +323,101 @@ function focusMfaCheckInput() {
   });
 }
 
+// buildMfaAuthenticatorLink 渲染说明句内的身份验证器应用链接，避免额外占一行。
+function buildMfaAuthenticatorLink(label: string, href: string) {
+  return h(
+    'a',
+    {
+      class: 'font-medium text-primary hover:text-primary/80 hover:underline',
+      href,
+      rel: 'noopener noreferrer',
+      target: '_blank',
+    },
+    label,
+  );
+}
+
+// buildMfaInstallDescription 把安装说明里的应用名替换为官方帮助链接。
+function buildMfaInstallDescription(description: string) {
+  const appLinks = [
+    {
+      href: MFA_GOOGLE_AUTHENTICATOR_HELP_URL,
+      label: 'Google Authenticator',
+    },
+    {
+      href: MFA_MICROSOFT_AUTHENTICATOR_HELP_URL,
+      label: 'Microsoft Authenticator',
+    },
+  ];
+  let cursor = 0;
+  const nodes: Array<ReturnType<typeof h> | string> = [];
+  for (const link of appLinks) {
+    const index = description.indexOf(link.label, cursor);
+    if (index === -1) {
+      continue;
+    }
+    if (index > cursor) {
+      nodes.push(description.slice(cursor, index));
+    }
+    nodes.push(buildMfaAuthenticatorLink(link.label, link.href));
+    cursor = index + link.label.length;
+  }
+  if (cursor < description.length) {
+    nodes.push(description.slice(cursor));
+  }
+  return nodes.length > 0 ? nodes : description;
+}
+
+// buildMfaGuideDescription 渲染绑定步骤说明，安装步骤内联应用帮助链接。
+function buildMfaGuideDescription(
+  step: { description: string },
+  index: number,
+) {
+  if (index === 0) {
+    return buildMfaInstallDescription(step.description);
+  }
+  return step.description;
+}
+
+// buildMfaCodeInputBlock 渲染验证码提示与输入框，统一控制内部间距。
+function buildMfaCodeInputBlock(
+  secure: string,
+  errorMessage: string,
+  onSecureChange: (value: string) => void,
+  onSubmit?: () => void,
+) {
+  return h('div', { class: 'space-y-3' }, [
+    h(Alert, {
+      description: $t('business.message.mfaBindContinueAlertDesc'),
+      message: $t('business.message.mfaBindContinueAlertTitle'),
+      showIcon: true,
+      type: 'info',
+    }),
+    errorMessage
+      ? h(Alert, {
+          message: errorMessage,
+          showIcon: true,
+          type: 'error',
+        })
+      : null,
+    h(Input, {
+      autofocus: true,
+      class: 'mfa-check-input',
+      maxlength: 6,
+      onChange: (event: Event) => {
+        onSecureChange((event.target as HTMLInputElement).value);
+      },
+      onPressEnter: () => {
+        onSubmit?.();
+      },
+      placeholder: $t('business.message.mfaCodePlaceholder'),
+      size: 'large',
+      value: secure,
+      'data-mfa-check-input': 'true',
+    }),
+  ]);
+}
+
 // buildMfaGuideSummary 渲染紧凑版 MFA 绑定说明，避免全屏遮罩里重复滚动过长。
 function buildMfaGuideSummary() {
   return h('div', { class: 'space-y-3' }, [
@@ -347,7 +462,7 @@ function buildMfaGuideSummary() {
             h(
               'div',
               { class: 'mt-2 text-xs leading-5 text-foreground/60' },
-              step.description,
+              buildMfaGuideDescription(step, index),
             ),
           ],
         ),
@@ -608,36 +723,12 @@ function buildMfaVerificationContent(
                 ),
               ],
             ),
-            h(Alert, {
-              class: 'mb-3',
-              description: $t('business.message.mfaBindContinueAlertDesc'),
-              message: $t('business.message.mfaBindContinueAlertTitle'),
-              showIcon: true,
-              type: 'info',
-            }),
-            errorMessage
-              ? h(Alert, {
-                  class: 'mb-3',
-                  message: errorMessage,
-                  showIcon: true,
-                  type: 'error',
-                })
-              : null,
-            h(Input, {
-              autofocus: true,
-              class: 'mfa-check-input',
-              maxlength: 6,
-              onChange: (event: Event) => {
-                onSecureChange((event.target as HTMLInputElement).value);
-              },
-              onPressEnter: () => {
-                onSubmit?.();
-              },
-              placeholder: $t('business.message.mfaCodePlaceholder'),
-              size: 'large',
-              value: secure,
-              'data-mfa-check-input': 'true',
-            }),
+            buildMfaCodeInputBlock(
+              secure,
+              errorMessage,
+              onSecureChange,
+              onSubmit,
+            ),
           ],
         ),
       ]),

@@ -15,39 +15,19 @@ import {
 import { $t } from '#/locales';
 import { copyTextToClipboard } from '#/utils/security/password';
 
-import { TASK_QUEUE_OPTIONS } from '../shared';
+import {
+  TASK_QUEUE_OPTIONS,
+  formatDurationMs,
+  formatTraceCount as formatSharedTraceCount,
+} from '../shared';
+import { latencyTagMeta, taskQueueTagMap } from '../table-tags';
 
 // TableActionHandler 定义表格操作列点击事件签名。
 type TableActionHandler<T = any> = (params: { code: string; row: T }) => void;
 
 const workflowIDHeaderName = 'x-app-workflow-id';
 
-// formatDurationMs 把毫秒耗时格式化为任务列表可读文本。
-function formatDurationMs(value: unknown) {
-  const ms = Number(value || 0);
-  if (!Number.isFinite(ms) || ms <= 0) {
-    return '-';
-  }
-  if (ms < 1000) {
-    return `${Math.round(ms)}ms`;
-  }
-  if (ms < 60_000) {
-    return `${(ms / 1000).toFixed(ms >= 10_000 ? 0 : 1)}s`;
-  }
-  if (ms < 3_600_000) {
-    return `${(ms / 60_000).toFixed(ms >= 600_000 ? 0 : 1)}m`;
-  }
-  return `${(ms / 3_600_000).toFixed(ms >= 36_000_000 ? 0 : 1)}h`;
-}
-
-// formatTraceCount 统一格式化任务运行指标数量，避免大数字挤占列表空间。
-export function formatTraceCount(value?: number) {
-  const count = Number(value || 0);
-  if (!Number.isFinite(count) || count <= 0) {
-    return '0';
-  }
-  return Math.trunc(count).toLocaleString();
-}
+export { formatSharedTraceCount as formatTraceCount };
 
 // getTaskExecutionTrace 获取任务运行指标摘要，兼容旧任务 result.executionTrace 兜底。
 export function getTaskExecutionTrace(task: TaskApi.TaskItem) {
@@ -214,7 +194,7 @@ function renderWorkflowIdLink<T>(row: T, onActionClick: TableActionHandler<T>) {
 // formatTaskTraceMetric 把单个运行指标格式化为 label: value 文本。
 function formatTaskTraceMetric(label: string, value?: number | string) {
   return `${label}: ${
-    typeof value === 'string' ? value : formatTraceCount(value)
+    typeof value === 'string' ? value : formatSharedTraceCount(value)
   }`;
 }
 
@@ -350,7 +330,16 @@ export function useColumns<T = any>(
         lines: 1,
       },
     ),
-    { field: 'queue', title: $t('business.message.queue'), width: 120 },
+    {
+      align: 'center',
+      cellRender: {
+        attrs: { tagMap: taskQueueTagMap() },
+        name: 'CellTag',
+      },
+      field: 'queue',
+      title: $t('business.message.queue'),
+      width: 120,
+    },
     {
       field: 'workflowId',
       minWidth: 240,
@@ -432,10 +421,16 @@ export function useColumns<T = any>(
       width: 100,
     },
     {
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ value }: { value: unknown }) => latencyTagMeta(value),
+        },
+        name: 'CellTag',
+      },
       field: 'durationMs',
       title: $t('business.message.executionDuration'),
       width: 110,
-      formatter: ({ cellValue }) => formatDurationMs(cellValue),
     },
     buildClampTextColumn(
       {

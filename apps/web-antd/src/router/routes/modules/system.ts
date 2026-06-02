@@ -30,18 +30,6 @@ const routes: RouteRecordRaw[] = [
         component: () => import('#/views/system/admin/list.vue'),
       },
       {
-        path: '/system/api-user',
-        name: 'SystemAPIUser',
-        meta: {
-          authority: asRouteAuthority(
-            SYSTEM_ROUTE_PERMISSION_CODES.API_USER_LIST,
-          ),
-          icon: 'ant-design:idcard-outlined',
-          title: $t('admin.route.apiUser'),
-        },
-        component: () => import('#/views/system/api-user/list.vue'),
-      },
-      {
         path: '/system/role',
         name: 'SystemRole',
         meta: {

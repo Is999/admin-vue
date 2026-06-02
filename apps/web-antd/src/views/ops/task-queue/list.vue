@@ -208,15 +208,18 @@ function handleRefresh() {
 </script>
 
 <template>
-  <Page :title="$t('business.message.taskQueueOverview')">
-    <div class="space-y-4">
+  <Page
+    content-class="min-w-0 overflow-x-hidden"
+    :title="$t('business.message.taskQueueOverview')"
+  >
+    <div class="grid min-w-0 max-w-full gap-2">
       <section
         class="overflow-hidden rounded-2xl border border-cyan-500/20 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.16),_transparent_34%),linear-gradient(135deg,_rgba(15,23,42,0.98),_rgba(15,23,42,0.9))] px-5 py-4 text-slate-100 shadow-[0_16px_44px_rgba(15,23,42,0.3)]"
       >
         <div
-          class="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] xl:items-start"
+          class="grid min-w-0 gap-4 xl:grid-cols-[minmax(280px,0.78fr)_minmax(0,1.22fr)] xl:items-start"
         >
-          <div>
+          <div class="min-w-0">
             <div
               class="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300/80"
             >
@@ -229,11 +232,13 @@ function handleRefresh() {
               {{ $t('business.message.taskQueuePanelDesc') }}
             </div>
           </div>
-          <div class="grid grid-cols-2 gap-2 xl:grid-cols-3">
+          <div
+            class="grid min-w-0 grid-cols-2 gap-2 md:grid-cols-3 2xl:grid-cols-4"
+          >
             <div
               v-for="item in queueOverviewCards"
               :key="item.label"
-              class="rounded-xl border border-white/10 bg-white/5 px-3 py-3 backdrop-blur"
+              class="min-w-0 rounded-xl border border-white/10 bg-white/5 px-3 py-3 backdrop-blur"
             >
               <div
                 class="truncate text-[11px] uppercase tracking-[0.18em] text-slate-400"
@@ -261,7 +266,7 @@ function handleRefresh() {
       />
 
       <div
-        class="rounded-2xl border border-slate-200/70 bg-white/95 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+        class="min-w-0 overflow-hidden rounded-2xl border border-slate-200/70 bg-white/95 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
       >
         <div
           class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 px-4 py-3 dark:border-slate-700/60"
@@ -281,13 +286,13 @@ function handleRefresh() {
             {{ $t('business.message.refreshQueue') }}
           </VbenButton>
         </div>
-        <div class="px-0 py-0">
+        <div class="min-w-0 overflow-x-auto px-0 py-0">
           <Grid :table-title="$t('business.message.taskQueueList')" />
         </div>
       </div>
 
       <Card
-        class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+        class="min-w-0 border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
         :title="$t('business.message.onlineWorkerSnapshot')"
       >
         <div class="flex flex-wrap items-center justify-between gap-3">

@@ -956,7 +956,7 @@ function onRenewAll() {
   <Page auto-content-height>
     <TemplateKeysDrawerView @refreshed="reloadCachePage" />
     <div
-      class="mb-3 grid gap-3 xl:grid-cols-[minmax(360px,420px)_minmax(0,1fr)]"
+      class="mb-2 grid gap-2 xl:grid-cols-[minmax(360px,420px)_minmax(0,1fr)]"
     >
       <Card size="small" :title="$t('business.message.redisOverview')">
         <template #extra>

@@ -2,18 +2,12 @@ import type { VbenFormSchema } from '#/adapter/form';
 
 import { $t } from '#/locales';
 
+import { taskConsoleDefaults } from './defaults';
+
 type QueueOption = {
   label: string;
   value: string;
 };
-
-const defaultRetry = 3;
-const defaultTimeoutSeconds = 120;
-const defaultUniqueTTLSeconds = 60;
-const defaultQueue = 'default';
-const defaultProcessInSeconds = 0;
-const defaultShardTotal = 1;
-const defaultGrayPercent = 100;
 
 // useTriggerWorkflowSchema 返回“手动触发工作流”表单配置。
 export function useTriggerWorkflowSchema(
@@ -59,14 +53,14 @@ export function useTriggerWorkflowSchema(
       component: 'InputNumber',
       fieldName: 'shardTotal',
       label: $t('business.message.shardTotal'),
-      defaultValue: defaultShardTotal,
+      defaultValue: taskConsoleDefaults.shardTotal,
       componentProps: { min: 1, style: { width: '100%' } },
     },
     {
       component: 'InputNumber',
       fieldName: 'grayPercent',
       label: $t('business.message.grayPercent'),
-      defaultValue: defaultGrayPercent,
+      defaultValue: taskConsoleDefaults.grayPercent,
       componentProps: {
         min: 1,
         max: 100,
@@ -88,7 +82,7 @@ export function useTriggerWorkflowSchema(
       component: 'InputNumber',
       fieldName: 'uniqueTTLSeconds',
       label: $t('business.message.uniqueTTLSeconds'),
-      defaultValue: defaultUniqueTTLSeconds,
+      defaultValue: taskConsoleDefaults.uniqueTTLSeconds,
       componentProps: {
         min: 1,
         addonAfter: $t('business.message.secondsUnit'),
@@ -99,7 +93,7 @@ export function useTriggerWorkflowSchema(
       component: 'InputNumber',
       fieldName: 'retry',
       label: $t('business.message.retryCount'),
-      defaultValue: defaultRetry,
+      defaultValue: taskConsoleDefaults.retry,
       componentProps: {
         min: 0,
         addonAfter: $t('business.message.timesUnit'),
@@ -110,7 +104,7 @@ export function useTriggerWorkflowSchema(
       component: 'InputNumber',
       fieldName: 'timeoutSeconds',
       label: $t('business.message.timeoutSeconds'),
-      defaultValue: defaultTimeoutSeconds,
+      defaultValue: taskConsoleDefaults.timeoutSeconds,
       componentProps: {
         min: 1,
         addonAfter: $t('business.message.secondsUnit'),
@@ -130,7 +124,7 @@ export function useTriggerWorkflowSchema(
       component: 'InputNumber',
       fieldName: 'processInSeconds',
       label: $t('business.message.delayRunSeconds'),
-      defaultValue: defaultProcessInSeconds,
+      defaultValue: taskConsoleDefaults.processInSeconds,
       componentProps: {
         min: 0,
         addonAfter: $t('business.message.secondsUnit'),
@@ -183,7 +177,7 @@ export function useEnqueueTaskSchema(
       component: 'Select',
       fieldName: 'queue',
       label: $t('business.message.taskQueue'),
-      defaultValue: defaultQueue,
+      defaultValue: taskConsoleDefaults.queue,
       componentProps: {
         allowClear: true,
         options: queueOptions,
@@ -204,7 +198,7 @@ export function useEnqueueTaskSchema(
       component: 'InputNumber',
       fieldName: 'retry',
       label: $t('business.message.retryCount'),
-      defaultValue: defaultRetry,
+      defaultValue: taskConsoleDefaults.retry,
       componentProps: {
         min: 0,
         addonAfter: $t('business.message.timesUnit'),
@@ -215,7 +209,7 @@ export function useEnqueueTaskSchema(
       component: 'InputNumber',
       fieldName: 'timeoutSeconds',
       label: $t('business.message.timeoutSeconds'),
-      defaultValue: defaultTimeoutSeconds,
+      defaultValue: taskConsoleDefaults.timeoutSeconds,
       componentProps: {
         min: 1,
         addonAfter: $t('business.message.secondsUnit'),
@@ -235,7 +229,7 @@ export function useEnqueueTaskSchema(
       component: 'InputNumber',
       fieldName: 'processInSeconds',
       label: $t('business.message.delayRunSeconds'),
-      defaultValue: defaultProcessInSeconds,
+      defaultValue: taskConsoleDefaults.processInSeconds,
       componentProps: {
         min: 0,
         addonAfter: $t('business.message.secondsUnit'),
@@ -255,7 +249,7 @@ export function useEnqueueTaskSchema(
       component: 'InputNumber',
       fieldName: 'uniqueTTLSeconds',
       label: $t('business.message.uniqueTTLSeconds'),
-      defaultValue: defaultUniqueTTLSeconds,
+      defaultValue: taskConsoleDefaults.uniqueTTLSeconds,
       componentProps: {
         min: 1,
         addonAfter: $t('business.message.secondsUnit'),

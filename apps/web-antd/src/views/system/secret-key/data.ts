@@ -10,6 +10,12 @@ import {
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 
+import {
+  countTagMeta,
+  enabledStatusTagMap,
+  grayPercentTagMeta,
+} from '../table-tags';
+
 // absolutePathRule 约束秘钥输入必须是绝对路径，不允许直接录入明文或 PEM。
 function absolutePathRule() {
   return z
@@ -287,13 +293,6 @@ export function maskSecretValue(value = '') {
   return `${fileName.slice(0, 4)}****${fileName.slice(-4)}`;
 }
 
-// statusText 把 0/1 状态值转换成当前语言展示文案。
-function statusText(value?: number) {
-  return Number(value) === 1
-    ? $t('business.message.enable')
-    : $t('business.message.disable');
-}
-
 // useColumns 返回秘钥管理表格列配置。
 export function useColumns<T = SystemSecretKeyApi.Item>(
   onActionClick: OnActionClickFn<T>,
@@ -328,25 +327,46 @@ export function useColumns<T = SystemSecretKeyApi.Item>(
       title: $t('business.message.secretGrayVersion'),
     },
     {
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ value }: { value: unknown }) => grayPercentTagMeta(value),
+        },
+        name: 'CellTag',
+      },
       field: 'grayPercent',
       minWidth: 110,
       title: $t('business.message.secretGrayTrafficPercent'),
     },
     {
+      align: 'center',
+      cellRender: {
+        attrs: { tagMap: enabledStatusTagMap() },
+        name: 'CellTag',
+      },
       field: 'signStatus',
-      formatter: ({ row }: { row: SystemSecretKeyApi.Item }) =>
-        statusText(row.signStatus),
       minWidth: 100,
       title: $t('business.message.secretSignStatus'),
     },
     {
+      align: 'center',
+      cellRender: {
+        attrs: { tagMap: enabledStatusTagMap() },
+        name: 'CellTag',
+      },
       field: 'cryptoStatus',
-      formatter: ({ row }: { row: SystemSecretKeyApi.Item }) =>
-        statusText(row.cryptoStatus),
       minWidth: 100,
       title: $t('business.message.secretCryptoStatus'),
     },
     {
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ value }: { value: unknown }) =>
+            countTagMeta(value, 'processing'),
+        },
+        name: 'CellTag',
+      },
       field: 'versionCount',
       minWidth: 100,
       title: $t('business.message.secretVersionCount'),
@@ -389,7 +409,12 @@ export function useColumns<T = SystemSecretKeyApi.Item>(
     {
       align: 'center',
       cellRender: {
-        attrs: { beforeChange: onStatusChange },
+        attrs: {
+          auth: asActionPermission(
+            SYSTEM_ACTION_PERMISSION_CODES.SECRET_KEY_STATUS,
+          ),
+          beforeChange: onStatusChange,
+        },
         name: onStatusChange ? 'CellSwitch' : 'CellTag',
       },
       field: 'status',

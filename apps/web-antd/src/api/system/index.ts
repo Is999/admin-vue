@@ -1,5 +1,4 @@
 import type { CommonApi } from '#/api/common';
-import type { TaskApi } from '#/api/ops/task';
 
 import { requestClient } from '#/api/request';
 
@@ -103,82 +102,6 @@ export namespace SystemAdminApi {
     status: Status; // 角色状态
     description: string; // 角色说明
     createdAt: string; // 绑定时间
-  }
-}
-
-// SystemAPIUserApi 定义前台用户管理相关接口类型。
-export namespace SystemAPIUserApi {
-  // Status 表示前台用户启用状态，1=启用，0=禁用。
-  export type Status = 0 | 1;
-
-  // Item 表示前台用户列表与详情数据。
-  export interface Item {
-    id: number; // 用户ID
-    username: string; // 用户名
-    nickname: string; // 昵称
-    email: string; // 邮箱
-    phone: string; // 手机号
-    avatar: string; // 头像地址
-    status: Status; // 状态
-    lastLoginAt: string; // 最后登录时间
-    lastLoginIP: string; // 最后登录IP
-    createdAt: string; // 创建时间
-    updatedAt: string; // 更新时间
-  }
-
-  // ListParams 表示前台用户列表查询参数。
-  export interface ListParams {
-    page?: number; // 当前页码
-    pageSize?: number; // 每页条数
-    id?: number; // 用户ID
-    username?: string; // 用户名前缀
-    email?: string; // 邮箱前缀
-    phone?: string; // 手机号前缀
-    status?: Status; // 状态筛选
-  }
-
-  // SaveParams 表示新增或编辑前台用户参数。
-  export interface SaveParams {
-    username?: string; // 用户名
-    password?: string; // 登录密码
-    nickname?: string; // 昵称
-    email?: string; // 邮箱
-    phone?: string; // 手机号
-    avatar?: string; // 头像地址
-    status?: Status; // 状态
-    twoStepKey?: string; // MFA二次校验票据key
-    twoStepValue?: string; // MFA二次校验票据value
-  }
-
-  // RuntimeSyncParams 表示手动同步 API 运行态请求。
-  export interface RuntimeSyncParams {
-    profile?: boolean; // 是否同步资料缓存
-    sessions?: boolean; // 是否失效登录态
-    twoStepKey?: string; // MFA二次校验票据key
-    twoStepValue?: string; // MFA二次校验票据value
-  }
-
-  // RuntimeSyncResp 表示 API 运行态同步回执。
-  export interface RuntimeSyncResp {
-    enabled: boolean; // 是否配置 API 内网同步
-    success: boolean; // 本次同步是否成功
-    userId: number; // 用户ID
-    profileCacheInvalidated: boolean; // 是否处理资料缓存
-    sessionsInvalidated: boolean; // 是否处理登录态
-    message: string; // 同步说明
-  }
-
-  // MutationResp 表示前台用户写操作回执。
-  export interface MutationResp {
-    item?: Item; // 最新用户资料
-    sync: RuntimeSyncResp; // API运行态同步结果
-  }
-
-  // APIRuntimeReloadResp 表示 API 热加载状态或触发回执。
-  export interface APIRuntimeReloadResp {
-    connected: boolean; // 是否成功访问 API 内网接口
-    status?: null | TaskApi.TaskConfigReloadStatusResp; // API热加载状态
-    message: string; // 调用说明
   }
 }
 
@@ -623,6 +546,8 @@ export namespace SystemProfileApi {
     buildMFAURL?: string; // MFA绑定二维码地址
     existMFA?: boolean; // 是否已经绑定MFA设备
     forceMFAEnabled?: boolean; // 系统是否开启强制启用MFA
+    frequency?: number; // MFA校验频率，单位秒
+    groupID?: number; // 当前账号分组ID
     id?: number; // 当前用户ID
     mfaBindRequired?: boolean; // 当前登录是否必须先绑定并启用MFA
     needResetPassword?: number; // 是否必须先修改登录密码
@@ -766,93 +691,6 @@ export async function updateAdminRoles(
   payload?: Pick<SystemAdminApi.SaveParams, 'twoStepKey' | 'twoStepValue'>,
 ) {
   return requestClient.patch(`/admins/roles/${id}`, { roleIDs, ...payload });
-}
-
-// fetchAPIUserList 分页查询前台用户列表。
-export async function fetchAPIUserList(params: SystemAPIUserApi.ListParams) {
-  return requestClient.get<CommonApi.ListResult<SystemAPIUserApi.Item>>(
-    '/api-users',
-    {
-      params,
-    },
-  );
-}
-
-// fetchAPIUserDetail 查询前台用户详情。
-export async function fetchAPIUserDetail(id: number) {
-  return requestClient.get<SystemAPIUserApi.Item>(`/api-users/${id}`);
-}
-
-// createAPIUser 新增前台用户。
-export async function createAPIUser(data: SystemAPIUserApi.SaveParams) {
-  return requestClient.post<SystemAPIUserApi.MutationResp>('/api-users', data);
-}
-
-// updateAPIUser 编辑前台用户资料。
-export async function updateAPIUser(
-  id: number,
-  data: SystemAPIUserApi.SaveParams,
-) {
-  return requestClient.patch<SystemAPIUserApi.MutationResp>(
-    `/api-users/${id}`,
-    data,
-  );
-}
-
-// updateAPIUserStatus 修改前台用户状态。
-export async function updateAPIUserStatus(
-  id: number,
-  status: SystemAPIUserApi.Status,
-  twoStep?: { twoStepKey?: string; twoStepValue?: string },
-) {
-  return requestClient.patch<SystemAPIUserApi.MutationResp>(
-    `/api-users/status/${id}`,
-    { status, ...twoStep },
-  );
-}
-
-// resetAPIUserPassword 重置前台用户密码。
-export async function resetAPIUserPassword(
-  id: number,
-  password: string,
-  twoStep?: { twoStepKey?: string; twoStepValue?: string },
-) {
-  return requestClient.post<SystemAPIUserApi.MutationResp>(
-    `/api-users/password/reset/${id}`,
-    {
-      password,
-      ...twoStep,
-    },
-  );
-}
-
-// syncAPIUserRuntime 手动同步前台用户 API 运行态。
-export async function syncAPIUserRuntime(
-  id: number,
-  data: SystemAPIUserApi.RuntimeSyncParams,
-) {
-  return requestClient.post<SystemAPIUserApi.RuntimeSyncResp>(
-    `/api-users/runtime-sync/${id}`,
-    data,
-  );
-}
-
-// fetchAPIRuntimeConfigReloadStatus 查询 API 服务配置热加载状态。
-export async function fetchAPIRuntimeConfigReloadStatus() {
-  return requestClient.get<SystemAPIUserApi.APIRuntimeReloadResp>(
-    '/api-runtime/config-reload',
-  );
-}
-
-// runAPIRuntimeConfigReload 手动触发 API 服务配置热加载。
-export async function runAPIRuntimeConfigReload(data?: {
-  twoStepKey?: string;
-  twoStepValue?: string;
-}) {
-  return requestClient.post<SystemAPIUserApi.APIRuntimeReloadResp>(
-    '/api-runtime/config-reload',
-    { ...data },
-  );
 }
 
 // fetchRoleList 分页查询角色列表。

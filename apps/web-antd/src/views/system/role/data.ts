@@ -142,6 +142,9 @@ export function useColumns<T = SystemRoleApi.Item>(
       align: 'center',
       cellRender: {
         attrs: {
+          auth: asActionPermission(
+            SYSTEM_ACTION_PERMISSION_CODES.ROLE_STATUS_UPDATE,
+          ),
           beforeChange: onStatusChange,
           disabled: (row: SystemRoleApi.Item) => Number(row.id) === 1,
         },

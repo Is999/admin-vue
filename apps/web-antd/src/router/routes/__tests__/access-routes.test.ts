@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { APP_DEFAULT_HOME_PATH } from '#/constants/app';
 import {
   OPS_ROUTE_PERMISSION_CODES,
-  SYSTEM_ROUTE_PERMISSION_CODES,
+  USER_ROUTE_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { overridesPreferences } from '#/preferences';
 
@@ -89,7 +89,6 @@ describe('admin access routes', () => {
         'ProfileManage',
         'ProfileMessage',
         'SystemAdmin',
-        'SystemAPIUser',
         'SystemCache',
         'SystemConfig',
         'SystemLog',
@@ -100,6 +99,8 @@ describe('admin access routes', () => {
         'SystemRole',
         'SystemSecretKey',
         'SystemSecurityDebug',
+        'UserList',
+        'UserManage',
       ]),
     );
     expect(names).not.toEqual(
@@ -133,7 +134,6 @@ describe('admin access routes', () => {
         '/profile-manage/mfa',
         '/system',
         '/system/admin',
-        '/system/api-user',
         '/system/cache',
         '/system/config',
         '/system/log',
@@ -143,6 +143,8 @@ describe('admin access routes', () => {
         '/tools',
         '/tools/api-docs',
         '/tools/security-debug',
+        '/user',
+        '/user/list',
       ]),
     );
   });
@@ -182,7 +184,8 @@ describe('admin access routes', () => {
       'OpsWorkflowStatus',
     );
     const configReloadRoute = findRouteByName(accessRoutes, 'OpsConfigReload');
-    const apiUserRoute = findRouteByName(accessRoutes, 'SystemAPIUser');
+    const userManageRoute = findRouteByName(accessRoutes, 'UserManage');
+    const userListRoute = findRouteByName(accessRoutes, 'UserList');
 
     expect(workflowStatusRoute?.meta?.authority).toEqual([
       OPS_ROUTE_PERMISSION_CODES.TASK_WORKFLOW_STATUS,
@@ -190,8 +193,11 @@ describe('admin access routes', () => {
     expect(configReloadRoute?.meta?.authority).toEqual([
       OPS_ROUTE_PERMISSION_CODES.CONFIG_RELOAD,
     ]);
-    expect(apiUserRoute?.meta?.authority).toEqual([
-      SYSTEM_ROUTE_PERMISSION_CODES.API_USER_LIST,
+    expect(userManageRoute?.meta?.authority).toEqual([
+      USER_ROUTE_PERMISSION_CODES.USER_MANAGE,
+    ]);
+    expect(userListRoute?.meta?.authority).toEqual([
+      USER_ROUTE_PERMISSION_CODES.USER_LIST,
     ]);
     expect(workflowStatusRoute?.meta?.authority).not.toContain(
       OPS_ROUTE_PERMISSION_CODES.TASK_CONSOLE,
