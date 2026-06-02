@@ -75,6 +75,7 @@ export const USER_ACTION_PERMISSION_CODES = {
 // OPS_ROUTE_PERMISSION_CODES 统一维护任务运维模块页面级 uuid 权限码。
 export const OPS_ROUTE_PERMISSION_CODES = {
   API_DOCS: '200029',
+  API_SERVICE_DOCS: '200068',
   COLLECTOR: '200039',
   CONFIG_RELOAD: '200046',
   HOME: '200001',
@@ -228,7 +229,7 @@ export function hasSuperAdminRoleId(roleIds: readonly number[] | undefined) {
 }
 
 // buildEffectiveAccessCodes 统一构造前端实际使用的权限码集合。
-// 优先使用后端显式返回的 isSuperAdmin 标记；未命中时再按 roleIds 是否包含角色ID 1 判断。
+// 优先使用后端显式返回的 isSuperAdmin 标记；未命中时再按 roleIds 是否包含角色 ID 1 判断。
 // 超级管理员即便后端 `/auth/codes` 返回空数组，前端也补齐全部权限码，保持与后端接口放行一致。
 export function buildEffectiveAccessCodes(
   ownerInfo: PermissionOwnerInfo | undefined,

@@ -1,5 +1,7 @@
 import type { TaskApi } from './task';
 
+import type { CommonApi } from '#/api/common';
+
 import { requestClient } from '#/api/request';
 
 // UserTagApi 定义用户标签工作流相关接口的请求与响应结构。
@@ -22,8 +24,6 @@ export namespace UserTagApi {
     workerCount?: number;
     /** 只计算不落库 */
     dryRun?: boolean;
-    /** 只初始化同步快照，不推 Kafka 事件 */
-    syncSnapshotOnly?: boolean;
     /** 去重键 */
     uniqueKey?: string;
     /** 去重 TTL，单位秒 */
@@ -57,17 +57,13 @@ export namespace UserTagApi {
   }
 
   /** 释放工作流互斥锁请求 */
-  export interface ReleaseWorkflowLeaseReq {
+  export interface ReleaseWorkflowLeaseReq extends CommonApi.TwoStepReq {
     /** 工作流实例 ID */
     workflowId: string;
     /** 运行模式：full/delta/targeted/recalculate */
     mode?: 'delta' | 'full' | 'recalculate' | 'targeted';
     /** 人工释放原因 */
     reason: string;
-    /** MFA 二次校验票据 key */
-    twoStepKey?: string;
-    /** MFA 二次校验票据 value */
-    twoStepValue?: string;
   }
 
   /** 释放工作流互斥锁回执 */

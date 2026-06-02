@@ -199,7 +199,7 @@ const [FormDrawer, formDrawerApi] = useVbenDrawer({
 const currentAdmin = ref<SystemAdminApi.Item>();
 // roleOptions 保存角色树配置选项。
 const roleOptions = ref<Array<Record<string, any>>>([]);
-// selectedRoleIds 保存当前选中的角色ID。
+// selectedRoleIds 保存当前选中的角色 ID。
 const selectedRoleIds = ref<number[]>([]);
 // expandedRoleIds 保存当前展开的角色节点。
 const expandedRoleIds = ref<number[]>([]);

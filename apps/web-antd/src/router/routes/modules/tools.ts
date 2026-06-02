@@ -27,6 +27,26 @@ const routes: RouteRecordRaw[] = [
           icon: 'lucide:book-open-text',
           title: $t('admin.route.apiDocs'),
         },
+        props: {
+          docsHash: '/',
+          titleKey: 'admin.route.apiDocs',
+        },
+        component: () => import('#/views/tools/api-docs/index.vue'),
+      },
+      {
+        path: '/tools/api-service-docs',
+        name: 'OpsApiServiceDocs',
+        meta: {
+          authority: asRouteAuthority(
+            OPS_ROUTE_PERMISSION_CODES.API_SERVICE_DOCS,
+          ),
+          icon: 'lucide:file-code-2',
+          title: $t('admin.route.apiServiceDocs'),
+        },
+        props: {
+          docsHash: '/api/接口文档/接口文档统一规范',
+          titleKey: 'admin.route.apiServiceDocs',
+        },
         component: () => import('#/views/tools/api-docs/index.vue'),
       },
       {

@@ -79,6 +79,7 @@ describe('admin access routes', () => {
         'AdminTools',
         'OpsHome',
         'OpsApiDocs',
+        'OpsApiServiceDocs',
         'OpsConfigReload',
         'OpsCollector',
         'OpsTaskConsole',
@@ -142,6 +143,7 @@ describe('admin access routes', () => {
         '/system/secret-key',
         '/tools',
         '/tools/api-docs',
+        '/tools/api-service-docs',
         '/tools/security-debug',
         '/user',
         '/user/list',
@@ -153,15 +155,27 @@ describe('admin access routes', () => {
     const toolsRoute = findRouteByName(accessRoutes, 'AdminTools');
     const childPaths = (toolsRoute?.children || []).map((route) => route.path);
     const apiDocsRoute = findRouteByName(accessRoutes, 'OpsApiDocs');
+    const apiServiceDocsRoute = findRouteByName(
+      accessRoutes,
+      'OpsApiServiceDocs',
+    );
     const securityDebugRoute = findRouteByName(
       accessRoutes,
       'SystemSecurityDebug',
     );
 
     expect(childPaths).toEqual(
-      expect.arrayContaining(['/tools/api-docs', '/tools/security-debug']),
+      expect.arrayContaining([
+        '/tools/api-docs',
+        '/tools/api-service-docs',
+        '/tools/security-debug',
+      ]),
     );
     expect(apiDocsRoute?.alias).toBeUndefined();
+    expect(apiServiceDocsRoute?.props).toMatchObject({
+      docsHash: '/api/接口文档/接口文档统一规范',
+      titleKey: 'admin.route.apiServiceDocs',
+    });
     expect(securityDebugRoute?.alias).toBe('/system/security-debug');
   });
 
@@ -183,6 +197,10 @@ describe('admin access routes', () => {
       accessRoutes,
       'OpsWorkflowStatus',
     );
+    const apiServiceDocsRoute = findRouteByName(
+      accessRoutes,
+      'OpsApiServiceDocs',
+    );
     const configReloadRoute = findRouteByName(accessRoutes, 'OpsConfigReload');
     const userManageRoute = findRouteByName(accessRoutes, 'UserManage');
     const userListRoute = findRouteByName(accessRoutes, 'UserList');
@@ -192,6 +210,9 @@ describe('admin access routes', () => {
     ]);
     expect(configReloadRoute?.meta?.authority).toEqual([
       OPS_ROUTE_PERMISSION_CODES.CONFIG_RELOAD,
+    ]);
+    expect(apiServiceDocsRoute?.meta?.authority).toEqual([
+      OPS_ROUTE_PERMISSION_CODES.API_SERVICE_DOCS,
     ]);
     expect(userManageRoute?.meta?.authority).toEqual([
       USER_ROUTE_PERMISSION_CODES.USER_MANAGE,

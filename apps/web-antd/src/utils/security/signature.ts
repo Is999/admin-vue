@@ -10,6 +10,7 @@ import {
   rsaPkcs1Sign,
   rsaPkcs1Verify,
 } from './crypto';
+import routeSecurityManifest from './route-security-manifest.json';
 
 // SignatureType 表示后端支持的签名方式。
 type SignatureType = 'A' | 'M' | 'R';
@@ -46,635 +47,71 @@ const MAX_SECURITY_JSON_FIELD_BYTES = 8192;
 // MAX_SECURITY_REQUEST_BODY_BYTES 表示安全链路处理请求体的最大字节数。
 const MAX_SECURITY_REQUEST_BODY_BYTES = 65_536;
 
-// ADMIN_ROUTE_SECURITY_POLICIES 与 admin/internal/security.RouteSecurityPolicies 保持一致。
-// 每个 key 都对应一个后端路由别名，用于声明该接口的请求签名、请求加密、响应加密与响应回签策略。
-const ADMIN_ROUTE_SECURITY_POLICIES: Record<string, RouteSecurityPolicy> = {
-  // admin.add 表示新增管理员接口。
-  'admin.add': {
-    requestCipher: ['password', 'mfaSecureKey', 'twoStepKey', 'twoStepValue'],
-    requestSign: [
-      'username',
-      'realName',
-      'email',
-      'phone',
-      'password',
-      'mfaSecureKey',
-      'twoStepKey',
-      'twoStepValue',
-    ],
-  },
-  // admin.password.reset 表示管理员重置密码接口。
-  'admin.password.reset': {
-    requestCipher: ['password', 'twoStepKey', 'twoStepValue'],
-    requestSign: ['password', 'twoStepKey', 'twoStepValue'],
-  },
-  // admin.reset.initial_state 表示管理员重置初始状态接口。
-  'admin.reset.initial_state': {
-    requestCipher: ['password', 'twoStepKey', 'twoStepValue'],
-    requestSign: ['password', 'twoStepKey', 'twoStepValue'],
-  },
-  // admin.role.update 表示覆盖保存管理员角色接口；roleIDs 是数组，不进入轻量签名载荷。
-  'admin.role.update': {
-    requestSign: ['twoStepKey', 'twoStepValue'],
-  },
-  // admin.status.update 表示修改管理员状态接口。
-  'admin.status.update': {
-    requestSign: ['status', 'twoStepKey', 'twoStepValue'],
-  },
-  // admin.update 表示编辑管理员接口。
-  'admin.update': {
-    requestCipher: ['password', 'mfaSecureKey', 'twoStepKey', 'twoStepValue'],
-    requestSign: [
-      'username',
-      'realName',
-      'email',
-      'phone',
-      'password',
-      'mfaSecureKey',
-      'twoStepKey',
-      'twoStepValue',
-    ],
-  },
-  // admin.delete 表示删除管理员接口。
-  'admin.delete': {
-    requestSign: ['twoStepKey', 'twoStepValue'],
-  },
-  // user.add 表示后台新增用户接口。
-  'user.add': {
-    requestCipher: ['password', 'email', 'phone', 'twoStepKey', 'twoStepValue'],
-    requestSign: [
-      'username',
-      'password',
-      'nickname',
-      'email',
-      'phone',
-      'avatar',
-      'status',
-      'twoStepKey',
-      'twoStepValue',
-    ],
-  },
-  // user.update 表示后台编辑用户资料接口。
-  'user.update': {
-    requestCipher: ['email', 'phone', 'twoStepKey', 'twoStepValue'],
-    requestSign: [
-      'nickname',
-      'email',
-      'phone',
-      'avatar',
-      'twoStepKey',
-      'twoStepValue',
-    ],
-  },
-  // user.status.update 表示后台修改用户状态接口。
-  'user.status.update': {
-    requestSign: ['status', 'twoStepKey', 'twoStepValue'],
-  },
-  // user.password.reset 表示后台重置用户密码接口。
-  'user.password.reset': {
-    requestCipher: ['password', 'twoStepKey', 'twoStepValue'],
-    requestSign: ['password', 'twoStepKey', 'twoStepValue'],
-  },
-  // user.runtime.sync 表示手动同步用户 API 运行态接口。
-  'user.runtime.sync': {
-    requestSign: ['profile', 'sessions', 'twoStepKey', 'twoStepValue'],
-  },
-  // api_runtime.config_reload.run 表示后台触发 API 配置热加载接口。
-  'api_runtime.config_reload.run': {
-    requestSign: ['twoStepKey', 'twoStepValue'],
-  },
-  // auth.login 表示新版登录接口。
-  'auth.login': {
-    requestCipher: ['password', 'secureCode'],
-    requestSign: ['username', 'password', 'secureCode', 'key', 'captcha'],
-    responseCipher: ['token', 'user.phone', 'user.buildMFAURL'],
-    responseSign: ['token'],
-  },
-  // auth.refresh 表示刷新令牌接口。
-  'auth.refresh': {
-    responseCipher: ['token'],
-    responseSign: ['token', 'isRefresh'],
-  },
-  // auth.profile 表示登录后初始化资料接口。
-  'auth.profile': {
-    responseCipher: ['token'],
-    responseSign: ['token'],
-  },
-  // secretKey.add 表示新增秘钥接口。
-  'secretKey.add': {
-    requestCipher: [
-      'aesKeyRef',
-      'aesIvRef',
-      'rsaPublicKeyUserRef',
-      'rsaPublicKeyServerRef',
-      'rsaPrivateKeyServerRef',
-      'twoStepKey',
-      'twoStepValue',
-    ],
-    requestSign: [
-      'uuid',
-      'title',
-      'keyVersion',
-      'aesKeyRef',
-      'aesIvRef',
-      'rsaPublicKeyUserRef',
-      'rsaPublicKeyServerRef',
-      'rsaPrivateKeyServerRef',
-      'status',
-      'signStatus',
-      'cryptoStatus',
-      'versionStatus',
-      'stableVersion',
-      'grayVersion',
-      'grayPercent',
-      'remark',
-      'twoStepKey',
-      'twoStepValue',
-    ],
-  },
-  // secretKey.edit 表示编辑秘钥接口。
-  'secretKey.edit': {
-    requestCipher: [
-      'aesKeyRef',
-      'aesIvRef',
-      'rsaPublicKeyUserRef',
-      'rsaPublicKeyServerRef',
-      'rsaPrivateKeyServerRef',
-      'twoStepKey',
-      'twoStepValue',
-    ],
-    requestSign: [
-      'uuid',
-      'title',
-      'keyVersion',
-      'aesKeyRef',
-      'aesIvRef',
-      'rsaPublicKeyUserRef',
-      'rsaPublicKeyServerRef',
-      'rsaPrivateKeyServerRef',
-      'status',
-      'signStatus',
-      'cryptoStatus',
-      'versionStatus',
-      'stableVersion',
-      'grayVersion',
-      'grayPercent',
-      'remark',
-      'twoStepKey',
-      'twoStepValue',
-    ],
-  },
-  // secretKey.editStatus 表示修改秘钥状态接口。
-  'secretKey.editStatus': {
-    requestSign: ['status', 'twoStepKey', 'twoStepValue'],
-  },
-  // secretKey.get 表示读取秘钥详情接口。
-  'secretKey.get': {
-    responseCipher: [
-      'aesKeyRef',
-      'aesIvRef',
-      'rsaPublicKeyUserRef',
-      'rsaPublicKeyServerRef',
-      'rsaPrivateKeyServerRef',
-      `${CIPHER_JSON_PREFIX}versionList`,
-    ],
-  },
-  // security.debug.sign 表示安全调试台签名接口。
-  'security.debug.sign': {
-    requestCipher: ['payloadText'],
-    responseCipher: ['payloadText', 'signText', 'sign'],
-    responseSign: [
-      'appId',
-      'requestId',
-      'traceId',
-      'timestamp',
-      'signatureType',
-      'payloadText',
-      'signText',
-      'sign',
-    ],
-  },
-  // security.debug.verify 表示安全调试台验签接口。
-  'security.debug.verify': {
-    requestCipher: ['payloadText', 'sign'],
-    responseCipher: ['payloadText', 'signText', 'sign'],
-    responseSign: [
-      'appId',
-      'requestId',
-      'traceId',
-      'timestamp',
-      'signatureType',
-      'payloadText',
-      'signText',
-      'sign',
-      'verified',
-    ],
-  },
-  // security.debug.encrypt 表示安全调试台加密接口。
-  'security.debug.encrypt': {
-    requestCipher: ['payloadText'],
-    responseCipher: ['payloadText', 'resultPayloadText'],
-    responseSign: [
-      'appId',
-      'cryptoType',
-      'cipherHeader',
-      'payloadText',
-      'resultPayloadText',
-    ],
-  },
-  // security.debug.decrypt 表示安全调试台解密接口。
-  'security.debug.decrypt': {
-    requestCipher: ['payloadText'],
-    responseCipher: ['payloadText', 'resultPayloadText'],
-    responseSign: [
-      'appId',
-      'cryptoType',
-      'cipherHeader',
-      'payloadText',
-      'resultPayloadText',
-    ],
-  },
-  // secretKey.renew 表示刷新秘钥缓存接口。
-  'secretKey.renew': {
-    requestSign: ['twoStepKey', 'twoStepValue'],
-  },
-  // secretKey.validate 表示秘钥路径预检接口。
-  'secretKey.validate': {
-    requestCipher: [
-      'aesKeyRef',
-      'aesIvRef',
-      'rsaPublicKeyUserRef',
-      'rsaPublicKeyServerRef',
-      'rsaPrivateKeyServerRef',
-      'twoStepKey',
-      'twoStepValue',
-    ],
-    requestSign: [
-      'uuid',
-      'title',
-      'keyVersion',
-      'aesKeyRef',
-      'aesIvRef',
-      'rsaPublicKeyUserRef',
-      'rsaPublicKeyServerRef',
-      'rsaPrivateKeyServerRef',
-      'status',
-      'signStatus',
-      'cryptoStatus',
-      'versionStatus',
-      'stableVersion',
-      'grayVersion',
-      'grayPercent',
-      'remark',
-      'twoStepKey',
-      'twoStepValue',
-    ],
-    responseSign: [
-      'uuid',
-      'title',
-      'keyVersion',
-      'mode',
-      'status',
-      'allPassed',
-      'canSave',
-      'canEnable',
-      'runtimeChecked',
-      'cacheRefreshed',
-      'checkedAt',
-      'durationMs',
-    ],
-  },
-  // secretKey.self_check 表示秘钥运行态自检接口。
-  'secretKey.self_check': {
-    requestSign: ['keyVersion', 'twoStepKey', 'twoStepValue'],
-    responseSign: [
-      'uuid',
-      'title',
-      'keyVersion',
-      'mode',
-      'status',
-      'allPassed',
-      'canSave',
-      'canEnable',
-      'runtimeChecked',
-      'cacheRefreshed',
-      'checkedAt',
-      'durationMs',
-    ],
-  },
-  // admin.mfa_status.update 表示后台修改管理员 MFA 状态接口。
-  'admin.mfa_status.update': {
-    requestSign: ['mfaStatus', 'twoStepKey', 'twoStepValue'],
-  },
-  // auth.verify_account 表示登录预校验接口。
-  'auth.verify_account': {
-    requestCipher: ['password', 'secureCode'],
-    requestSign: ['username', 'password', 'secureCode', 'key', 'captcha'],
-    responseCipher: ['token', 'user.phone', 'user.buildMFAURL'],
-    responseSign: ['token'],
-  },
-  // profile.check_mfa 表示 MFA 动态码校验接口。
-  'profile.check_mfa': {
-    requestCipher: ['secure', 'mfaSecureKey'],
-    requestSign: ['secure', 'scenarios', 'mfaSecureKey'],
-  },
-  // profile.check_secure 表示通用安全码校验接口。
-  'profile.check_secure': {
-    requestCipher: ['secure'],
-    requestSign: ['secure'],
-  },
-  // profile.mine 表示个人中心资料接口，手机号和 MFA 绑定地址都需要按响应字段级解密。
-  'profile.mine': {
-    responseCipher: ['phone', 'buildMFAURL'],
-  },
-  // profile.update_avatar 表示个人头像更新接口。
-  'profile.update_avatar': {
-    requestSign: ['avatar'],
-  },
-  // profile.update_mfa_secret 表示刷新个人 MFA 秘钥接口。
-  'profile.update_mfa_secret': {
-    requestCipher: ['mfaSecureKey', 'twoStepKey', 'twoStepValue'],
-    requestSign: ['mfaSecureKey', 'twoStepKey', 'twoStepValue'],
-  },
-  // profile.update_mfa_status 表示个人中心启停 MFA 接口。
-  'profile.update_mfa_status': {
-    requestCipher: ['mfaSecureKey', 'twoStepKey', 'twoStepValue'],
-    requestSign: ['mfaStatus', 'mfaSecureKey', 'twoStepKey', 'twoStepValue'],
-  },
-  // profile.update_mine 表示个人中心资料更新接口。
-  'profile.update_mine': {
-    requestCipher: ['email', 'phone', 'twoStepKey', 'twoStepValue'],
-    requestSign: [
-      'realName',
-      'email',
-      'phone',
-      'avatar',
-      'description',
-      'twoStepKey',
-      'twoStepValue',
-    ],
-  },
-  // profile.update_password 表示个人中心改密接口。
-  'profile.update_password': {
-    requestCipher: [
-      'passwordOld',
-      'passwordNew',
-      'confirmPassword',
-      'twoStepKey',
-      'twoStepValue',
-    ],
-    requestSign: [
-      'passwordOld',
-      'passwordNew',
-      'confirmPassword',
-      'twoStepKey',
-      'twoStepValue',
-    ],
-  },
-  // user_tag.workflow_lease.release 表示释放用户标签工作流互斥锁接口。
-  'user_tag.workflow_lease.release': {
-    requestSign: ['workflowId', 'mode', 'reason', 'twoStepKey', 'twoStepValue'],
-  },
-};
+// RouteSecurityManifestRoute 表示后端导出的单路由安全清单项。
+interface RouteSecurityManifestRoute {
+  access: string;
+  alias: string;
+  describe: string;
+  method: string;
+  path: string;
+  requestCipher: string[];
+  requestSign: string[];
+  responseCipher: string[];
+  responseSign: string[];
+}
 
-// ROUTE_SECURITY_RULES 将前端请求路径映射到后端统一路由别名。
-const ROUTE_SECURITY_RULES: RouteSecurityRule[] = [
-  // auth.captcha 表示登录页获取图形验证码接口。
-  { alias: 'auth.captcha', method: 'GET', pattern: /^\/auth\/captcha$/ },
-  // auth.login 表示新版登录接口。
-  { alias: 'auth.login', method: 'POST', pattern: /^\/auth\/login$/ },
-  // auth.refresh 表示刷新访问令牌接口。
-  { alias: 'auth.refresh', method: 'POST', pattern: /^\/auth\/refresh$/ },
-  // auth.refresh 表示退出登录接口，当前沿用刷新令牌的响应保护策略。
-  { alias: 'auth.logout', method: 'POST', pattern: /^\/auth\/logout$/ },
-  // auth.codes 表示获取当前登录用户权限码接口。
-  { alias: 'auth.codes', method: 'GET', pattern: /^\/auth\/codes$/ },
-  {
-    // auth.profile 表示登录后初始化资料接口。
-    alias: 'auth.profile',
-    method: 'GET',
-    pattern: /^\/auth\/profile$/,
-  },
-  {
-    // auth.verify_account 表示登录预校验并生成 MFA 绑定信息接口。
-    alias: 'auth.verify_account',
-    method: 'POST',
-    pattern: /^\/auth\/verify-account$/,
-  },
-  {
-    // profile.check_secure 表示校验当前管理员密码接口。
-    alias: 'profile.check_secure',
-    method: 'POST',
-    pattern: /^\/profile\/check-secure$/,
-  },
-  {
-    // profile.check_mfa 表示校验当前管理员 MFA 动态码接口。
-    alias: 'profile.check_mfa',
-    method: 'POST',
-    pattern: /^\/profile\/check-mfa$/,
-  },
-  // profile.mine 表示获取当前管理员个人资料接口。
-  { alias: 'profile.mine', method: 'GET', pattern: /^\/profile$/ },
-  {
-    // profile.permissions 表示获取当前管理员角色权限接口。
-    alias: 'profile.permissions',
-    method: 'GET',
-    pattern: /^\/admin\/permissions$/,
-  },
-  // admin.add 表示 REST 风格新增管理员接口。
-  { alias: 'admin.add', method: 'POST', pattern: /^\/admins$/ },
-  // admin.update 表示 REST 风格编辑管理员接口。
-  { alias: 'admin.update', method: 'PATCH', pattern: /^\/admins\/\d+$/ },
-  // admin.delete 表示 REST 风格删除管理员接口。
-  { alias: 'admin.delete', method: 'DELETE', pattern: /^\/admins\/\d+$/ },
-  {
-    // admin.status.update 表示 REST 风格修改管理员状态接口。
-    alias: 'admin.status.update',
-    method: 'PATCH',
-    pattern: /^\/admins\/status\/\d+$/,
-  },
-  {
-    // admin.password.reset 表示 REST 风格重置管理员密码接口。
-    alias: 'admin.password.reset',
-    method: 'POST',
-    pattern: /^\/admins\/password\/reset\/\d+$/,
-  },
-  {
-    // admin.reset.initial_state 表示 REST 风格重置管理员初始状态接口。
-    alias: 'admin.reset.initial_state',
-    method: 'POST',
-    pattern: /^\/admins\/initial-state\/reset\/\d+$/,
-  },
-  {
-    // admin.role.list 表示 REST 风格查询管理员已绑定角色接口。
-    alias: 'admin.role.list',
-    method: 'GET',
-    pattern: /^\/admins\/roles\/\d+$/,
-  },
-  {
-    // admin.role.update 表示 REST 风格覆盖保存管理员角色接口。
-    alias: 'admin.role.update',
-    method: 'PATCH',
-    pattern: /^\/admins\/roles\/\d+$/,
-  },
-  {
-    // admin.mfa_status.update 表示后台修改指定管理员 MFA 状态接口。
-    alias: 'admin.mfa_status.update',
-    method: 'PATCH',
-    pattern: /^\/admins\/mfa-status\/\d+$/,
-  },
-  {
-    // user.add 表示后台新增用户接口。
-    alias: 'user.add',
-    method: 'POST',
-    pattern: /^\/users$/,
-  },
-  {
-    // user.update 表示后台编辑用户资料接口。
-    alias: 'user.update',
-    method: 'PATCH',
-    pattern: /^\/users\/\d+$/,
-  },
-  {
-    // user.status.update 表示后台修改用户状态接口。
-    alias: 'user.status.update',
-    method: 'PATCH',
-    pattern: /^\/users\/status\/\d+$/,
-  },
-  {
-    // user.password.reset 表示后台重置用户密码接口。
-    alias: 'user.password.reset',
-    method: 'POST',
-    pattern: /^\/users\/password\/reset\/\d+$/,
-  },
-  {
-    // user.runtime.sync 表示手动同步用户 API 运行态接口。
-    alias: 'user.runtime.sync',
-    method: 'POST',
-    pattern: /^\/users\/runtime-sync\/\d+$/,
-  },
-  {
-    // api_runtime.config_reload.items 表示查询 API 运行态配置项接口。
-    alias: 'api_runtime.config_reload.items',
-    method: 'GET',
-    pattern: /^\/api-runtime\/config-reload\/items$/,
-  },
-  {
-    // api_runtime.config_reload.run 表示后台触发 API 配置热加载接口。
-    alias: 'api_runtime.config_reload.run',
-    method: 'POST',
-    pattern: /^\/api-runtime\/config-reload$/,
-  },
-  {
-    // secretKey.add 表示新增秘钥接口。
-    alias: 'secretKey.add',
-    method: 'POST',
-    pattern: /^\/secret-keys$/,
-  },
-  {
-    // secretKey.edit 表示编辑秘钥接口。
-    alias: 'secretKey.edit',
-    method: 'PATCH',
-    pattern: /^\/secret-keys\/\d+$/,
-  },
-  {
-    // secretKey.get 表示查询秘钥详情接口。
-    alias: 'secretKey.get',
-    method: 'GET',
-    pattern: /^\/secret-keys\/\d+$/,
-  },
-  {
-    // secretKey.editStatus 表示修改秘钥状态接口。
-    alias: 'secretKey.editStatus',
-    method: 'PATCH',
-    pattern: /^\/secret-keys\/status\/\d+$/,
-  },
-  {
-    // secretKey.renew 表示刷新秘钥缓存接口。
-    alias: 'secretKey.renew',
-    method: 'POST',
-    pattern: /^\/secret-keys\/cache\/refresh\/[^/]+$/,
-  },
-  {
-    // secretKey.validate 表示秘钥路径预检接口。
-    alias: 'secretKey.validate',
-    method: 'POST',
-    pattern: /^\/secret-keys\/validate$/,
-  },
-  {
-    // secretKey.self_check 表示秘钥运行态自检接口。
-    alias: 'secretKey.self_check',
-    method: 'POST',
-    pattern: /^\/secret-keys\/self-check\/[^/]+$/,
-  },
-  {
-    // security.debug.sign 表示安全调试台签名接口。
-    alias: 'security.debug.sign',
-    method: 'POST',
-    pattern: /^\/security\/debug\/sign$/,
-  },
-  {
-    // security.debug.verify 表示安全调试台验签接口。
-    alias: 'security.debug.verify',
-    method: 'POST',
-    pattern: /^\/security\/debug\/verify$/,
-  },
-  {
-    // security.debug.encrypt 表示安全调试台加密接口。
-    alias: 'security.debug.encrypt',
-    method: 'POST',
-    pattern: /^\/security\/debug\/encrypt$/,
-  },
-  {
-    // security.debug.decrypt 表示安全调试台解密接口。
-    alias: 'security.debug.decrypt',
-    method: 'POST',
-    pattern: /^\/security\/debug\/decrypt$/,
-  },
-  {
-    // profile.update_password 表示个人中心修改密码接口。
-    alias: 'profile.update_password',
-    method: 'PATCH',
-    pattern: /^\/profile\/password$/,
-  },
-  {
-    // profile.update_mine 表示个人中心修改资料接口。
-    alias: 'profile.update_mine',
-    method: 'PATCH',
-    pattern: /^\/profile$/,
-  },
-  {
-    // profile.update_mfa_status 表示个人中心启停 MFA 接口。
-    alias: 'profile.update_mfa_status',
-    method: 'PATCH',
-    pattern: /^\/profile\/mfa-status$/,
-  },
-  {
-    // profile.update_mfa_secret 表示个人中心刷新 MFA 秘钥接口。
-    alias: 'profile.update_mfa_secret',
-    method: 'PATCH',
-    pattern: /^\/profile\/mfa-secret$/,
-  },
-  {
-    // profile.refresh_mfa_secret 表示个人中心重新生成 MFA 秘钥接口。
-    alias: 'profile.refresh_mfa_secret',
-    method: 'POST',
-    pattern: /^\/profile\/mfa-secret\/refresh$/,
-  },
-  {
-    // profile.update_avatar 表示个人中心修改头像接口。
-    alias: 'profile.update_avatar',
-    method: 'PATCH',
-    pattern: /^\/profile\/avatar$/,
-  },
-  {
-    // user_tag.workflow_lease.release 表示释放用户标签工作流互斥锁接口。
-    alias: 'user_tag.workflow_lease.release',
-    method: 'POST',
-    pattern: /^\/user-tags\/workflow-lease\/release$/,
-  },
-];
+// RouteSecurityManifestSnapshot 表示后端生成、前端消费的安全策略快照。
+interface RouteSecurityManifestSnapshot {
+  routes: RouteSecurityManifestRoute[];
+  version: number;
+}
 
+// ADMIN_ROUTE_SECURITY_MANIFEST 是后台路由安全策略的前端运行时来源。
+const ADMIN_ROUTE_SECURITY_MANIFEST =
+  routeSecurityManifest as RouteSecurityManifestSnapshot;
+
+const ADMIN_ROUTE_SECURITY_POLICIES: Record<string, RouteSecurityPolicy> =
+  Object.fromEntries(
+    ADMIN_ROUTE_SECURITY_MANIFEST.routes.map((route) => [
+      route.alias,
+      routeManifestPolicy(route),
+    ]),
+  );
+
+// ROUTE_SECURITY_RULES 将后端路由模板转换成前端请求路径匹配规则。
+const ROUTE_SECURITY_RULES: RouteSecurityRule[] =
+  ADMIN_ROUTE_SECURITY_MANIFEST.routes.map((route) => ({
+    alias: route.alias,
+    method: route.method.toUpperCase(),
+    pattern: routePathPattern(route.path),
+  }));
+
+// routeManifestPolicy 从 manifest 路由项提取字段级安全策略。
+function routeManifestPolicy(
+  route: RouteSecurityManifestRoute,
+): RouteSecurityPolicy {
+  return {
+    requestCipher: route.requestCipher,
+    requestSign: route.requestSign,
+    responseCipher: route.responseCipher,
+    responseSign: route.responseSign,
+  };
+}
+
+// routePathPattern 将 go-zero 路由模板转换为前端请求路径正则。
+function routePathPattern(path: string) {
+  const normalizedPath = normalizeApiPath(path).replace(/\/+$/u, '') || '/';
+  const chunks = normalizedPath
+    .split('/')
+    .filter(Boolean)
+    .map((chunk) => (chunk.startsWith(':') ? '[^/]+' : escapeRegExp(chunk)));
+  return new RegExp(`^/${chunks.join('/')}$`, 'u');
+}
+
+// escapeRegExp 转义普通路径片段中的正则特殊字符。
+function escapeRegExp(value: string) {
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`);
+}
 // isSecurityEnabled 判断指定安全能力是否已通过环境变量开启。
 function isSecurityEnabled(flag: string) {
   return String(flag || '').toLowerCase() === 'true';

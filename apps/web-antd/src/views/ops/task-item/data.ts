@@ -29,12 +29,9 @@ const workflowIDHeaderName = 'x-app-workflow-id';
 
 export { formatSharedTraceCount as formatTraceCount };
 
-// getTaskExecutionTrace 获取任务运行指标摘要，兼容旧任务 result.executionTrace 兜底。
+// getTaskExecutionTrace 获取任务运行指标摘要。
 export function getTaskExecutionTrace(task: TaskApi.TaskItem) {
-  const resultTrace = task.result?.executionTrace as
-    | TaskApi.TaskExecutionTrace
-    | undefined;
-  return task.executionTrace || resultTrace;
+  return task.executionTrace;
 }
 
 // hasTaskExecutionTrace 判断运行指标是否包含可展示的数据。

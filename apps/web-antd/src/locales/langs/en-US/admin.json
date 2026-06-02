@@ -24,7 +24,8 @@
     "log": "Audit Logs",
     "secretKey": "Secret Keys",
     "tools": "Tools",
-    "apiDocs": "API Docs",
+    "apiDocs": "Admin API Docs",
+    "apiServiceDocs": "Frontend API Docs",
     "securityDebug": "Security Debug"
   },
   "apiDocs": {

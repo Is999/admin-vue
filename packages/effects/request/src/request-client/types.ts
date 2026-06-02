@@ -7,6 +7,10 @@ import type {
 
 type ExtendOptions<T = any> = {
   /**
+   * 登录态 MFA 完成后重放请求的内部标记，避免同一请求重复弹窗。
+   */
+  __loginMfaRetried?: boolean;
+  /**
    * 参数序列化方式。预置的有
    * - brackets: ids[]=1&ids[]=2&ids[]=3
    * - comma: ids=1,2,3
@@ -26,6 +30,14 @@ type ExtendOptions<T = any> = {
    * - data: 解构响应的BODY数据，只返回其中的data节点数据（会检查status和code是否为成功状态）。
    */
   responseReturn?: 'body' | 'data' | 'raw';
+  /**
+   * 是否跳过全局错误提示，由业务层自行展示错误。
+   */
+  skipGlobalErrorMessage?: boolean;
+  /**
+   * 是否跳过登录态 MFA 全局拦截，避免认证接口递归触发自身。
+   */
+  skipLoginMfaHandler?: boolean;
 };
 type RequestClientConfig<T = any> = AxiosRequestConfig<T> & ExtendOptions<T>;
 

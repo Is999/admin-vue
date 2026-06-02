@@ -296,7 +296,7 @@ function onPermissionNodeDoubleClick(nodeID: number) {
   );
 }
 
-// 当树数据变化时默认展开全部，避免切换父级后还保留旧的展开状态。
+// 当树数据变化时默认展开全部，避免切换父级后保留上一次展开状态。
 watch(
   () => props.treeData,
   (value) => {

@@ -1,3 +1,4 @@
+import type { CommonApi } from '#/api/common';
 import type { TaskApi } from '#/api/ops/task';
 
 import { requestClient } from '#/api/request';
@@ -37,10 +38,7 @@ export async function fetchAPIRuntimeConfigReloadItems(
 }
 
 // runAPIRuntimeConfigReload 手动触发 API 服务配置热加载。
-export async function runAPIRuntimeConfigReload(data?: {
-  twoStepKey?: string;
-  twoStepValue?: string;
-}) {
+export async function runAPIRuntimeConfigReload(data?: CommonApi.TwoStepReq) {
   return requestClient.post<OpsAPIRuntimeApi.ReloadResp>(
     '/api-runtime/config-reload',
     { ...data },

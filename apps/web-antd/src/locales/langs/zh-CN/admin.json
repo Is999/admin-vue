@@ -24,7 +24,8 @@
     "log": "日志管理",
     "secretKey": "秘钥管理",
     "tools": "项目工具",
-    "apiDocs": "接口文档",
+    "apiDocs": "后台接口文档",
+    "apiServiceDocs": "前台 API 文档",
     "securityDebug": "安全调试台"
   },
   "apiDocs": {

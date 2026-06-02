@@ -215,7 +215,6 @@ type WorkflowReferenceValues = {
   queue: string;
   retry: string;
   shardTotal: string;
-  syncSnapshotOnly: string;
   tagTypesText: string;
   timeoutSeconds: string;
   uidsText: string;
@@ -238,8 +237,7 @@ const currentWorkflowReferenceRows = computed<ReferenceRow[]>(() => {
     dryRun: $t('business.message.disabled'),
     queue: getSuggestedQueue(),
     retry: '2',
-    shardTotal: '10',
-    syncSnapshotOnly: $t('business.message.disabled'),
+    shardTotal: '1',
     tagTypesText: $t('business.message.emptyValue'),
     timeoutSeconds: '1800',
     uidsText: $t('business.message.emptyValue'),
@@ -252,7 +250,6 @@ const currentWorkflowReferenceRows = computed<ReferenceRow[]>(() => {
   switch (mode) {
     case 'full': {
       Object.assign(reference, {
-        syncSnapshotOnly: $t('business.message.enabled'),
         timeoutSeconds: '3600',
         uniqueTTLSeconds: '3600',
       });
@@ -289,10 +286,6 @@ const currentWorkflowReferenceRows = computed<ReferenceRow[]>(() => {
     { label: $t('business.message.shardTotal'), value: reference.shardTotal },
     { label: $t('business.message.batchSize'), value: reference.batchSize },
     { label: $t('business.message.workerCount'), value: reference.workerCount },
-    {
-      label: $t('business.message.syncSnapshotOnly'),
-      value: reference.syncSnapshotOnly,
-    },
     { label: $t('business.message.dryRunOnly'), value: reference.dryRun },
     { label: $t('business.message.uniqueKey'), value: reference.uniqueKey },
     {
@@ -331,10 +324,6 @@ const userTagWorkflowFieldGuides: FieldGuideRow[] = [
   {
     label: $t('business.message.userTagGuideDryRunLabel'),
     description: $t('business.message.userTagGuideDryRunDesc'),
-  },
-  {
-    label: $t('business.message.userTagGuideSyncSnapshotLabel'),
-    description: $t('business.message.userTagGuideSyncSnapshotDesc'),
   },
   {
     label: $t('business.message.guideUniqueLabel'),
@@ -433,11 +422,10 @@ async function applyWorkflowModeDefaults(
     queue: getSuggestedQueue(),
     batchSize: 1000,
     dryRun: false,
-    syncSnapshotOnly: false,
   };
   const values: Record<string, any> = {
     ...commonValues,
-    shardTotal: 10,
+    shardTotal: 1,
     workerCount: 4,
     uniqueTTLSeconds: 1800,
     retry: 2,
@@ -450,7 +438,6 @@ async function applyWorkflowModeDefaults(
       Object.assign(values, {
         tagTypesText: '',
         uidsText: '',
-        syncSnapshotOnly: true,
         uniqueTTLSeconds: 3600,
         timeoutSeconds: 3600,
       });
@@ -506,7 +493,7 @@ async function applyRecalculateDefaults() {
     {
       tagTypesText: '30,31',
       queue: getSuggestedQueue(),
-      shardTotal: 10,
+      shardTotal: 1,
       batchSize: 1000,
       workerCount: 4,
       dryRun: false,
@@ -597,8 +584,6 @@ function validateWorkflowModeInput(
   mode: UserTagModeValue,
   tagTypes: number[],
   uids: number[],
-  dryRun: boolean,
-  syncSnapshotOnly: boolean,
 ) {
   if (mode === 'full' && (tagTypes.length > 0 || uids.length > 0)) {
     message.warning($t('business.message.userTagWorkflowFullScopeInvalid'));
@@ -614,14 +599,6 @@ function validateWorkflowModeInput(
   }
   if (mode === 'recalculate' && tagTypes.length === 0) {
     message.warning($t('business.message.userTagWorkflowRecalculateRequired'));
-    return false;
-  }
-  if (mode !== 'full' && syncSnapshotOnly) {
-    message.warning($t('business.message.userTagSyncSnapshotModeInvalid'));
-    return false;
-  }
-  if (dryRun && syncSnapshotOnly) {
-    message.warning($t('business.message.userTagDryRunSnapshotConflict'));
     return false;
   }
   return true;
@@ -707,10 +684,7 @@ async function handleTriggerUserTagWorkflow() {
     const tagTypes = splitTextToNumberItems(values.tagTypesText || '');
     const uids = splitTextToNumberItems(values.uidsText || '');
     const dryRun = !!values.dryRun;
-    const syncSnapshotOnly = !!values.syncSnapshotOnly;
-    if (
-      !validateWorkflowModeInput(mode, tagTypes, uids, dryRun, syncSnapshotOnly)
-    ) {
+    if (!validateWorkflowModeInput(mode, tagTypes, uids)) {
       return;
     }
     const requestPayload: UserTagApi.TriggerWorkflowReq = {
@@ -723,7 +697,6 @@ async function handleTriggerUserTagWorkflow() {
       batchSize: normalizeOptionalNumber(values.batchSize),
       workerCount: normalizeOptionalNumber(values.workerCount),
       dryRun,
-      syncSnapshotOnly: mode === 'full' ? syncSnapshotOnly : false,
       uniqueKey: values.uniqueKey || undefined,
       uniqueTTLSeconds: normalizeOptionalNumber(values.uniqueTTLSeconds),
       retry: normalizeOptionalNumber(values.retry),

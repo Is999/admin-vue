@@ -1,79 +1,24 @@
-import { h, nextTick, render } from 'vue';
+import { h, render } from 'vue';
 
 import { Alert, Button, Input, message, QRCode, Space } from 'ant-design-vue';
 
 import { $t } from '#/locales';
 
 import { extractMfaManualInfo, mfaBindingLabel } from './mfa-core';
-
-export type { MFAManualInfo } from './mfa-core';
-export {
-  extractMfaManualInfo,
-  extractMfaSecret,
-  formatMfaSecret,
-  getMfaDefaultIssuer,
-  mfaAccountLabel,
-  mfaBindingLabel,
-  mfaIssuerLabel,
-} from './mfa-core';
-
-// MFA_GOOGLE_AUTHENTICATOR_HELP_URL 指向 Google Authenticator 官方帮助页。
-const MFA_GOOGLE_AUTHENTICATOR_HELP_URL =
-  'https://support.google.com/accounts/answer/1066447';
-// MFA_MICROSOFT_AUTHENTICATOR_HELP_URL 指向 Microsoft Authenticator 官方帮助页。
-const MFA_MICROSOFT_AUTHENTICATOR_HELP_URL =
-  'https://support.microsoft.com/account-billing/use-microsoft-authenticator-with-microsoft-365-1412611f-ad8d-43ab-807c-7965e5155411';
-
-// getMfaAuthenticatorApps 返回推荐的 TOTP 身份验证器应用列表，避免语言包加载前固定成原始 key。
-export function getMfaAuthenticatorApps() {
-  return [
-    'Google Authenticator',
-    'Microsoft Authenticator',
-    $t('business.message.mfaAuthenticatorAuthingToken'),
-    $t('business.message.mfaAuthenticatorNingdunToken'),
-  ];
-}
-
-// getMfaBindSteps 返回静态绑定与首次绑定通用步骤。
-export function getMfaBindSteps() {
-  return [
-    {
-      description: $t('business.message.mfaBindAddAccountDesc'),
-      title: $t('business.message.mfaBindAddAccountTitle'),
-    },
-    {
-      description: $t('business.message.mfaBindFillSecretDesc'),
-      title: $t('business.message.mfaBindFillSecretTitle'),
-    },
-    {
-      description: $t('business.message.mfaBindVerifyEnableDesc'),
-      title: $t('business.message.mfaBindVerifyEnableTitle'),
-    },
-  ];
-}
-
-// getMfaGuideSteps 返回 MFA 绑定说明步骤。
-export function getMfaGuideSteps() {
-  return [
-    {
-      description: $t('business.message.mfaGuideInstallDesc'),
-      title: $t('business.message.mfaGuideInstallTitle'),
-    },
-    {
-      description: $t('business.message.mfaGuideScanDesc'),
-      title: $t('business.message.mfaGuideScanTitle'),
-    },
-    {
-      description: $t('business.message.mfaGuideVerifyDesc'),
-      title: $t('business.message.mfaGuideVerifyTitle'),
-    },
-  ];
-}
-
-// getMfaMicrosoftScanTip 返回微软身份验证器扫码提示。
-export function getMfaMicrosoftScanTip() {
-  return $t('business.message.mfaMicrosoftScanTip');
-}
+import {
+  getMfaAuthenticatorApps,
+  getMfaGuideSteps,
+  getMfaMicrosoftScanTip,
+  normalizeMfaSecure,
+  resolveDialogErrorMessage,
+} from './mfa-guide';
+import {
+  buildMfaCodeInputBlock,
+  buildMfaDialogActions,
+  buildMfaGuideDescription,
+  copyMfaSecret,
+  focusMfaCheckInput,
+} from './mfa-ui';
 
 // MFAOverlayDialogOptions 定义全屏 MFA 遮罩弹层的通用参数。
 export type MFAOverlayDialogOptions<Result = unknown> = {
@@ -105,178 +50,6 @@ export type MFAOverlayDialogResult<Result = unknown> = {
   result: Result; // 提交回调返回结果
   secure: string; // 当前用户输入的 6 位动态验证码
 };
-
-// copyMfaSecret 复制 MFA 原始秘钥，便于手动添加到身份验证器。
-async function copyMfaSecret(secret = '') {
-  const rawSecret = String(secret || '').trim();
-  if (!rawSecret) {
-    message.warning($t('business.message.mfaSecretUnavailable'));
-    return;
-  }
-  try {
-    await navigator.clipboard.writeText(rawSecret);
-    message.success($t('business.message.mfaSecretCopied'));
-  } catch {
-    message.error($t('business.message.copySecretFailedManual'));
-  }
-}
-
-// normalizeMfaSecure 统一清洗 MFA 动态验证码，只保留 6 位数字。
-function normalizeMfaSecure(value = '') {
-  return String(value || '')
-    .replaceAll(/\D+/g, '')
-    .slice(0, 6);
-}
-
-// focusMfaCheckInput 在弹层打开或刷新后重新聚焦验证码输入框。
-function focusMfaCheckInput() {
-  void nextTick(() => {
-    document
-      .querySelector<HTMLInputElement>('[data-mfa-check-input="true"]')
-      ?.focus();
-  });
-}
-
-// buildMfaAuthenticatorLink 渲染说明句内的身份验证器应用链接，避免额外占一行。
-function buildMfaAuthenticatorLink(label: string, href: string) {
-  return h(
-    'a',
-    {
-      class: 'font-medium text-primary hover:text-primary/80 hover:underline',
-      href,
-      rel: 'noopener noreferrer',
-      target: '_blank',
-    },
-    label,
-  );
-}
-
-// buildMfaInstallDescription 把安装说明里的应用名替换为官方帮助链接。
-function buildMfaInstallDescription(description: string) {
-  const appLinks = [
-    {
-      href: MFA_GOOGLE_AUTHENTICATOR_HELP_URL,
-      label: 'Google Authenticator',
-    },
-    {
-      href: MFA_MICROSOFT_AUTHENTICATOR_HELP_URL,
-      label: 'Microsoft Authenticator',
-    },
-  ];
-  let cursor = 0;
-  const nodes: Array<ReturnType<typeof h> | string> = [];
-  for (const link of appLinks) {
-    const index = description.indexOf(link.label, cursor);
-    if (index === -1) {
-      continue;
-    }
-    if (index > cursor) {
-      nodes.push(description.slice(cursor, index));
-    }
-    nodes.push(buildMfaAuthenticatorLink(link.label, link.href));
-    cursor = index + link.label.length;
-  }
-  if (cursor < description.length) {
-    nodes.push(description.slice(cursor));
-  }
-  return nodes.length > 0 ? nodes : description;
-}
-
-// buildMfaGuideDescription 渲染绑定步骤说明，安装步骤内联应用帮助链接。
-function buildMfaGuideDescription(
-  step: { description: string },
-  index: number,
-) {
-  if (index === 0) {
-    return buildMfaInstallDescription(step.description);
-  }
-  return step.description;
-}
-
-// buildMfaCodeInputBlock 渲染验证码提示与输入框，统一控制内部间距。
-function buildMfaCodeInputBlock(
-  secure: string,
-  errorMessage: string,
-  onSecureChange: (value: string) => void,
-  onSubmit?: () => void,
-  renderActions?: () => any,
-) {
-  return h('div', { class: 'space-y-3' }, [
-    h(Alert, {
-      description: $t('business.message.mfaBindContinueAlertDesc'),
-      message: $t('business.message.mfaBindContinueAlertTitle'),
-      showIcon: true,
-      type: 'info',
-    }),
-    errorMessage
-      ? h(Alert, {
-          message: errorMessage,
-          showIcon: true,
-          type: 'error',
-        })
-      : null,
-    h(
-      'div',
-      {
-        class:
-          'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-start',
-        style: { marginTop: '8px' },
-      },
-      [
-        h(Input, {
-          autofocus: true,
-          class: 'mfa-check-input h-10 min-w-0 sm:max-w-[560px] sm:flex-1',
-          maxlength: 6,
-          onChange: (event: Event) => {
-            onSecureChange((event.target as HTMLInputElement).value);
-          },
-          onPressEnter: () => {
-            onSubmit?.();
-          },
-          placeholder: $t('business.message.mfaCodePlaceholder'),
-          size: 'large',
-          value: secure,
-          'data-mfa-check-input': 'true',
-        }),
-        renderActions?.() ?? null,
-      ],
-    ),
-  ]);
-}
-
-// buildMfaDialogActions 渲染输入框后的确认与取消按钮。
-function buildMfaDialogActions(options: {
-  cancelText: string;
-  disabled?: boolean;
-  loading?: boolean;
-  okText: string;
-  onCancel: () => void;
-  onSubmit: () => void;
-}) {
-  return h('div', { class: 'flex flex-none flex-row items-center gap-3' }, [
-    h(
-      Button,
-      {
-        class: 'h-10 min-w-[96px]',
-        loading: options.loading,
-        onClick: options.onSubmit,
-        size: 'large',
-        type: 'primary',
-      },
-      { default: () => options.okText },
-    ),
-    h(
-      Button,
-      {
-        class: 'h-10 min-w-[96px]',
-        disabled: options.disabled,
-        onClick: options.onCancel,
-        size: 'large',
-      },
-      { default: () => options.cancelText },
-    ),
-  ]);
-}
 
 // buildMfaGuideSummary 渲染紧凑版 MFA 绑定说明，避免全屏遮罩里重复滚动过长。
 function buildMfaGuideSummary() {
@@ -379,19 +152,6 @@ function buildMfaBindingMeta(
       ],
     ),
   ]);
-}
-
-// resolveDialogErrorMessage 优先解析服务端业务提示，否则回退到本地兜底文案。
-function resolveDialogErrorMessage(error: any, fallback: string) {
-  const responseMessage = String(error?.response?.data?.message || '').trim();
-  if (responseMessage) {
-    return responseMessage;
-  }
-  const errorMessage = String(error?.message || '').trim();
-  if (errorMessage && errorMessage !== 'Request failed with status code 200') {
-    return errorMessage;
-  }
-  return fallback;
 }
 
 // buildMfaVerificationContent 生成 MFA 二次确认主体内容，有绑定地址时展示完整说明。

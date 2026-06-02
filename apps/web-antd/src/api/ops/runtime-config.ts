@@ -4,14 +4,6 @@ import { requestClient } from '#/api/request';
 
 // RuntimeConfigApi 定义运行期大列表配置管理接口契约。
 export namespace RuntimeConfigApi {
-  /** MFA 二次确认票据字段 */
-  export interface TwoStepReq {
-    /** MFA 二次校验票据 key */
-    twoStepKey?: string;
-    /** MFA 二次校验票据 value */
-    twoStepValue?: string;
-  }
-
   /** 当前 active 版本状态 */
   export interface StateItem {
     /** 当前发布 ID */
@@ -229,13 +221,13 @@ export namespace RuntimeConfigApi {
   }
 
   /** 发布请求 */
-  export interface PublishReq extends TwoStepReq {
+  export interface PublishReq extends CommonApi.TwoStepReq {
     /** 发布备注 */
     remark?: string;
   }
 
   /** 回滚请求 */
-  export interface RollbackReq extends TwoStepReq {
+  export interface RollbackReq extends CommonApi.TwoStepReq {
     /** 目标发布 ID */
     releaseId: number;
     /** 回滚备注 */
@@ -243,7 +235,7 @@ export namespace RuntimeConfigApi {
   }
 
   /** 导入当前配置请求 */
-  export interface ImportCurrentReq extends TwoStepReq {
+  export interface ImportCurrentReq extends CommonApi.TwoStepReq {
     /** 导入备注 */
     remark?: string;
   }

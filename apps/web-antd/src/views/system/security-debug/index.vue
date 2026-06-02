@@ -1118,8 +1118,12 @@ function applyHeadersToForm(headers: Record<string, string>) {
 }
 
 // resolveResponsePayloadTarget 把标准响应包裹中的 data 提取出来，便于直接做解密与验签。
-function resolveResponsePayloadTarget(parsed: any) {
-  const data = parsed?.data;
+function resolveResponsePayloadTarget(parsed: unknown) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return parsed;
+  }
+  const payload = parsed as Record<string, unknown>;
+  const data = payload.data;
   if (data && typeof data === 'object' && !Array.isArray(data)) {
     return data;
   }
@@ -1145,13 +1149,14 @@ function parseAsRequest() {
   const jsonText = extractJsonTextFromRaw(sourceText);
   const parsed = tryParseJson(jsonText);
   if (parsed && typeof parsed === 'object') {
-    const sign = (parsed as any).sign;
+    const payload = parsed as Record<string, unknown>;
+    const sign = payload.sign;
     if (typeof sign === 'string' && sign.trim()) {
       signValue.value = sign.trim();
-      delete (parsed as any).sign;
+      delete payload.sign;
     }
-    payloadText.value = formatJsonText(parsed);
-    fieldCipherPayloadText.value = formatJsonText(parsed);
+    payloadText.value = formatJsonText(payload);
+    fieldCipherPayloadText.value = formatJsonText(payload);
     return;
   }
   const urlText = extractUrlFromRaw(sourceText);

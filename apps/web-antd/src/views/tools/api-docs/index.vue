@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
 import { Page, VbenButton } from '@vben/common-ui';
 
@@ -8,10 +8,20 @@ import { Alert, Spin } from 'ant-design-vue';
 import { createDocsSession } from '#/api/docs';
 import { $t } from '#/locales';
 
+interface DocsPageProps {
+  docsHash?: string; // docsify hash 路径，不含 /api/docs 前缀
+  titleKey?: string; // iframe title 使用的 i18n key
+}
+
 defineOptions({ name: 'OpsApiDocsPage' });
 
+const props = withDefaults(defineProps<DocsPageProps>(), {
+  docsHash: '/',
+  titleKey: 'admin.route.apiDocs',
+});
+
 // docsUrl 指向后端文档站入口；加载前必须先创建文档会话 cookie。
-const docsUrl = '/api/docs#/';
+const docsUrl = computed(() => `/api/docs#${props.docsHash}`);
 // docsReadyPollIntervalMs 控制检查 iframe 内文档渲染完成的频率。
 const docsReadyPollIntervalMs = 120;
 // docsReadyTimeoutMs 避免文档资源异常时 loading 一直停留。
@@ -101,7 +111,7 @@ async function loadDocs() {
   frameSrc.value = '';
   try {
     await createDocsSession();
-    frameSrc.value = docsUrl;
+    frameSrc.value = docsUrl.value;
   } catch {
     markDocsLoadFailed();
   }
@@ -147,7 +157,7 @@ onBeforeUnmount(clearDocsReadyTimer);
         class="h-full min-h-[620px] w-full border-0 transition-opacity"
         :class="loading ? 'opacity-0' : 'opacity-100'"
         :src="frameSrc"
-        :title="$t('admin.route.apiDocs')"
+        :title="$t(props.titleKey)"
         @error="markDocsLoadFailed"
         @load="handleFrameLoad"
       ></iframe>
