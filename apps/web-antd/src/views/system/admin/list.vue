@@ -67,6 +67,15 @@ import {
 
 import { useColumns, useGridFormSchema } from './data';
 import Form from './modules/form.vue';
+import {
+  buildAdminRoleRelationMaps,
+  buildAdminRoleTreeOptions,
+  collectAdminRoleIds,
+  collectAdminRoleSubtreeIds,
+  collectAllAdminRoleNodeIds,
+  isAdminRoleNodeCheckable,
+  pruneInheritedAdminRoleIds,
+} from './role-tree';
 
 defineOptions({ name: 'SystemAdminListPage' });
 
@@ -277,108 +286,9 @@ const [Grid, gridApi] = useVbenVxeGrid({
   },
 });
 
-// buildRoleTreeOptions 构造角色树选择项，禁用未启用角色。
-function buildRoleTreeOptions(
-  items: SystemRoleApi.Item[],
-): Array<Record<string, any>> {
-  return items.map((item) => ({
-    children: item.children?.length ? buildRoleTreeOptions(item.children) : [],
-    disableCheckbox: item.disableCheckbox,
-    disabled: item.disabled,
-    id: item.id,
-    key: item.id,
-    pids: item.pids,
-    rawTitle: item.title,
-    selectable: item.selectable,
-    title: buildRoleTitle(item),
-  }));
-}
-
-// buildRoleRelationMaps 构造角色树父子关系，用于自定义勾选联动规则。
-function buildRoleRelationMaps(items: Array<Record<string, any>>) {
-  const childrenById = new Map<number, number[]>();
-  const nodeById = new Map<number, Record<string, any>>();
-  const parentById = new Map<number, number>();
-  const walk = (nodes: Array<Record<string, any>>, parentID?: number) => {
-    for (const item of nodes) {
-      nodeById.set(item.id, item);
-      if (parentID) {
-        parentById.set(item.id, parentID);
-      }
-      const childIDs = (item.children || []).map(
-        (child: Record<string, any>) => child.id,
-      );
-      childrenById.set(item.id, childIDs);
-      if (item.children?.length) {
-        walk(item.children, item.id);
-      }
-    }
-  };
-  walk(items);
-  return {
-    childrenById,
-    nodeById,
-    parentById,
-  };
-}
-
-// isRoleNodeCheckable 判断角色节点当前是否允许勾选。
-function isRoleNodeCheckable(node?: Record<string, any>) {
-  return Boolean(
-    node && !node.disableCheckbox && !node.disabled && Number(node.id) > 0,
-  );
-}
-
-// collectAllRoleNodeIds 收集整棵角色树节点 ID，用于展开与收起。
-function collectAllRoleNodeIds(items: Array<Record<string, any>>) {
-  const result: number[] = [];
-  const walk = (nodes: Array<Record<string, any>>) => {
-    for (const item of nodes) {
-      result.push(item.id);
-      if (item.children?.length) {
-        walk(item.children);
-      }
-    }
-  };
-  walk(items);
-  return result;
-}
-
-// collectRoleSubtreeIds 收集当前角色节点及其全部可勾选子节点。
-function collectRoleSubtreeIds(
-  nodeID: number,
-  childrenById: Map<number, number[]>,
-  nodeById: Map<number, Record<string, any>>,
-) {
-  const result: number[] = [];
-  const walk = (currentID: number) => {
-    const node = nodeById.get(currentID);
-    if (isRoleNodeCheckable(node)) {
-      result.push(currentID);
-    }
-    for (const childID of childrenById.get(currentID) || []) {
-      walk(childID);
-    }
-  };
-  walk(nodeID);
-  return result;
-}
-
 // pruneInheritedRoleIDs 过滤已被父角色覆盖的子角色，避免提交冗余关系。
 function pruneInheritedRoleIDs(roleIDs: number[]) {
-  const uniqueRoleIDs = [...new Set(roleIDs)];
-  const roleSet = new Set(uniqueRoleIDs);
-  const { parentById } = buildRoleRelationMaps(roleOptions.value);
-  return uniqueRoleIDs.filter((roleID) => {
-    let parentID = parentById.get(roleID);
-    while (parentID) {
-      if (roleSet.has(parentID)) {
-        return false;
-      }
-      parentID = parentById.get(parentID);
-    }
-    return true;
-  });
+  return pruneInheritedAdminRoleIds(roleIDs, roleOptions.value);
 }
 
 // updateCheckedRoleIds 按账号角色分配规则维护角色选中集合。
@@ -387,10 +297,12 @@ function updateCheckedRoleIds(
   nodeID: number,
   nextChecked: boolean,
 ) {
-  const { childrenById, nodeById } = buildRoleRelationMaps(roleOptions.value);
+  const { childrenById, nodeById } = buildAdminRoleRelationMaps(
+    roleOptions.value,
+  );
   const checkedSet = new Set(sourceCheckedIDs);
   const currentNode = nodeById.get(nodeID);
-  if (!isRoleNodeCheckable(currentNode)) {
+  if (!isAdminRoleNodeCheckable(currentNode)) {
     return [...checkedSet].toSorted((a, b) => a - b);
   }
 
@@ -398,7 +310,7 @@ function updateCheckedRoleIds(
     checkedSet.add(nodeID);
     const childIDs = childrenById.get(nodeID) || [];
     if (childIDs.length > 0) {
-      collectRoleSubtreeIds(nodeID, childrenById, nodeById)
+      collectAdminRoleSubtreeIds(nodeID, childrenById, nodeById)
         .filter((item) => item !== nodeID)
         .forEach((item) => checkedSet.delete(item));
     }
@@ -724,9 +636,9 @@ async function onAssignRoles(row: SystemAdminApi.Item) {
       fetchRoleTreeOptions(),
       fetchAdminRoles(row.id),
     ]);
-    roleOptions.value = buildRoleTreeOptions(roles);
+    roleOptions.value = buildAdminRoleTreeOptions(roles, buildRoleTitle);
     selectedRoleIds.value = userRoles.map((item) => item.id);
-    expandedRoleIds.value = collectAllRoleNodeIds(roleOptions.value);
+    expandedRoleIds.value = collectAllAdminRoleNodeIds(roleOptions.value);
   } finally {
     roleModalApi.setState({ loading: false });
   }
@@ -854,26 +766,9 @@ function onDelete(row: SystemAdminApi.Item) {
   });
 }
 
-// collectRoleIds 收集树中的全部可选角色ID。
-function collectRoleIds(items: Array<Record<string, any>>) {
-  const result: number[] = [];
-  const walk = (nodes: Array<Record<string, any>>) => {
-    for (const item of nodes) {
-      if (!item.disableCheckbox && !item.disabled && item.id > 0) {
-        result.push(item.id);
-      }
-      if (item.children?.length) {
-        walk(item.children);
-      }
-    }
-  };
-  walk(items);
-  return result;
-}
-
 // onCheckAllRoles 勾选全部可用角色。
 function onCheckAllRoles() {
-  selectedRoleIds.value = collectRoleIds(roleOptions.value);
+  selectedRoleIds.value = collectAdminRoleIds(roleOptions.value);
 }
 
 // onClearRoles 清空角色勾选。
