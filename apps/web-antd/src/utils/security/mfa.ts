@@ -284,12 +284,17 @@ export async function requestMfaTwoStep(
   scenario: number,
   title = $t('business.message.mfaSecondConfirmTitle'),
   buildMfaUrl = '',
+  options: Omit<
+    MFACheckDialogOptions,
+    'buildMfaUrl' | 'requireTwoStep' | 'title'
+  > = {},
 ) {
   const cachedTicket = getReusableMfaTwoStepTicket(scenario);
   if (cachedTicket) {
     return cachedTicket;
   }
   const result = await requestMfaCheck(scenario, {
+    ...options,
     buildMfaUrl,
     requireTwoStep: true,
     title,

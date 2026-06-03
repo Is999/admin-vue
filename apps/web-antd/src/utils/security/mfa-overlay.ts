@@ -4,7 +4,12 @@ import { Alert, Button, Input, message, QRCode, Space } from 'ant-design-vue';
 
 import { $t } from '#/locales';
 
-import { extractMfaManualInfo, mfaBindingLabel } from './mfa-core';
+import {
+  extractMfaManualInfo,
+  mfaAccountLabel,
+  mfaBindingLabel,
+  mfaIssuerLabel,
+} from './mfa-core';
 import {
   getMfaAuthenticatorApps,
   getMfaGuideSteps,
@@ -154,6 +159,59 @@ function buildMfaBindingMeta(
   ]);
 }
 
+// buildMfaVerifyIdentityMeta 渲染动态码确认页的发行方与账号，便于区分多个验证器条目。
+function buildMfaVerifyIdentityMeta(
+  info: ReturnType<typeof extractMfaManualInfo>,
+  options: MFAOverlayDialogOptions<unknown>,
+) {
+  const rows = [
+    {
+      label: $t('business.message.mfaIssuer'),
+      value: mfaIssuerLabel(info),
+    },
+    {
+      label: $t('business.message.mfaAccount'),
+      value: mfaAccountLabel(
+        info,
+        options.accountName || $t('business.message.mfaCurrentAccount'),
+      ),
+    },
+  ];
+  return h(
+    'div',
+    {
+      class: 'grid gap-3 sm:grid-cols-2',
+    },
+    rows.map((row) =>
+      h(
+        'div',
+        {
+          class:
+            'min-w-0 rounded-xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/45 px-4 py-3',
+        },
+        [
+          h(
+            'div',
+            {
+              class: 'text-xs font-medium text-foreground/55',
+            },
+            row.label,
+          ),
+          h(
+            'span',
+            {
+              class:
+                'mt-1 block truncate text-sm font-semibold text-foreground',
+              title: row.value,
+            },
+            row.value,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 // buildMfaVerificationContent 生成 MFA 二次确认主体内容，有绑定地址时展示完整说明。
 function buildMfaVerificationContent(
   buildMfaUrl: string,
@@ -168,11 +226,11 @@ function buildMfaVerificationContent(
 ) {
   const info = extractMfaManualInfo(buildMfaUrl);
   if (!buildMfaUrl) {
-    return h('div', { class: 'space-y-6' }, [
-      h('div', { class: 'space-y-2 text-center md:text-left' }, [
+    return h('div', { class: 'space-y-4' }, [
+      h('div', { class: 'space-y-1' }, [
         h(
           'div',
-          { class: 'text-lg font-semibold text-foreground' },
+          { class: 'text-base font-semibold text-foreground' },
           $t('business.message.mfaInputAuthenticatorCodeTitle'),
         ),
         h(
@@ -182,6 +240,7 @@ function buildMfaVerificationContent(
             $t('business.message.mfaSensitiveDefaultDesc'),
         ),
       ]),
+      buildMfaVerifyIdentityMeta(info, options),
       errorMessage
         ? h(Alert, {
             message: errorMessage,
@@ -193,7 +252,7 @@ function buildMfaVerificationContent(
         'div',
         {
           class:
-            'rounded-2xl border border-dashed border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/60 px-5 py-4',
+            'rounded-xl border border-dashed border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/55 px-4 py-3',
         },
         [
           h(
@@ -213,7 +272,6 @@ function buildMfaVerificationContent(
         {
           class:
             'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-start',
-          style: { marginTop: '8px' },
         },
         [
           h(Input, {
@@ -392,7 +450,7 @@ function resolveMfaDialogLayout(buildMfaUrl: string) {
     };
   }
   return {
-    cardClass: 'max-w-[760px]',
+    cardClass: 'max-w-[720px]',
   };
 }
 
@@ -443,6 +501,7 @@ export function createMfaOverlayDialog<Result = unknown>(
     if (destroyed) {
       return;
     }
+    const hasBindingUrl = Boolean(currentBuildMfaUrl);
     const layout = resolveMfaDialogLayout(currentBuildMfaUrl);
     render(
       h(
@@ -467,6 +526,7 @@ export function createMfaOverlayDialog<Result = unknown>(
                 'div',
                 {
                   class: `relative w-full ${layout.cardClass}`,
+                  'data-mfa-overlay-card': 'true',
                 },
                 [
                   h(
@@ -479,18 +539,24 @@ export function createMfaOverlayDialog<Result = unknown>(
                       h(
                         'div',
                         {
-                          class:
-                            'border-b border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/60 px-6 py-5 sm:px-8',
+                          class: [
+                            'border-b border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/60',
+                            hasBindingUrl
+                              ? 'px-6 py-5 sm:px-8'
+                              : 'px-5 py-4 sm:px-6',
+                          ],
                         },
                         [
                           h(
                             'div',
                             {
-                              class:
-                                'flex flex-wrap items-start justify-between gap-4',
+                              class: [
+                                'items-start justify-between gap-4',
+                                hasBindingUrl ? 'flex flex-wrap' : 'flex',
+                              ],
                             },
                             [
-                              h('div', { class: 'space-y-2' }, [
+                              h('div', { class: 'min-w-0 space-y-1.5' }, [
                                 h(
                                   'div',
                                   {
@@ -504,8 +570,10 @@ export function createMfaOverlayDialog<Result = unknown>(
                                 h(
                                   'div',
                                   {
-                                    class:
-                                      'text-2xl font-semibold text-foreground',
+                                    class: [
+                                      'font-semibold text-foreground',
+                                      hasBindingUrl ? 'text-2xl' : 'text-xl',
+                                    ],
                                   },
                                   title,
                                 ),
@@ -528,7 +596,7 @@ export function createMfaOverlayDialog<Result = unknown>(
                                 'div',
                                 {
                                   class:
-                                    'rounded-full border border-primary/20 bg-primary/8 px-4 py-1.5 text-xs font-medium text-primary',
+                                    'shrink-0 rounded-full border border-primary/20 bg-primary/8 px-3 py-1.5 text-xs font-medium text-primary',
                                 },
                                 currentBuildMfaUrl
                                   ? $t(
@@ -543,8 +611,10 @@ export function createMfaOverlayDialog<Result = unknown>(
                       h(
                         'div',
                         {
-                          class:
-                            'max-h-[calc(100vh-180px)] overflow-y-auto px-5 py-5 sm:px-6',
+                          class: [
+                            'max-h-[calc(100vh-180px)] overflow-y-auto px-5 sm:px-6',
+                            hasBindingUrl ? 'py-5' : 'py-4',
+                          ],
                         },
                         [
                           buildMfaVerificationContent(
