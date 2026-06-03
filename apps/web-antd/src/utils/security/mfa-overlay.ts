@@ -264,7 +264,7 @@ function buildMfaVerificationContent(
         ),
       ],
     ),
-    h('div', { class: 'grid gap-3 xl:grid-cols-[284px_minmax(0,1fr)]' }, [
+    h('div', { class: 'grid gap-3 xl:grid-cols-[253px_minmax(0,1fr)]' }, [
       h(
         'div',
         {
@@ -281,10 +281,10 @@ function buildMfaVerificationContent(
             h(QRCode, {
               bgColor: '#ffffff',
               bordered: false,
-              class: '!h-[220px] !w-[220px] !border-0 !p-0',
+              class: '!h-[189px] !w-[189px] !border-0 !p-0',
               color: '#000000',
               key: buildMfaUrl,
-              size: 246,
+              size: 215,
               value: buildMfaUrl,
             }),
           ]),

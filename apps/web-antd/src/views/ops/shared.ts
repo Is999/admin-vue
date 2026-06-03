@@ -65,6 +65,11 @@ export function safePrettyJson(value: unknown) {
   return JSON.stringify(value, null, 2);
 }
 
+// formatShortChecksum 把长 checksum 压缩成列表和标签中可读的短文本。
+export function formatShortChecksum(value: string) {
+  return value ? `${value.slice(0, 10)}...${value.slice(-8)}` : '-';
+}
+
 // formatDurationMs 把毫秒耗时格式化为运维页面通用短文本。
 export function formatDurationMs(value?: unknown) {
   const ms = Number(value || 0);

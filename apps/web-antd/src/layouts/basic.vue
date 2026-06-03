@@ -17,6 +17,7 @@ import { preferences, usePreferences } from '@vben/preferences';
 import { useAccessStore, useUserStore } from '@vben/stores';
 
 import {
+  ADMIN_MESSAGE_NOTIFICATIONS_CHANGED_EVENT,
   deleteAdminMessage,
   fetchAdminMessageNotifications,
   markAdminMessageRead,
@@ -53,9 +54,7 @@ const { isDark } = usePreferences();
 const [LockModal, lockModalApi] = useVbenModal({
   connectedComponent: LockScreenModal,
 });
-const showDot = computed(() =>
-  notifications.value.some((item) => !item.isRead),
-);
+const showDot = computed(() => notifications.value.length > 0);
 
 const menus = computed(() => [
   {
@@ -100,15 +99,14 @@ function handleNoticeClear() {
 }
 
 function markRead(id: number | string) {
-  const item = notifications.value.find((item) => item.id === id);
-  if (item) {
-    item.isRead = true;
-  }
   const messageId = Number(id);
+  notifications.value = notifications.value.filter((item) => item.id !== id);
   if (!Number.isFinite(messageId)) {
     return;
   }
-  markAdminMessageRead({ ids: [messageId] }).catch(() => undefined);
+  markAdminMessageRead({ ids: [messageId] }).catch(() => {
+    refreshNotifications().catch(() => undefined);
+  });
 }
 
 function remove(id: number | string) {
@@ -121,8 +119,10 @@ function remove(id: number | string) {
 }
 
 function handleMakeAll() {
-  notifications.value.forEach((item) => (item.isRead = true));
-  markAdminMessageRead({ all: true }).catch(() => undefined);
+  notifications.value = [];
+  markAdminMessageRead({ all: true }).catch(() => {
+    refreshNotifications().catch(() => undefined);
+  });
 }
 
 function handleViewAllNotifications() {
@@ -158,16 +158,18 @@ function navigateTo(
 async function refreshNotifications() {
   try {
     const items = await fetchAdminMessageNotifications({ limit: 10 });
-    notifications.value = (items || []).map((item) => ({
-      id: item.id,
-      avatar: preferences.app.defaultAvatar,
-      date: item.createdAt || '',
-      isRead: item.isRead,
-      link: item.link || undefined,
-      message: messageContentText(item.content) || '',
-      messageHtml: sanitizeMessageContentHtml(item.content),
-      title: item.title || '',
-    }));
+    notifications.value = (items || [])
+      .filter((item) => !item.isRead)
+      .map((item) => ({
+        id: item.id,
+        avatar: preferences.app.defaultAvatar,
+        date: item.createdAt || '',
+        isRead: false,
+        link: item.link || undefined,
+        message: messageContentText(item.content) || '',
+        messageHtml: sanitizeMessageContentHtml(item.content),
+        title: item.title || '',
+      }));
   } catch {
     notifications.value = [];
   }
@@ -183,6 +185,11 @@ function handleAccessForbiddenSync() {
   refreshAccessSilently('forbidden');
 }
 
+// handleNotificationsChanged 在消息管理标记已读后刷新顶部未读通知。
+function handleNotificationsChanged() {
+  refreshNotifications().catch(() => undefined);
+}
+
 onMounted(async () => {
   await refreshNotifications();
   notificationPoller = window.setInterval(() => {
@@ -191,6 +198,10 @@ onMounted(async () => {
   window.addEventListener(
     ACCESS_SYNC_FORBIDDEN_EVENT,
     handleAccessForbiddenSync,
+  );
+  window.addEventListener(
+    ADMIN_MESSAGE_NOTIFICATIONS_CHANGED_EVENT,
+    handleNotificationsChanged,
   );
   accessSyncPoller = window.setInterval(() => {
     refreshAccessSilently('interval');
@@ -209,6 +220,10 @@ onBeforeUnmount(() => {
   window.removeEventListener(
     ACCESS_SYNC_FORBIDDEN_EVENT,
     handleAccessForbiddenSync,
+  );
+  window.removeEventListener(
+    ADMIN_MESSAGE_NOTIFICATIONS_CHANGED_EVENT,
+    handleNotificationsChanged,
   );
 });
 watch(

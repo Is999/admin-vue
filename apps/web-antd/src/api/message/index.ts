@@ -2,6 +2,10 @@ import type { CommonApi } from '#/api/common';
 
 import { requestClient } from '#/api/request';
 
+// ADMIN_MESSAGE_NOTIFICATIONS_CHANGED_EVENT 表示站内信未读通知状态发生变化。
+export const ADMIN_MESSAGE_NOTIFICATIONS_CHANGED_EVENT =
+  'admin-message-notifications-changed';
+
 // AdminMessageApi 定义管理员消息（站内信/通知）相关接口类型。
 export namespace AdminMessageApi {
   // Level 表示消息等级：1info 2warning 3error。
@@ -189,6 +193,14 @@ export async function fetchAdminMessageNotifications(
       params,
     },
   );
+}
+
+// notifyAdminMessageNotificationsChanged 通知布局刷新顶部铃铛未读列表。
+export function notifyAdminMessageNotificationsChanged() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.dispatchEvent(new Event(ADMIN_MESSAGE_NOTIFICATIONS_CHANGED_EVENT));
 }
 
 // markAdminMessageRead 标记消息已读（支持批量与全部）。

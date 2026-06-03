@@ -25,6 +25,7 @@ const routes: RouteRecordRaw[] = [
         meta: {
           authority: asRouteAuthority(OPS_ROUTE_PERMISSION_CODES.API_DOCS),
           icon: 'lucide:book-open-text',
+          keepAlive: true,
           title: $t('admin.route.apiDocs'),
         },
         props: {
@@ -41,10 +42,12 @@ const routes: RouteRecordRaw[] = [
             OPS_ROUTE_PERMISSION_CODES.API_SERVICE_DOCS,
           ),
           icon: 'lucide:file-code-2',
+          keepAlive: true,
           title: $t('admin.route.apiServiceDocs'),
         },
         props: {
-          docsHash: '/api/接口文档/接口文档统一规范',
+          docsBase: '/api/docs/api',
+          docsHash: '/接口文档/前台系统/系统接口',
           titleKey: 'admin.route.apiServiceDocs',
         },
         component: () => import('#/views/tools/api-docs/index.vue'),

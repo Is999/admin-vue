@@ -3,7 +3,7 @@ import type { RuntimeConfigApi } from '#/api/ops/runtime-config';
 
 import { computed, onMounted, reactive, ref } from 'vue';
 
-import { Page, VbenButton } from '@vben/common-ui';
+import { Page, useVbenDrawer, VbenButton } from '@vben/common-ui';
 import { useAccessStore } from '@vben/stores';
 
 import {
@@ -12,6 +12,7 @@ import {
   DeleteOutlined,
   EditOutlined,
   EyeOutlined,
+  InfoCircleOutlined,
   ImportOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -60,17 +61,16 @@ import {
 import { $t } from '#/locales';
 import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
 
-import { safePrettyJson, splitTextToItems } from '../shared';
+import {
+  formatShortChecksum,
+  safePrettyJson,
+  splitTextToItems,
+} from '../shared';
+import SnapshotDiffPanel from './components/snapshot-diff-panel.vue';
 
 type TablePage = {
   current?: number;
   pageSize?: number;
-};
-type SnapshotDiffKind = 'added' | 'removed' | 'same';
-type SnapshotDiffLine = {
-  key: string;
-  kind: SnapshotDiffKind;
-  text: string;
 };
 type RuntimeActionType = 'import' | 'publish' | 'rollback';
 type RuntimeEnabledFilter = 'all' | 'disabled' | 'enabled';
@@ -96,7 +96,6 @@ const periodicFilters = reactive({
   keyword: '',
   workflow: '',
 });
-const periodicModalOpen = ref(false);
 const periodicForm =
   reactive<RuntimeConfigApi.PeriodicTaskItem>(newPeriodicForm());
 const periodicTargetsText = ref('');
@@ -111,7 +110,6 @@ const archiveFilters = reactive({
   enabled: 'all' as RuntimeEnabledFilter,
   keyword: '',
 });
-const archiveModalOpen = ref(false);
 const archiveForm = reactive<RuntimeConfigApi.ArchiveJobItem>(newArchiveForm());
 
 const releaseRows = ref<RuntimeConfigApi.ReleaseItem[]>([]);
@@ -221,17 +219,8 @@ const draftSnapshotText = computed(() =>
     taskPeriodic: periodicRows.value,
   }),
 );
-const snapshotChanged = computed(
-  () => currentSnapshotText.value !== draftSnapshotText.value,
-);
-const snapshotDiffLines = computed(() =>
-  buildSnapshotDiffLines(currentSnapshotText.value, draftSnapshotText.value),
-);
-const activeChecksumShort = computed(() =>
-  shortChecksum(activeState.value.activeChecksum),
-);
 const validateChecksumShort = computed(() =>
-  shortChecksum(validateResult.value?.checksum || ''),
+  formatShortChecksum(validateResult.value?.checksum || ''),
 );
 const validateMessages = computed(() => validateResult.value?.messages || []);
 const selectedReleaseSnapshotText = computed(
@@ -240,6 +229,16 @@ const selectedReleaseSnapshotText = computed(
     selectedRelease.value?.snapshotJson ||
     '',
 );
+
+// PeriodicDrawer 承载周期任务新增和编辑表单。
+const [PeriodicDrawer, periodicDrawerApi] = useVbenDrawer({
+  onConfirm: submitPeriodic,
+});
+
+// ArchiveDrawer 承载归档任务新增和编辑表单。
+const [ArchiveDrawer, archiveDrawerApi] = useVbenDrawer({
+  onConfirm: submitArchive,
+});
 
 const enabledOptions = computed(() => [
   { label: rt('allStatus'), value: 'all' },
@@ -388,115 +387,6 @@ function assignForm<T extends object>(target: T, source: T) {
   Object.assign(target, source);
 }
 
-function shortChecksum(value: string) {
-  return value ? `${value.slice(0, 10)}...${value.slice(-8)}` : '-';
-}
-
-function splitSnapshotLines(text: string) {
-  return text ? text.split('\n') : [];
-}
-
-// buildSnapshotDiffLines 生成左右快照行级差异，用于预览中高亮当前缺失和草稿新增行。
-function buildSnapshotDiffLines(currentText: string, draftText: string) {
-  const currentLines = splitSnapshotLines(currentText);
-  const draftLines = splitSnapshotLines(draftText);
-  const lcs = Array.from({ length: currentLines.length + 1 }, () =>
-    Array.from({ length: draftLines.length + 1 }, () => 0),
-  );
-  const readLcs = (row: number, col: number) => lcs[row]?.[col] ?? 0;
-
-  for (let i = currentLines.length - 1; i >= 0; i -= 1) {
-    for (let j = draftLines.length - 1; j >= 0; j -= 1) {
-      const currentLine = currentLines[i] ?? '';
-      const draftLine = draftLines[j] ?? '';
-      lcs[i]![j] =
-        currentLine === draftLine
-          ? readLcs(i + 1, j + 1) + 1
-          : Math.max(readLcs(i + 1, j), readLcs(i, j + 1));
-    }
-  }
-
-  const current: SnapshotDiffLine[] = [];
-  const draft: SnapshotDiffLine[] = [];
-  let currentIndex = 0;
-  let draftIndex = 0;
-
-  while (currentIndex < currentLines.length && draftIndex < draftLines.length) {
-    const currentLine = currentLines[currentIndex] ?? '';
-    const draftLine = draftLines[draftIndex] ?? '';
-
-    if (currentLine === draftLine) {
-      current.push({
-        key: `current-${currentIndex}-draft-${draftIndex}`,
-        kind: 'same',
-        text: currentLine,
-      });
-      draft.push({
-        key: `draft-${draftIndex}-current-${currentIndex}`,
-        kind: 'same',
-        text: draftLine,
-      });
-      currentIndex += 1;
-      draftIndex += 1;
-      continue;
-    }
-
-    if (
-      readLcs(currentIndex + 1, draftIndex) >=
-      readLcs(currentIndex, draftIndex + 1)
-    ) {
-      current.push({
-        key: `current-${currentIndex}-removed`,
-        kind: 'removed',
-        text: currentLine,
-      });
-      currentIndex += 1;
-      continue;
-    }
-
-    draft.push({
-      key: `draft-${draftIndex}-added`,
-      kind: 'added',
-      text: draftLine,
-    });
-    draftIndex += 1;
-  }
-
-  while (currentIndex < currentLines.length) {
-    current.push({
-      key: `current-${currentIndex}-removed`,
-      kind: 'removed',
-      text: currentLines[currentIndex] ?? '',
-    });
-    currentIndex += 1;
-  }
-
-  while (draftIndex < draftLines.length) {
-    draft.push({
-      key: `draft-${draftIndex}-added`,
-      kind: 'added',
-      text: draftLines[draftIndex] ?? '',
-    });
-    draftIndex += 1;
-  }
-
-  return { current, draft };
-}
-
-function snapshotDiffLineClass(kind: SnapshotDiffKind) {
-  return `runtime-code-line--${kind}`;
-}
-
-function snapshotDiffLineMarker(kind: SnapshotDiffKind) {
-  if (kind === 'added') {
-    return '+';
-  }
-  if (kind === 'removed') {
-    return '-';
-  }
-  return ' ';
-}
-
 function enabledParam(value: RuntimeEnabledFilter) {
   if (value === 'enabled') {
     return true;
@@ -616,7 +506,7 @@ function resetArchiveFilters() {
   void loadArchiveJobs();
 }
 
-function openPeriodicModal(row?: Record<string, any>) {
+function openPeriodicDrawer(row?: Record<string, any>) {
   assignForm(
     periodicForm,
     row
@@ -624,17 +514,17 @@ function openPeriodicModal(row?: Record<string, any>) {
       : newPeriodicForm(),
   );
   periodicTargetsText.value = (periodicForm.targets || []).join('\n');
-  periodicModalOpen.value = true;
+  periodicDrawerApi.open();
 }
 
-function openArchiveModal(row?: Record<string, any>) {
+function openArchiveDrawer(row?: Record<string, any>) {
   assignForm(
     archiveForm,
     row
       ? ({ ...newArchiveForm(), ...row } as RuntimeConfigApi.ArchiveJobItem)
       : newArchiveForm(),
   );
-  archiveModalOpen.value = true;
+  archiveDrawerApi.open();
 }
 
 async function submitPeriodic() {
@@ -647,6 +537,7 @@ async function submitPeriodic() {
     return;
   }
   submitting.value = true;
+  periodicDrawerApi.lock();
   try {
     await saveRuntimePeriodicTask({
       ...periodicForm,
@@ -654,12 +545,13 @@ async function submitPeriodic() {
       everySeconds: Number(periodicForm.everySeconds || 0) || undefined,
       targets: splitTextToItems(periodicTargetsText.value),
     });
-    periodicModalOpen.value = false;
+    periodicDrawerApi.close();
     clearDraftFeedback();
     message.success(rt('periodicSaved'));
     await Promise.all([loadPeriodicTasks(), loadOverview()]);
   } finally {
     submitting.value = false;
+    periodicDrawerApi.unlock();
   }
 }
 
@@ -669,17 +561,19 @@ async function submitArchive() {
     return;
   }
   submitting.value = true;
+  archiveDrawerApi.lock();
   try {
     await saveRuntimeArchiveJob({
       ...archiveForm,
       database: archiveForm.database?.trim() || 'main',
     });
-    archiveModalOpen.value = false;
+    archiveDrawerApi.close();
     clearDraftFeedback();
     message.success(rt('archiveSaved'));
     await Promise.all([loadArchiveJobs(), loadOverview()]);
   } finally {
     submitting.value = false;
+    archiveDrawerApi.unlock();
   }
 }
 
@@ -884,7 +778,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     )
                   "
                   type="primary"
-                  @click="openPeriodicModal()"
+                  @click="openPeriodicDrawer()"
                 >
                   <template #icon><PlusOutlined /></template>
                   {{ rt('addPeriodic') }}
@@ -960,7 +854,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                           "
                           size="small"
                           type="text"
-                          @click="openPeriodicModal(record)"
+                          @click="openPeriodicDrawer(record)"
                         >
                           <EditOutlined />
                         </Button>
@@ -1024,7 +918,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   )
                 "
                 type="primary"
-                @click="openArchiveModal()"
+                @click="openArchiveDrawer()"
               >
                 <template #icon><PlusOutlined /></template>
                 {{ rt('addArchive') }}
@@ -1071,7 +965,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                         "
                         size="small"
                         type="text"
-                        @click="openArchiveModal(record)"
+                        @click="openArchiveDrawer(record)"
                       >
                         <EditOutlined />
                       </Button>
@@ -1181,7 +1075,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   :description="
                     lastPublishResult.restartRequired
                       ? `${rt('restartRequired')}: ${lastPublishResult.restartReason}`
-                      : `release_id=${lastPublishResult.releaseId} checksum=${shortChecksum(lastPublishResult.checksum)}`
+                      : `release_id=${lastPublishResult.releaseId} checksum=${formatShortChecksum(lastPublishResult.checksum)}`
                   "
                 />
               </div>
@@ -1205,7 +1099,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   <template v-if="column.key === 'checksum'">
                     <Tooltip :title="record.checksum">
                       <span class="runtime-table-ellipsis">
-                        {{ shortChecksum(record.checksum) }}
+                        {{ formatShortChecksum(record.checksum) }}
                       </span>
                     </Tooltip>
                   </template>
@@ -1251,108 +1145,54 @@ function runtimeActionSuccess(type: RuntimeActionType) {
         </Tabs.TabPane>
 
         <Tabs.TabPane key="snapshot" :tab="rt('snapshotTab')">
-          <div class="runtime-snapshot-stack">
-            <Alert
-              class="runtime-diff-alert"
-              :type="snapshotChanged ? 'warning' : 'success'"
-              show-icon
-              :message="
-                snapshotChanged ? rt('snapshotChanged') : rt('snapshotSame')
-              "
-              :description="rt('snapshotPreviewDescription')"
-            />
-            <div class="runtime-snapshot-layout">
-              <Card
-                class="runtime-snapshot-card"
-                size="small"
-                :title="rt('currentSnapshot')"
-              >
-                <div class="runtime-snapshot-meta">
-                  <Tag :color="sourceTone">{{ overview?.source || '-' }}</Tag>
-                  <Tag>
-                    {{ rt('version') }} {{ activeState.activeVersion || 0 }}
-                  </Tag>
-                  <Tag>{{ activeChecksumShort }}</Tag>
-                </div>
-                <div class="runtime-code runtime-code-diff">
-                  <div
-                    v-for="line in snapshotDiffLines.current"
-                    :key="line.key"
-                    class="runtime-code-line"
-                    :class="snapshotDiffLineClass(line.kind)"
-                  >
-                    <span class="runtime-code-line-marker">
-                      {{ snapshotDiffLineMarker(line.kind) }}
-                    </span>
-                    <span class="runtime-code-line-text">
-                      {{ line.text || ' ' }}
-                    </span>
-                  </div>
-                </div>
-              </Card>
-              <Card
-                class="runtime-snapshot-card"
-                size="small"
-                :title="rt('draftDiffPreview')"
-              >
-                <div class="runtime-code runtime-code-diff">
-                  <div
-                    v-for="line in snapshotDiffLines.draft"
-                    :key="line.key"
-                    class="runtime-code-line"
-                    :class="snapshotDiffLineClass(line.kind)"
-                  >
-                    <span class="runtime-code-line-marker">
-                      {{ snapshotDiffLineMarker(line.kind) }}
-                    </span>
-                    <span class="runtime-code-line-text">
-                      {{ line.text || ' ' }}
-                    </span>
-                  </div>
-                </div>
-              </Card>
-              <Card
-                class="runtime-snapshot-card"
-                size="small"
-                :title="rt('releaseSnapshotDetail')"
-              >
-                <div class="runtime-snapshot-meta">
-                  <Tag v-if="selectedRelease">
-                    {{ rt('version') }} {{ selectedRelease.versionNo }}
-                  </Tag>
-                  <Tag v-if="selectedRelease">
-                    {{ shortChecksum(selectedRelease.checksum) }}
-                  </Tag>
-                </div>
-                <pre
-                  class="runtime-code"
-                  :class="{ loading: releaseDetailLoading }"
-                  >{{ selectedReleaseSnapshotText || rt('selectReleaseHint') }}
-                </pre>
-              </Card>
-            </div>
-          </div>
+          <SnapshotDiffPanel
+            :active-checksum="activeState.activeChecksum"
+            :active-version="activeState.activeVersion || 0"
+            :current-snapshot-text="currentSnapshotText"
+            :draft-snapshot-text="draftSnapshotText"
+            :release-checksum="selectedRelease?.checksum || ''"
+            :release-loading="releaseDetailLoading"
+            :release-selected="Boolean(selectedRelease)"
+            :release-snapshot-text="selectedReleaseSnapshotText"
+            :release-version="selectedRelease?.versionNo || 0"
+            :source="overview?.source || '-'"
+          />
         </Tabs.TabPane>
       </Tabs>
 
-      <Modal
-        v-model:open="periodicModalOpen"
-        :confirm-loading="submitting"
-        :body-style="{ padding: '0' }"
-        destroy-on-close
-        :width="940"
+      <PeriodicDrawer
+        class="w-full max-w-[940px]"
+        :loading="submitting"
         :title="rt('periodicDraft')"
-        wrap-class-name="runtime-config-editor-dialog"
-        @ok="submitPeriodic"
       >
         <div class="runtime-editor">
-          <Alert
-            class="runtime-editor__alert"
-            :message="rt('periodicFormGuide')"
-            :description="rt('periodicFormGuideDesc')"
-            show-icon
-            type="info"
-          />
+          <div class="runtime-editor-guide">
+            <div class="runtime-editor-guide__summary">
+              <InfoCircleOutlined class="runtime-editor-guide__icon" />
+              <div class="runtime-editor-guide__copy">
+                <span class="runtime-editor-guide__title">
+                  {{ rt('periodicFormGuide') }}
+                </span>
+                <span class="runtime-editor-guide__desc">
+                  {{ rt('periodicFormGuideDesc') }}
+                </span>
+              </div>
+            </div>
+            <div class="runtime-editor-guide__meta">
+              <span class="runtime-editor-guide__label">
+                {{ rt('runtimeGuideKeyPoints') }}
+              </span>
+              <Tag color="processing">
+                {{ rt('runtimeGuideDraftOnly') }}
+              </Tag>
+              <Tag color="warning">
+                {{ rt('runtimeGuidePublishRequired') }}
+              </Tag>
+              <span class="runtime-editor-guide__extra">
+                {{ rt('periodicFormGuideExtra') }}
+              </span>
+            </div>
+          </div>
           <Form :model="periodicForm" layout="vertical">
             <div class="runtime-editor__layout">
               <section class="runtime-editor__section">
@@ -1365,19 +1205,41 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                       {{ rt('runtimeFormBasicDesc') }}
                     </div>
                   </div>
-                  <Switch v-model:checked="periodicForm.enabled" />
+                  <div class="runtime-editor__section-toggle">
+                    <div class="runtime-editor__section-toggle-main">
+                      <span>{{ rt('enabled') }}</span>
+                      <Switch v-model:checked="periodicForm.enabled" />
+                    </div>
+                    <span class="runtime-editor__section-toggle-desc">
+                      {{ rt('periodicEnabledHelp') }}
+                    </span>
+                  </div>
                 </div>
                 <div class="runtime-editor__grid">
-                  <Form.Item required :label="rt('name')">
+                  <Form.Item
+                    required
+                    :extra="rt('periodicNameHelp')"
+                    :label="rt('name')"
+                  >
                     <Input v-model:value="periodicForm.name" />
                   </Form.Item>
-                  <Form.Item required :label="rt('workflow')">
+                  <Form.Item
+                    required
+                    :extra="rt('periodicWorkflowHelp')"
+                    :label="rt('workflow')"
+                  >
                     <Input v-model:value="periodicForm.workflow" />
                   </Form.Item>
-                  <Form.Item :label="rt('queue')">
+                  <Form.Item
+                    :extra="rt('periodicQueueHelp')"
+                    :label="rt('queue')"
+                  >
                     <Input v-model:value="periodicForm.queue" />
                   </Form.Item>
-                  <Form.Item :label="rt('sortOrder')">
+                  <Form.Item
+                    :extra="rt('periodicSortOrderHelp')"
+                    :label="rt('sortOrder')"
+                  >
                     <InputNumber
                       v-model:value="periodicForm.sortOrder"
                       class="w-full"
@@ -1398,20 +1260,26 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   </div>
                 </div>
                 <div class="runtime-editor__grid">
-                  <Form.Item label="Cron">
+                  <Form.Item :extra="rt('periodicCronHelp')" label="Cron">
                     <Input
                       v-model:value="periodicForm.cron"
                       placeholder="0 */5 * * * *"
                     />
                   </Form.Item>
-                  <Form.Item :label="rt('everySeconds')">
+                  <Form.Item
+                    :extra="rt('periodicEverySecondsHelp')"
+                    :label="rt('everySeconds')"
+                  >
                     <InputNumber
                       v-model:value="periodicForm.everySeconds"
                       class="w-full"
                       :min="0"
                     />
                   </Form.Item>
-                  <Form.Item :label="rt('deadline')">
+                  <Form.Item
+                    :extra="rt('periodicDeadlineHelp')"
+                    :label="rt('deadline')"
+                  >
                     <Input
                       v-model:value="periodicForm.deadline"
                       placeholder="RFC3339"
@@ -1432,14 +1300,20 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   </div>
                 </div>
                 <div class="runtime-editor__grid">
-                  <Form.Item :label="rt('shardTotal')">
+                  <Form.Item
+                    :extra="rt('periodicShardTotalHelp')"
+                    :label="rt('shardTotal')"
+                  >
                     <InputNumber
                       v-model:value="periodicForm.shardTotal"
                       class="w-full"
                       :min="0"
                     />
                   </Form.Item>
-                  <Form.Item :label="rt('grayPercent')">
+                  <Form.Item
+                    :extra="rt('periodicGrayPercentHelp')"
+                    :label="rt('grayPercent')"
+                  >
                     <InputNumber
                       v-model:value="periodicForm.grayPercent"
                       class="w-full"
@@ -1447,14 +1321,20 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                       :min="0"
                     />
                   </Form.Item>
-                  <Form.Item :label="rt('retry')">
+                  <Form.Item
+                    :extra="rt('periodicRetryHelp')"
+                    :label="rt('retry')"
+                  >
                     <InputNumber
                       v-model:value="periodicForm.retry"
                       class="w-full"
                       :min="0"
                     />
                   </Form.Item>
-                  <Form.Item :label="rt('timeoutSeconds')">
+                  <Form.Item
+                    :extra="rt('periodicTimeoutSecondsHelp')"
+                    :label="rt('timeoutSeconds')"
+                  >
                     <InputNumber
                       v-model:value="periodicForm.timeoutSeconds"
                       class="w-full"
@@ -1476,10 +1356,16 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   </div>
                 </div>
                 <div class="runtime-editor__grid">
-                  <Form.Item :label="rt('uniqueKey')">
+                  <Form.Item
+                    :extra="rt('periodicUniqueKeyHelp')"
+                    :label="rt('uniqueKey')"
+                  >
                     <Input v-model:value="periodicForm.uniqueKey" />
                   </Form.Item>
-                  <Form.Item :label="rt('uniqueTtlSeconds')">
+                  <Form.Item
+                    :extra="rt('periodicUniqueTtlSecondsHelp')"
+                    :label="rt('uniqueTtlSeconds')"
+                  >
                     <InputNumber
                       v-model:value="periodicForm.uniqueTtlSeconds"
                       class="w-full"
@@ -1503,14 +1389,20 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   </div>
                 </div>
                 <div class="runtime-editor__stack">
-                  <Form.Item :label="rt('targets')">
+                  <Form.Item
+                    :extra="rt('periodicTargetsHelp')"
+                    :label="rt('targets')"
+                  >
                     <Textarea
                       v-model:value="periodicTargetsText"
                       :rows="3"
                       :placeholder="rt('targetsPlaceholder')"
                     />
                   </Form.Item>
-                  <Form.Item :label="rt('remark')">
+                  <Form.Item
+                    :extra="rt('periodicRemarkHelp')"
+                    :label="rt('remark')"
+                  >
                     <Textarea v-model:value="periodicForm.remark" :rows="2" />
                   </Form.Item>
                 </div>
@@ -1518,26 +1410,41 @@ function runtimeActionSuccess(type: RuntimeActionType) {
             </div>
           </Form>
         </div>
-      </Modal>
+      </PeriodicDrawer>
 
-      <Modal
-        v-model:open="archiveModalOpen"
-        :confirm-loading="submitting"
-        :body-style="{ padding: '0' }"
-        destroy-on-close
-        :width="980"
+      <ArchiveDrawer
+        class="w-full max-w-[980px]"
+        :loading="submitting"
         :title="rt('archiveDraft')"
-        wrap-class-name="runtime-config-editor-dialog"
-        @ok="submitArchive"
       >
         <div class="runtime-editor">
-          <Alert
-            class="runtime-editor__alert"
-            :message="rt('archiveFormGuide')"
-            :description="rt('archiveFormGuideDesc')"
-            show-icon
-            type="info"
-          />
+          <div class="runtime-editor-guide">
+            <div class="runtime-editor-guide__summary">
+              <InfoCircleOutlined class="runtime-editor-guide__icon" />
+              <div class="runtime-editor-guide__copy">
+                <span class="runtime-editor-guide__title">
+                  {{ rt('archiveFormGuide') }}
+                </span>
+                <span class="runtime-editor-guide__desc">
+                  {{ rt('archiveFormGuideDesc') }}
+                </span>
+              </div>
+            </div>
+            <div class="runtime-editor-guide__meta">
+              <span class="runtime-editor-guide__label">
+                {{ rt('runtimeGuideKeyPoints') }}
+              </span>
+              <Tag color="processing">
+                {{ rt('runtimeGuideDraftOnly') }}
+              </Tag>
+              <Tag color="warning">
+                {{ rt('runtimeGuidePublishRequired') }}
+              </Tag>
+              <span class="runtime-editor-guide__extra">
+                {{ rt('archiveFormGuideExtra') }}
+              </span>
+            </div>
+          </div>
           <Form :model="archiveForm" layout="vertical">
             <div class="runtime-editor__layout">
               <section class="runtime-editor__section">
@@ -1550,19 +1457,41 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                       {{ rt('runtimeFormArchiveBasicDesc') }}
                     </div>
                   </div>
-                  <Switch v-model:checked="archiveForm.enabled" />
+                  <div class="runtime-editor__section-toggle">
+                    <div class="runtime-editor__section-toggle-main">
+                      <span>{{ rt('enabled') }}</span>
+                      <Switch v-model:checked="archiveForm.enabled" />
+                    </div>
+                    <span class="runtime-editor__section-toggle-desc">
+                      {{ rt('archiveEnabledHelp') }}
+                    </span>
+                  </div>
                 </div>
                 <div class="runtime-editor__grid">
-                  <Form.Item required :label="rt('name')">
+                  <Form.Item
+                    required
+                    :extra="rt('archiveNameHelp')"
+                    :label="rt('name')"
+                  >
                     <Input v-model:value="archiveForm.name" />
                   </Form.Item>
-                  <Form.Item :label="rt('database')">
+                  <Form.Item
+                    :extra="rt('archiveDatabaseHelp')"
+                    :label="rt('database')"
+                  >
                     <Input v-model:value="archiveForm.database" />
                   </Form.Item>
-                  <Form.Item required :label="rt('hotTableName')">
+                  <Form.Item
+                    required
+                    :extra="rt('archiveTableNameHelp')"
+                    :label="rt('hotTableName')"
+                  >
                     <Input v-model:value="archiveForm.tableName" />
                   </Form.Item>
-                  <Form.Item :label="rt('sortOrder')">
+                  <Form.Item
+                    :extra="rt('archiveSortOrderHelp')"
+                    :label="rt('sortOrder')"
+                  >
                     <InputNumber
                       v-model:value="archiveForm.sortOrder"
                       class="w-full"
@@ -1583,37 +1512,58 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   </div>
                 </div>
                 <div class="runtime-editor__grid">
-                  <Form.Item :label="rt('timeColumn')">
+                  <Form.Item
+                    :extra="rt('archiveTimeColumnHelp')"
+                    :label="rt('timeColumn')"
+                  >
                     <Input v-model:value="archiveForm.timeColumn" />
                   </Form.Item>
-                  <Form.Item :label="rt('primaryKey')">
+                  <Form.Item
+                    :extra="rt('archivePrimaryKeyHelp')"
+                    :label="rt('primaryKey')"
+                  >
                     <Input v-model:value="archiveForm.primaryKey" />
                   </Form.Item>
-                  <Form.Item :label="rt('splitUnit')">
+                  <Form.Item
+                    :extra="rt('archiveSplitUnitHelp')"
+                    :label="rt('splitUnit')"
+                  >
                     <Input v-model:value="archiveForm.splitUnit" />
                   </Form.Item>
-                  <Form.Item :label="rt('hotKeepDays')">
+                  <Form.Item
+                    :extra="rt('archiveHotKeepDaysHelp')"
+                    :label="rt('hotKeepDays')"
+                  >
                     <InputNumber
                       v-model:value="archiveForm.hotKeepDays"
                       class="w-full"
                       :min="0"
                     />
                   </Form.Item>
-                  <Form.Item :label="rt('archiveDelayDays')">
+                  <Form.Item
+                    :extra="rt('archiveDelayDaysHelp')"
+                    :label="rt('archiveDelayDays')"
+                  >
                     <InputNumber
                       v-model:value="archiveForm.archiveDelayDays"
                       class="w-full"
                       :min="0"
                     />
                   </Form.Item>
-                  <Form.Item :label="rt('archiveWindowSeconds')">
+                  <Form.Item
+                    :extra="rt('archiveWindowSecondsHelp')"
+                    :label="rt('archiveWindowSeconds')"
+                  >
                     <InputNumber
                       v-model:value="archiveForm.archiveWindowSeconds"
                       class="w-full"
                       :min="0"
                     />
                   </Form.Item>
-                  <Form.Item :label="rt('startAt')">
+                  <Form.Item
+                    :extra="rt('archiveStartAtHelp')"
+                    :label="rt('startAt')"
+                  >
                     <Input
                       v-model:value="archiveForm.startAt"
                       placeholder="RFC3339"
@@ -1634,24 +1584,36 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   </div>
                 </div>
                 <div class="runtime-editor__grid">
-                  <Form.Item :label="rt('archiveBatch')">
+                  <Form.Item
+                    :extra="rt('archiveBatchHelp')"
+                    :label="rt('archiveBatch')"
+                  >
                     <InputNumber
                       v-model:value="archiveForm.batchSize"
                       class="w-full"
                       :min="0"
                     />
                   </Form.Item>
-                  <Form.Item :label="rt('deleteBatch')">
+                  <Form.Item
+                    :extra="rt('archiveDeleteBatchHelp')"
+                    :label="rt('deleteBatch')"
+                  >
                     <InputNumber
                       v-model:value="archiveForm.deleteBatchSize"
                       class="w-full"
                       :min="0"
                     />
                   </Form.Item>
-                  <Form.Item :label="rt('deleteDisabled')">
+                  <Form.Item
+                    :extra="rt('archiveDeleteDisabledHelp')"
+                    :label="rt('deleteDisabled')"
+                  >
                     <Switch v-model:checked="archiveForm.deleteDisabled" />
                   </Form.Item>
-                  <Form.Item :label="rt('queryWriteDb')">
+                  <Form.Item
+                    :extra="rt('archiveQueryWriteDbHelp')"
+                    :label="rt('queryWriteDb')"
+                  >
                     <Switch v-model:checked="archiveForm.queryWriteDb" />
                   </Form.Item>
                 </div>
@@ -1669,10 +1631,16 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   </div>
                 </div>
                 <div class="runtime-editor__stack">
-                  <Form.Item :label="rt('historyTablePrefix')">
+                  <Form.Item
+                    :extra="rt('archiveHistoryTablePrefixHelp')"
+                    :label="rt('historyTablePrefix')"
+                  >
                     <Input v-model:value="archiveForm.historyTablePrefix" />
                   </Form.Item>
-                  <Form.Item :label="rt('historyTableNameRule')">
+                  <Form.Item
+                    :extra="rt('archiveHistoryTableNameRuleHelp')"
+                    :label="rt('historyTableNameRule')"
+                  >
                     <Input v-model:value="archiveForm.historyTableNameRule" />
                   </Form.Item>
                 </div>
@@ -1692,19 +1660,28 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   </div>
                 </div>
                 <div class="runtime-editor__stack">
-                  <Form.Item :label="rt('archiveCondition')">
+                  <Form.Item
+                    :extra="rt('archiveConditionHelp')"
+                    :label="rt('archiveCondition')"
+                  >
                     <Textarea
                       v-model:value="archiveForm.archiveCondition"
                       :rows="2"
                     />
                   </Form.Item>
-                  <Form.Item :label="rt('deleteCondition')">
+                  <Form.Item
+                    :extra="rt('archiveDeleteConditionHelp')"
+                    :label="rt('deleteCondition')"
+                  >
                     <Textarea
                       v-model:value="archiveForm.deleteCondition"
                       :rows="2"
                     />
                   </Form.Item>
-                  <Form.Item :label="rt('remark')">
+                  <Form.Item
+                    :extra="rt('archiveRemarkHelp')"
+                    :label="rt('remark')"
+                  >
                     <Textarea v-model:value="archiveForm.remark" :rows="2" />
                   </Form.Item>
                 </div>
@@ -1712,7 +1689,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
             </div>
           </Form>
         </div>
-      </Modal>
+      </ArchiveDrawer>
 
       <Modal
         v-model:open="actionModalOpen"
@@ -1938,13 +1915,85 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 }
 
 .runtime-editor {
-  max-height: min(76vh, 760px);
   padding: 16px 18px 18px;
-  overflow: auto;
 }
 
-.runtime-editor__alert {
+.runtime-editor-guide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 10px 12px;
   margin-bottom: 14px;
+  background: hsl(var(--accent) / 38%);
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+}
+
+.runtime-editor-guide__summary,
+.runtime-editor-guide__meta {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.runtime-editor-guide__summary {
+  flex: 1 1 520px;
+}
+
+.runtime-editor-guide__meta {
+  flex: 1 1 360px;
+  flex-wrap: wrap;
+}
+
+.runtime-editor-guide__icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 2px;
+  color: hsl(var(--primary));
+  border: 1px solid hsl(var(--primary) / 48%);
+  border-radius: 999px;
+}
+
+.runtime-editor-guide__copy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.runtime-editor-guide__title {
+  flex: none;
+  font-size: 13px;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+}
+
+.runtime-editor-guide__desc,
+.runtime-editor-guide__extra {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--vben-text-color-secondary);
+}
+
+.runtime-editor-guide__extra {
+  flex: 1 1 260px;
+}
+
+.runtime-editor-guide__label {
+  flex: none;
+  font-size: 12px;
+  line-height: 22px;
+  color: var(--vben-text-color-secondary);
 }
 
 .runtime-editor__layout {
@@ -1973,6 +2022,31 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   padding-bottom: 10px;
   margin-bottom: 12px;
   border-bottom: 1px solid hsl(var(--border));
+}
+
+.runtime-editor__section-toggle {
+  display: grid;
+  flex: 0 0 150px;
+  gap: 4px;
+  justify-items: end;
+  min-width: 0;
+}
+
+.runtime-editor__section-toggle-main {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.runtime-editor__section-toggle-desc {
+  max-width: 150px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--vben-text-color-secondary);
+  text-align: right;
 }
 
 .runtime-editor__section-title {
@@ -2009,6 +2083,15 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   color: hsl(var(--foreground));
 }
 
+.runtime-editor :deep(.ant-form-item-extra) {
+  max-width: 100%;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--vben-text-color-secondary);
+  overflow-wrap: anywhere;
+}
+
 .runtime-editor :deep(.ant-input),
 .runtime-editor :deep(.ant-input-number),
 .runtime-editor :deep(.ant-input-number-input),
@@ -2016,12 +2099,6 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 .runtime-editor :deep(.ant-select-selector),
 .runtime-editor :deep(textarea.ant-input) {
   border-radius: 6px;
-}
-
-:global(.runtime-config-editor-dialog .ant-modal-footer) {
-  padding: 14px 18px 16px;
-  margin-top: 0;
-  border-top: 1px solid hsl(var(--border));
 }
 
 .runtime-filter-input {
@@ -2032,16 +2109,11 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   width: 120px;
 }
 
-.runtime-release-layout,
-.runtime-snapshot-layout {
+.runtime-release-layout {
   display: grid;
   grid-template-columns: 1fr;
   gap: 8px;
   align-items: start;
-}
-
-.runtime-snapshot-layout {
-  grid-template-columns: repeat(3, minmax(360px, 1fr));
 }
 
 .runtime-action-result {
@@ -2092,120 +2164,6 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   color: var(--vben-text-color-secondary);
 }
 
-.runtime-snapshot-stack {
-  display: grid;
-  gap: 8px;
-}
-
-.runtime-snapshot-card {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  height: min(66vh, 680px);
-  overflow: hidden;
-}
-
-.runtime-snapshot-card :deep(.ant-card-head) {
-  flex: none;
-}
-
-.runtime-snapshot-card :deep(.ant-card-body) {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  height: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.runtime-diff-alert {
-  padding: 10px 12px;
-}
-
-.runtime-diff-alert :deep(.ant-alert-message) {
-  font-size: 14px;
-  line-height: 1.35;
-}
-
-.runtime-diff-alert :deep(.ant-alert-description) {
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.runtime-snapshot-meta {
-  display: flex;
-  flex: none;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.runtime-code {
-  flex: 1;
-  min-height: 0;
-  max-height: none;
-  padding: 12px;
-  margin: 0;
-  overflow: auto;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--vben-text-color);
-  white-space: pre-wrap;
-  background: var(--vben-background-soft);
-  border: 1px solid var(--vben-border-color);
-  border-radius: 6px;
-}
-
-.runtime-code.loading {
-  opacity: 0.65;
-}
-
-.runtime-code-diff {
-  display: block;
-}
-
-.runtime-code-line {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
-  gap: 6px;
-  min-height: 19px;
-  padding: 0 6px;
-  margin: 0 -6px;
-  border-radius: 4px;
-}
-
-.runtime-code-line--added {
-  background: hsl(142deg 76% 36% / 14%);
-  box-shadow: inset 3px 0 0 hsl(142deg 76% 36% / 72%);
-}
-
-.runtime-code-line--removed {
-  background: hsl(0deg 84% 60% / 14%);
-  box-shadow: inset 3px 0 0 hsl(0deg 84% 60% / 72%);
-}
-
-.runtime-code-line-marker {
-  overflow: hidden;
-  font-weight: 700;
-  color: var(--vben-text-color-secondary);
-  text-align: center;
-  user-select: none;
-}
-
-.runtime-code-line--added .runtime-code-line-marker {
-  color: hsl(142deg 76% 45%);
-}
-
-.runtime-code-line--removed .runtime-code-line-marker {
-  color: hsl(0deg 84% 66%);
-}
-
-.runtime-code-line-text {
-  min-width: 0;
-  white-space: pre-wrap;
-}
-
 .runtime-action-target {
   display: flex;
   gap: 8px;
@@ -2223,8 +2181,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 
 @media (max-width: 1200px) {
   .runtime-overview,
-  .runtime-periodic-summary,
-  .runtime-snapshot-layout {
+  .runtime-periodic-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2242,7 +2199,6 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   .runtime-overview,
   .runtime-periodic-summary,
   .runtime-release-layout,
-  .runtime-snapshot-layout,
   .runtime-editor__layout,
   .runtime-editor__grid {
     grid-template-columns: 1fr;
@@ -2294,15 +2250,6 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 
   .runtime-release-actions :deep(.ant-btn) {
     width: 100%;
-  }
-
-  .runtime-snapshot-card {
-    height: auto;
-  }
-
-  .runtime-code {
-    min-height: 260px;
-    max-height: 520px;
   }
 }
 </style>

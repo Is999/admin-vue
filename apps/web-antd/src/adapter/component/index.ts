@@ -79,6 +79,15 @@ type AdapterUploadProps = UploadProps & {
   onHandleChange?: (event: UploadChangeParam) => void;
 };
 
+// createUploadScopeId 生成上传组件 DOM 隔离 ID，避免多个拖拽上传实例样式互相影响。
+function createUploadScopeId() {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (!uuid) {
+    throw new Error('Web Crypto randomUUID unavailable');
+  }
+  return `upload-${uuid}`;
+}
+
 const AutoComplete = defineAsyncComponent(
   () => import('ant-design-vue/es/auto-complete'),
 );
@@ -498,7 +507,7 @@ const withPreviewUpload = () => {
       const draggable = computed(
         () => (attrs.draggable ?? false) && !attrs.disabled,
       );
-      const uploadId = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      const uploadId = createUploadScopeId();
       const sortableInstance = ref<null | Sortable>(null);
 
       const styleId = `upload-drag-style-${uploadId}`;

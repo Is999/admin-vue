@@ -46,8 +46,11 @@ import {
 // ================= 页面状态 =================
 // WORKFLOW_STATUS_AUTO_REFRESH_INTERVAL_MS 表示工作流状态自动刷新间隔；10 秒能兼顾页面新鲜度和管理端查询压力。
 const WORKFLOW_STATUS_AUTO_REFRESH_INTERVAL_MS = 10_000;
-// WORKFLOW_TERMINAL_STATUSES 表示停止自动刷新的终态集合；后端工作流成功态为 success，completed 用于兼容任务中心完成态。
-const WORKFLOW_TERMINAL_STATUSES = new Set(['completed', 'failed', 'success']);
+// WORKFLOW_TERMINAL_STATUSES 表示停止自动刷新的工作流终态集合。
+const WORKFLOW_TERMINAL_STATUSES = new Set<TaskApi.WorkflowStatus>([
+  'failed',
+  'success',
+]);
 
 // submitting 避免用户连续点击导致重复查询同一工作流。
 const submitting = ref(false);
@@ -122,18 +125,18 @@ type WorkflowStatusQueryOptions = {
 };
 
 // formatProgressStatus 展示进度状态，优先复用工作流节点状态文案。
-function formatProgressStatus(status?: string) {
-  const currentStatus = String(status || '')
-    .trim()
-    .toLowerCase();
-  const statusMap: Record<string, string> = {
+function formatProgressStatus(status?: TaskApi.WorkflowNodeStatus) {
+  if (!status) {
+    return '-';
+  }
+  const statusMap: Record<TaskApi.WorkflowNodeStatus, string> = {
     failed: $t('business.message.failed'),
     pending: $t('business.message.taskStatePending'),
     running: $t('business.message.taskStateActive'),
     skipped: $t('business.message.skipped'),
     success: $t('business.message.success'),
   };
-  return statusMap[currentStatus] || status || '-';
+  return statusMap[status];
 }
 
 // buildProgressMetricItems 生成执行进度指标。
@@ -182,19 +185,9 @@ function buildProgressMetricItems(progress?: TaskApi.TaskExecutionProgress) {
   ];
 }
 
-// normalizeTraceStatus 统一进度状态，供分片状态标签色使用。
-function normalizeTraceStatus(status?: string) {
-  const currentStatus = String(status || '')
-    .trim()
-    .toLowerCase();
-  const supportedStatuses = new Set([
-    'failed',
-    'pending',
-    'running',
-    'skipped',
-    'success',
-  ]);
-  return supportedStatuses.has(currentStatus) ? currentStatus : 'default';
+// normalizeTraceStatus 返回分片状态标签类名，空状态使用默认样式。
+function normalizeTraceStatus(status?: TaskApi.WorkflowNodeStatus) {
+  return status || 'default';
 }
 
 // aggregateExecutionTraces 汇总前端过滤后的节点处理量，用于让汇总卡与可见明细一致。
@@ -248,21 +241,6 @@ function showWorkflowTraceDetails(row: WorkflowShardTraceRow) {
   workflowTraceDetailsModalOpen.value = true;
 }
 
-// calcWorkflowDurationMs 兼容后端历史响应中未返回 durationMs 的工作流实例。
-function calcWorkflowDurationMs(workflow: TaskApi.WorkflowStatusResp) {
-  const apiDuration = Number(workflow.durationMs || 0);
-  if (Number.isFinite(apiDuration) && apiDuration > 0) {
-    return apiDuration;
-  }
-  const start = Date.parse(workflow.createdAt || '');
-  const endText = workflow.finishedAt || workflow.updatedAt || '';
-  const end = Date.parse(endText);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
-    return 0;
-  }
-  return end - start;
-}
-
 // normalizeRouteQueryValue 统一提取单值 query 参数。
 function normalizeRouteQueryValue(value: unknown) {
   if (Array.isArray(value)) {
@@ -271,16 +249,9 @@ function normalizeRouteQueryValue(value: unknown) {
   return String(value || '').trim();
 }
 
-// normalizeWorkflowStatus 统一工作流状态大小写，兼容历史响应和任务中心完成态。
-function normalizeWorkflowStatus(value?: string) {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
-}
-
 // isWorkflowTerminalStatus 判断工作流是否已经进入失败或完成终态，终态不再继续自动刷新。
-function isWorkflowTerminalStatus(status?: string) {
-  return WORKFLOW_TERMINAL_STATUSES.has(normalizeWorkflowStatus(status));
+function isWorkflowTerminalStatus(status?: TaskApi.WorkflowStatus) {
+  return Boolean(status && WORKFLOW_TERMINAL_STATUSES.has(status));
 }
 
 // stopWorkflowStatusAutoRefresh 停止工作流状态自动刷新，避免离开页面后继续请求后端。
@@ -406,7 +377,7 @@ const workflowSummaryRows = computed(() => {
     },
     {
       label: $t('business.message.totalDuration'),
-      value: formatDurationMs(calcWorkflowDurationMs(currentWorkflow)),
+      value: formatDurationMs(currentWorkflow.durationMs),
     },
     {
       label: $t('business.message.workflowProgressPercent'),
@@ -668,6 +639,7 @@ const workflowOperationGuide = computed(() => {
   if (!currentWorkflow) {
     return null;
   }
+  const currentStatus = currentWorkflow.status;
   const failedNodes = failedWorkflowNodes.value;
   if (failedNodes.length > 0 || currentWorkflow.errorMessage) {
     const nodeNames = failedNodes
@@ -683,18 +655,14 @@ const workflowOperationGuide = computed(() => {
       type: 'error' as const,
     };
   }
-  if (normalizeWorkflowStatus(currentWorkflow.status) === 'failed') {
+  if (currentStatus === 'failed') {
     return {
       description: $t('business.message.workflowFailedGuideDesc'),
       message: $t('business.message.workflowFailedGuideTitle'),
       type: 'error' as const,
     };
   }
-  if (
-    ['pending', 'running'].includes(
-      String(currentWorkflow.status || '').toLowerCase(),
-    )
-  ) {
+  if (currentStatus === 'pending' || currentStatus === 'running') {
     return {
       description: $t('business.message.workflowRunningGuideDesc'),
       message: $t('business.message.workflowRunningGuideTitle'),
@@ -844,11 +812,9 @@ function parseWorkflowNodeTime(value?: string) {
   return Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER;
 }
 
-// getWorkflowNodeStatus 统一节点状态大小写，避免后端历史值大小写差异影响样式。
+// getWorkflowNodeStatus 返回节点状态，集中供颜色、类名和进度判断复用。
 function getWorkflowNodeStatus(node: TaskApi.WorkflowNodeItem) {
-  return String(node.status || '')
-    .trim()
-    .toLowerCase();
+  return node.status;
 }
 
 // getWorkflowNodeDependents 返回当前节点的直接后续节点名称。

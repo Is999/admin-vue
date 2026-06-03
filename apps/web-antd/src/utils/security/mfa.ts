@@ -1,34 +1,15 @@
-import type { MFAManualInfo } from './mfa-core';
-
 import type { AuthApi, CommonApi } from '#/api';
 
-import { h, render } from 'vue';
+import { h } from 'vue';
 
-import { Alert, Button, Input, message, QRCode, Space } from 'ant-design-vue';
+import { Input } from 'ant-design-vue';
 
 import { checkMfaSecureApi } from '#/api';
 import { fetchProfileInfo, refreshProfileMfaSecretKey } from '#/api/system';
 import { $t } from '#/locales';
 
-import {
-  extractMfaManualInfo,
-  extractMfaSecret,
-  mfaBindingLabel,
-} from './mfa-core';
-import {
-  getMfaAuthenticatorApps,
-  getMfaGuideSteps,
-  getMfaMicrosoftScanTip,
-  normalizeMfaSecure,
-  resolveDialogErrorMessage,
-} from './mfa-guide';
-import {
-  buildMfaCodeInputBlock,
-  buildMfaDialogActions,
-  buildMfaGuideDescription,
-  copyMfaSecret,
-  focusMfaCheckInput,
-} from './mfa-ui';
+import { extractMfaManualInfo, extractMfaSecret } from './mfa-core';
+import { createMfaOverlayDialog } from './mfa-overlay';
 
 export type { MFAManualInfo } from './mfa-core';
 export {
@@ -225,351 +206,6 @@ export function renderMfaManualSecret(buildMfaUrl = '') {
   ]);
 }
 
-// buildMfaGuideSummary 渲染紧凑版 MFA 绑定说明，避免全屏遮罩里重复滚动过长。
-function buildMfaGuideSummary() {
-  return h('div', { class: 'space-y-2' }, [
-    h('div', { class: 'flex items-center justify-between gap-2' }, [
-      h(
-        'div',
-        { class: 'text-sm font-medium text-foreground' },
-        $t('business.message.mfaGuideSummaryTitle'),
-      ),
-      h(
-        'div',
-        { class: 'text-xs leading-5 text-foreground/55' },
-        $t('business.message.mfaGuideSummaryDesc'),
-      ),
-    ]),
-    h(
-      'div',
-      { class: 'grid gap-2 md:grid-cols-3' },
-      getMfaGuideSteps().map((step, index) =>
-        h(
-          'div',
-          {
-            class:
-              'rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/45 p-2',
-          },
-          [
-            h('div', { class: 'flex items-center gap-2' }, [
-              h(
-                'div',
-                {
-                  class:
-                    'flex size-6 items-center justify-center rounded-full bg-primary text-xs font-semibold text-white',
-                },
-                String(index + 1),
-              ),
-              h(
-                'div',
-                { class: 'text-sm font-medium text-foreground' },
-                step.title,
-              ),
-            ]),
-            h(
-              'div',
-              { class: 'mt-2 text-xs leading-5 text-foreground/60' },
-              buildMfaGuideDescription(step, index),
-            ),
-          ],
-        ),
-      ),
-    ),
-  ]);
-}
-
-// buildMfaBindingMeta 渲染绑定所需的发行方、账号与手动添加秘钥，保持信息完整但压缩高度。
-function buildMfaBindingMeta(
-  info: MFAManualInfo,
-  options: MFACheckDialogOptions,
-) {
-  return h('div', { class: 'grid gap-2 sm:grid-cols-2' }, [
-    h(
-      'div',
-      {
-        class:
-          'rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/45 p-2.5',
-      },
-      [
-        h(
-          'div',
-          { class: 'text-xs font-medium text-foreground/55' },
-          $t('business.message.mfaApplicableApps'),
-        ),
-        h(
-          'div',
-          { class: 'mt-1.5 text-sm leading-5 text-foreground' },
-          getMfaAuthenticatorApps().join('、'),
-        ),
-      ],
-    ),
-    h(
-      'div',
-      {
-        class:
-          'rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/45 p-2.5',
-      },
-      [
-        h(
-          'div',
-          { class: 'text-xs font-medium text-foreground/55' },
-          $t('business.message.mfaIssuerAccount'),
-        ),
-        h(
-          'div',
-          { class: 'mt-1.5 text-sm leading-5 text-foreground' },
-          mfaBindingLabel(
-            info,
-            options.accountName || $t('business.message.mfaCurrentAccount'),
-          ),
-        ),
-      ],
-    ),
-  ]);
-}
-
-// buildMfaVerificationContent 生成 MFA 二次确认主体内容，有绑定地址时展示完整说明。
-function buildMfaVerificationContent(
-  buildMfaUrl: string,
-  options: MFACheckDialogOptions,
-  secure: string,
-  errorMessage: string,
-  onSecureChange: (value: string) => void,
-  onSubmit?: () => void,
-  onRefresh?: () => void,
-  refreshLoading = false,
-  renderActions?: () => any,
-) {
-  const info = extractMfaManualInfo(buildMfaUrl);
-  if (!buildMfaUrl) {
-    return h('div', { class: 'space-y-6' }, [
-      h('div', { class: 'space-y-2 text-center md:text-left' }, [
-        h(
-          'div',
-          { class: 'text-lg font-semibold text-foreground' },
-          $t('business.message.mfaInputAuthenticatorCodeTitle'),
-        ),
-        h(
-          'div',
-          { class: 'text-sm leading-6 text-foreground/65' },
-          options.headerDescription ||
-            $t('business.message.mfaSensitiveDefaultDesc'),
-        ),
-      ]),
-      errorMessage
-        ? h(Alert, {
-            message: errorMessage,
-            showIcon: true,
-            type: 'error',
-          })
-        : null,
-      h(
-        'div',
-        {
-          class:
-            'rounded-2xl border border-dashed border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/60 px-5 py-4',
-        },
-        [
-          h(
-            'div',
-            { class: 'text-sm font-medium text-foreground' },
-            $t('business.message.mfaVerifyRequirementsTitle'),
-          ),
-          h(
-            'div',
-            { class: 'mt-2 text-sm leading-6 text-foreground/60' },
-            $t('business.message.mfaVerifyRequirementsDesc'),
-          ),
-        ],
-      ),
-      h(
-        'div',
-        {
-          class:
-            'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-start',
-          style: { marginTop: '8px' },
-        },
-        [
-          h(Input, {
-            autofocus: true,
-            class: 'mfa-check-input h-10 min-w-0 sm:max-w-[420px] sm:flex-1',
-            maxlength: 6,
-            onChange: (event: Event) => {
-              onSecureChange((event.target as HTMLInputElement).value);
-            },
-            onPressEnter: () => {
-              onSubmit?.();
-            },
-            placeholder: $t('business.message.mfaCodePlaceholder'),
-            size: 'large',
-            value: secure,
-            'data-mfa-check-input': 'true',
-          }),
-          renderActions?.() ?? null,
-        ],
-      ),
-    ]);
-  }
-  return h('div', { class: 'space-y-2' }, [
-    h(
-      'div',
-      {
-        class:
-          'rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/60 px-3 py-2.5',
-      },
-      [
-        h(
-          'div',
-          {
-            class:
-              'text-xs font-semibold tracking-[0.18em] text-primary/80 uppercase',
-          },
-          'MFA Security Check',
-        ),
-        h(
-          'div',
-          { class: 'mt-1.5 text-lg font-semibold text-foreground' },
-          options.headerMessage || $t('business.message.mfaBindingInfoTitle'),
-        ),
-        h(
-          'div',
-          { class: 'mt-1.5 text-sm leading-5 text-foreground/65' },
-          options.headerDescription || getMfaMicrosoftScanTip(),
-        ),
-      ],
-    ),
-    h('div', { class: 'grid gap-2 xl:grid-cols-[268px_minmax(0,1fr)]' }, [
-      h(
-        'div',
-        {
-          class:
-            'space-y-2 rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/50 p-2.5',
-        },
-        [
-          h(
-            'div',
-            { class: 'text-sm font-medium text-foreground/80' },
-            $t('business.message.mfaBindingQrArea'),
-          ),
-          h('div', { class: 'flex justify-center rounded-lg bg-white p-0.5' }, [
-            h(QRCode, {
-              bgColor: '#ffffff',
-              bordered: false,
-              class: '!h-[212px] !w-[212px] !border-0 !p-0',
-              color: '#000000',
-              key: buildMfaUrl,
-              size: 238,
-              value: buildMfaUrl,
-            }),
-          ]),
-          options.allowRefresh
-            ? h(
-                Button,
-                {
-                  block: true,
-                  loading: refreshLoading,
-                  onClick: () => {
-                    onRefresh?.();
-                  },
-                  size: 'large',
-                },
-                { default: () => $t('business.message.mfaRegenerateQr') },
-              )
-            : null,
-          h(
-            'div',
-            { class: 'text-xs leading-5 text-foreground/55' },
-            $t('business.message.mfaQrManualFallback'),
-          ),
-          h(
-            'div',
-            { class: 'border-t border-[var(--vben-border-color)]/80 pt-2' },
-            [
-              h(
-                'div',
-                { class: 'text-xs font-medium text-foreground/55' },
-                $t('business.message.mfaManualSecret'),
-              ),
-              h(
-                Space,
-                { class: 'mt-1.5 w-full', direction: 'vertical', size: 6 },
-                () => [
-                  h(Input, {
-                    class: 'w-full',
-                    readOnly: true,
-                    value: info.formattedSecret || '-',
-                  }),
-                  h(
-                    Button,
-                    {
-                      block: true,
-                      disabled: !info.secret,
-                      onClick: () => {
-                        void copyMfaSecret(info.secret);
-                      },
-                    },
-                    {
-                      default: () => $t('business.message.mfaCopySecret'),
-                    },
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-      h('div', { class: 'min-w-0 space-y-2' }, [
-        buildMfaGuideSummary(),
-        buildMfaBindingMeta(info, options),
-        h(
-          'div',
-          {
-            class:
-              'rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/50 p-2.5',
-          },
-          [
-            h(
-              'div',
-              { class: 'mb-2 flex items-center justify-between gap-2' },
-              [
-                h(
-                  'div',
-                  { class: 'text-sm font-medium text-foreground' },
-                  $t('business.message.mfaInputCodeTitle'),
-                ),
-                h(
-                  'div',
-                  { class: 'text-xs leading-5 text-foreground/55' },
-                  $t('business.message.mfaInputCodeHint'),
-                ),
-              ],
-            ),
-            buildMfaCodeInputBlock(
-              secure,
-              errorMessage,
-              onSecureChange,
-              onSubmit,
-              renderActions,
-            ),
-          ],
-        ),
-      ]),
-    ]),
-  ]);
-}
-
-// resolveMfaDialogLayout 统一返回 MFA 全屏遮罩中的卡片宽度。
-function resolveMfaDialogLayout(buildMfaUrl: string) {
-  if (buildMfaUrl) {
-    return {
-      cardClass: 'max-w-[1080px]',
-    };
-  }
-  return {
-    cardClass: 'max-w-[760px]',
-  };
-}
-
 // createMfaCheckDialog 创建 MFA 校验全屏遮罩层，并返回 Promise 与显式销毁能力。
 export function createMfaCheckDialog(
   scenario: number,
@@ -583,251 +219,27 @@ export function createMfaCheckDialog(
     requireTwoStep = true,
     title = $t('business.message.mfaSecondConfirmTitle'),
   } = options;
-  // currentOptions 保存当前弹层上下文，刷新二维码后会同步更新账号名和提示文案。
-  let currentOptions: MFACheckDialogOptions = {
+
+  const dialog = createMfaOverlayDialog<AuthApi.CheckMfaResult>({
     ...options,
     allowRefresh,
-  };
-  // currentBuildMfaUrl 保存当前生效的 MFA 绑定地址，二维码刷新后会替换成最新地址。
-  let currentBuildMfaUrl = buildMfaUrl;
-  // refreshLoading 标识当前是否正在刷新二维码，避免重复点击触发并发请求。
-  let refreshLoading = false;
-  // submitting 标识当前是否正在提交 MFA 校验请求。
-  let submitting = false;
-  // secure 保存当前弹层里输入的 6 位动态验证码。
-  let secure = '';
-  // dialogErrorMessage 保存当前遮罩层内需要展示的错误提示，避免全局 message 被遮罩挡住。
-  let dialogErrorMessage = '';
-  // destroyed 标识当前遮罩层是否已经销毁，避免重复恢复 body 状态。
-  let destroyed = false;
-  // container 保存当前挂载到 body 的遮罩层容器。
-  const container = document.createElement('div');
-  // previousBodyOverflow 保存 body 原始滚动状态，销毁时恢复。
-  const previousBodyOverflow = document.body.style.overflow;
-  document.body.style.overflow = 'hidden';
-  document.body.append(container);
-  let resolveDialog: ((value: MFACheckDialogResult) => void) | null = null;
-  let rejectDialog: ((reason?: any) => void) | null = null;
-
-  // destroyOverlay 卸载遮罩层并恢复 body 状态。
-  const destroyOverlay = () => {
-    if (destroyed) {
-      return;
-    }
-    destroyed = true;
-    render(null, container);
-    container.remove();
-    document.body.style.overflow = previousBodyOverflow;
-  };
-
-  // refreshOverlay 重新渲染当前全屏 MFA 遮罩层。
-  const refreshOverlay = (needFocus = false) => {
-    if (destroyed) {
-      return;
-    }
-    const layout = resolveMfaDialogLayout(currentBuildMfaUrl);
-    render(
-      h(
-        'div',
-        {
-          class:
-            'fixed inset-0 z-[2600] overflow-y-auto bg-background/88 backdrop-blur-xl',
-        },
-        [
-          h('div', {
-            class:
-              'absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.16),transparent_42%),radial-gradient(circle_at_bottom,rgba(168,85,247,0.12),transparent_38%)]',
-          }),
-          h(
-            'div',
-            {
-              class:
-                'relative flex min-h-screen items-center justify-center px-4 py-3 sm:px-5 lg:px-6',
-            },
-            [
-              h(
-                'div',
-                {
-                  class: `relative w-full ${layout.cardClass}`,
-                },
-                [
-                  h(
-                    'div',
-                    {
-                      class:
-                        'overflow-hidden rounded-[28px] border border-[var(--vben-border-color)] bg-background shadow-[0_24px_80px_rgba(0,0,0,0.35)]',
-                    },
-                    [
-                      h(
-                        'div',
-                        {
-                          class:
-                            'border-b border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/60 px-4 py-3 sm:px-6',
-                        },
-                        [
-                          h(
-                            'div',
-                            {
-                              class:
-                                'flex flex-wrap items-start justify-between gap-4',
-                            },
-                            [
-                              h('div', { class: 'space-y-1.5' }, [
-                                h(
-                                  'div',
-                                  {
-                                    class:
-                                      'text-xs font-semibold tracking-[0.24em] text-primary/80 uppercase',
-                                  },
-                                  $t(
-                                    'business.message.mfaSensitiveOperationLabel',
-                                  ),
-                                ),
-                                h(
-                                  'div',
-                                  {
-                                    class:
-                                      'text-xl font-semibold text-foreground',
-                                  },
-                                  title,
-                                ),
-                                h(
-                                  'div',
-                                  {
-                                    class:
-                                      'max-w-3xl text-sm leading-5 text-foreground/65',
-                                  },
-                                  currentBuildMfaUrl
-                                    ? $t(
-                                        'business.message.mfaSensitiveBindDesc',
-                                      )
-                                    : $t(
-                                        'business.message.mfaSensitiveVerifyDesc',
-                                      ),
-                                ),
-                              ]),
-                              h(
-                                'div',
-                                {
-                                  class:
-                                    'rounded-full border border-primary/20 bg-primary/8 px-4 py-1.5 text-xs font-medium text-primary',
-                                },
-                                currentBuildMfaUrl
-                                  ? $t(
-                                      'business.message.mfaBindAndVerifyIntegrated',
-                                    )
-                                  : $t('business.message.mfaCodeConfirm'),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      h(
-                        'div',
-                        {
-                          class:
-                            'max-h-[calc(100vh-132px)] overflow-y-auto px-4 py-3 sm:px-5',
-                        },
-                        [
-                          buildMfaVerificationContent(
-                            currentBuildMfaUrl,
-                            currentOptions,
-                            secure,
-                            dialogErrorMessage,
-                            (value) => {
-                              secure = normalizeMfaSecure(value);
-                              dialogErrorMessage = '';
-                              refreshOverlay();
-                            },
-                            () => {
-                              void submitCheck();
-                            },
-                            currentOptions.allowRefresh
-                              ? () => {
-                                  void handleRefresh();
-                                }
-                              : undefined,
-                            refreshLoading,
-                            () =>
-                              buildMfaDialogActions({
-                                cancelText: $t('business.message.mfaCancel'),
-                                disabled: submitting,
-                                loading: submitting,
-                                okText,
-                                onCancel: () => {
-                                  destroyOverlay();
-                                  rejectDialog?.(new Error(cancelErrorMessage));
-                                },
-                                onSubmit: () => {
-                                  void submitCheck();
-                                },
-                              }),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-      container,
-    );
-    if (needFocus) {
-      focusMfaCheckInput();
-    }
-  };
-
-  // handleRefresh 重新生成当前账号的 MFA 二维码，并同步刷新弹窗上下文。
-  const handleRefresh = async () => {
-    if (refreshLoading) {
-      return;
-    }
-    dialogErrorMessage = '';
-    refreshLoading = true;
-    refreshOverlay();
-    try {
-      const result = await refreshProfileMfaSecretKey();
-      const profile = await fetchProfileInfo().catch(() => undefined);
-      currentBuildMfaUrl =
-        String(result?.buildMFAURL || '').trim() ||
-        String(profile?.buildMFAURL || '').trim() ||
-        currentBuildMfaUrl;
-      currentOptions = {
-        ...currentOptions,
-        accountName:
-          String(profile?.username || '').trim() || currentOptions.accountName,
-      };
-      message.success($t('business.message.mfaQrRegenerated'));
-    } catch {
-      dialogErrorMessage = $t('business.message.mfaRefreshQrFailed');
-    } finally {
-      refreshLoading = false;
-      refreshOverlay(true);
-    }
-  };
-
-  // submitCheck 执行 MFA 动态码校验。
-  const submitCheck = async () => {
-    if (submitting) {
-      return;
-    }
-    dialogErrorMessage = '';
-    if (!secure) {
-      dialogErrorMessage = $t('business.message.mfaCodeMissing');
-      refreshOverlay(true);
-      throw new Error($t('business.message.mfaCodeMissing'));
-    }
-    if (!/^\d{6}$/.test(secure)) {
-      dialogErrorMessage = $t('business.message.mfaCodeRequired');
-      refreshOverlay(true);
-      throw new Error($t('business.message.mfaCodeRequired'));
-    }
-    submitting = true;
-    refreshOverlay();
-    try {
+    buildMfaUrl,
+    cancelErrorMessage,
+    okText,
+    onRefresh: allowRefresh
+      ? async () => {
+          const result = await refreshProfileMfaSecretKey();
+          const profile = await fetchProfileInfo().catch(() => undefined);
+          return {
+            accountName: String(profile?.username || '').trim() || undefined,
+            buildMfaUrl:
+              String(result?.buildMFAURL || '').trim() ||
+              String(profile?.buildMFAURL || '').trim() ||
+              undefined,
+          };
+        }
+      : undefined,
+    onSubmit: async ({ buildMfaUrl: currentBuildMfaUrl, secure }) => {
       const result = await checkMfaSecureApi(
         {
           scenarios: scenario,
@@ -839,37 +251,20 @@ export function createMfaCheckDialog(
         },
       );
       if (!result?.isOk || (requireTwoStep && !result.twoStep)) {
-        dialogErrorMessage = $t('business.message.mfaCodeInvalid');
         throw new Error($t('business.message.mfaCodeInvalid'));
       }
-      dialogErrorMessage = '';
-      destroyOverlay();
-      resolveDialog?.({
-        response: result,
-        secure,
-      });
-    } catch (error) {
-      dialogErrorMessage = resolveDialogErrorMessage(
-        error,
-        $t('business.message.mfaCodeInvalid'),
-      );
-      refreshOverlay(true);
-    } finally {
-      submitting = false;
-      refreshOverlay();
-    }
-  };
-
-  const promise = new Promise<MFACheckDialogResult>((resolve, reject) => {
-    resolveDialog = resolve;
-    rejectDialog = reject;
-    refreshOverlay(true);
-  });
-  return {
-    destroy() {
-      destroyOverlay();
+      return result;
     },
-    promise,
+    submitErrorMessage: $t('business.message.mfaCodeInvalid'),
+    title,
+  });
+
+  return {
+    destroy: dialog.destroy,
+    promise: dialog.promise.then(({ result, secure }) => ({
+      response: result,
+      secure,
+    })),
   };
 }
 

@@ -101,17 +101,16 @@ export async function cropAvatarFile(
   if (!croppedResult) {
     return null;
   }
-  return normalizeCropResultToFile(croppedResult, file.name);
+  return blobToFile(croppedResult, file.name);
 }
 
-// openCropperDialog 打开图片裁剪弹窗，返回裁剪后的图片结果。
-// 兼容 VCropper 在不同版本下返回 data URL、Blob 或 File。
+// openCropperDialog 打开图片裁剪弹窗，返回裁剪后的 Blob 图片结果。
 function openCropperDialog(
   file: File,
   aspectRatio: string,
   exportOptions?: CropExportOptions,
 ) {
-  return new Promise<Blob | File | string>((resolve, reject) => {
+  return new Promise<Blob | null>((resolve, reject) => {
     const container = document.createElement('div');
     document.body.append(container);
 
@@ -156,7 +155,7 @@ function openCropperDialog(
               maskClosable: false,
               okText: $t('ui.crop.confirm'),
               onCancel() {
-                resolve('');
+                resolve(null);
                 destroy();
               },
               onOk: async () => {
@@ -174,7 +173,10 @@ function openCropperDialog(
                     exportOptions?.targetWidth,
                     exportOptions?.targetHeight,
                   );
-                  resolve(cropResult || '');
+                  if (!(cropResult instanceof Blob) || cropResult.size === 0) {
+                    throw new Error($t('business.message.cropResultInvalid'));
+                  }
+                  resolve(cropResult);
                 } catch {
                   reject(new Error($t('ui.crop.errorTip')));
                 } finally {
@@ -219,58 +221,12 @@ function openCropperDialog(
   });
 }
 
-// normalizeCropResultToFile 把裁剪组件返回值统一转换成 File，便于复用现有上传链路。
-function normalizeCropResultToFile(
-  cropResult: Blob | File | string,
-  originalFileName: string,
-) {
-  if (cropResult instanceof File) {
-    return ensureOutputFileName(cropResult, originalFileName);
-  }
-  if (cropResult instanceof Blob) {
-    return blobToFile(cropResult, originalFileName);
-  }
-  return dataUrlToFile(cropResult, originalFileName);
-}
-
-// dataUrlToFile 把裁剪结果的 data URL 转成 File，便于复用现有上传链路。
-function dataUrlToFile(dataUrl: string, originalFileName: string) {
-  const normalizedDataUrl = String(dataUrl || '').trim();
-  const matched = normalizedDataUrl.match(
-    /^data:([^;,]+)?(?:;charset=[^;,]+)?;base64,([\s\S]+)$/i,
-  );
-  if (!matched) {
-    throw new Error($t('business.message.cropResultInvalid'));
-  }
-  const mimeType = matched[1] || 'image/png';
-  const base64Text = matched[2] || '';
-  const binaryText = globalThis.atob(base64Text);
-  const bytes = new Uint8Array(binaryText.length);
-  for (let index = 0; index < binaryText.length; index += 1) {
-    bytes[index] = binaryText.codePointAt(index) || 0;
-  }
-  const extension = mimeType.split('/')[1] || 'png';
-  const fileName = replaceFileExtension(originalFileName, extension);
-  return new File([bytes], fileName, { type: mimeType });
-}
-
 // blobToFile 把 Blob 结果包装为 File，并尽量复用原始文件名后缀。
 function blobToFile(blob: Blob, originalFileName: string) {
   const mimeType = String(blob.type || 'image/png').trim() || 'image/png';
   const extension = mimeType.split('/')[1] || 'png';
   const fileName = replaceFileExtension(originalFileName, extension);
   return new File([blob], fileName, { type: mimeType });
-}
-
-// ensureOutputFileName 确保裁剪组件直接返回 File 时，输出文件名和扩展名与当前上传链路一致。
-function ensureOutputFileName(file: File, originalFileName: string) {
-  const mimeType = String(file.type || 'image/png').trim() || 'image/png';
-  const extension = mimeType.split('/')[1] || 'png';
-  const expectedFileName = replaceFileExtension(originalFileName, extension);
-  if (file.name === expectedFileName) {
-    return file;
-  }
-  return new File([file], expectedFileName, { type: mimeType });
 }
 
 // replaceFileExtension 按裁剪后的 MIME 类型替换输出文件扩展名。

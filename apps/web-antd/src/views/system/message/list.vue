@@ -5,7 +5,7 @@ import type { AdminMessageApi } from '#/api/message';
 
 import { computed, h, ref, watch } from 'vue';
 
-import { Page, VbenButton } from '@vben/common-ui';
+import { Page, useVbenDrawer, VbenButton } from '@vben/common-ui';
 import { VbenTiptapPreview } from '@vben/plugins/tiptap';
 
 import {
@@ -29,6 +29,7 @@ import {
   fetchAdminMessageSentList,
   handleAdminMessage,
   markAdminMessageRead,
+  notifyAdminMessageNotificationsChanged,
   sendAdminMessage,
 } from '#/api/message';
 import { $t } from '#/locales';
@@ -52,22 +53,19 @@ import {
 defineOptions({ name: 'SystemMessageListPage' });
 
 // ================= 发送消息表单 =================
-// sendModalOpen 控制发送消息弹窗开关。
-const sendModalOpen = ref(false);
 // sending 表示当前是否正在提交发送请求。
 const sending = ref(false);
-const sendModalOffsetLeft = ref(0);
-const sendModalWidth = ref(1040);
+const overlayOffsetLeft = ref(0);
 // receiversModalWidth 控制收件人已读明细弹框宽度，避免少列数据在宽屏下铺满页面。
 const receiversModalWidth = ref(760);
 
-const sendModalSafeAreaStyle = computed(() => {
-  if (!sendModalOffsetLeft.value) {
+const overlaySafeAreaStyle = computed(() => {
+  if (!overlayOffsetLeft.value) {
     return {};
   }
   return {
-    left: `${sendModalOffsetLeft.value}px`,
-    width: `calc(100% - ${sendModalOffsetLeft.value}px)`,
+    left: `${overlayOffsetLeft.value}px`,
+    width: `calc(100% - ${overlayOffsetLeft.value}px)`,
   };
 });
 
@@ -79,20 +77,9 @@ function measureSidebarWidth() {
     ? Math.max(0, Math.round(sidebar.getBoundingClientRect().width))
     : 0;
   const availableWidth = Math.max(720, window.innerWidth - sidebarWidth - 96);
-  sendModalOffsetLeft.value = sidebarWidth;
-  sendModalWidth.value = Math.min(1040, availableWidth);
+  overlayOffsetLeft.value = sidebarWidth;
   receiversModalWidth.value = Math.min(760, availableWidth);
 }
-
-watch(
-  () => sendModalOpen.value,
-  (isOpen) => {
-    if (!isOpen) {
-      return;
-    }
-    window.requestAnimationFrame(measureSidebarWidth);
-  },
-);
 
 const [SendForm, sendFormApi] = useVbenForm({
   commonConfig: {
@@ -105,6 +92,11 @@ const [SendForm, sendFormApi] = useVbenForm({
   schema: useSendFormSchema(),
   showDefaultActions: false,
   wrapperClass: 'grid grid-cols-2 gap-x-6 gap-y-3',
+});
+
+// SendDrawer 承载发送消息表单。
+const [SendDrawer, sendDrawerApi] = useVbenDrawer({
+  onConfirm: onSendConfirm,
 });
 
 const activeTab = ref<'inbox' | 'sent'>('inbox');
@@ -365,48 +357,93 @@ function resolveLevelColor(level: number) {
   return 'processing';
 }
 
+// requestMarkMessageRead 调用后端把单条收件箱消息写成已读。
+async function requestMarkMessageRead(row: AdminMessageApi.Item) {
+  await markAdminMessageRead({ ids: [row.id] });
+  row.isRead = true;
+  notifyAdminMessageNotificationsChanged();
+}
+
+// markMessageRead 标记单条收件箱消息已读，并保留手动操作提示。
+async function markMessageRead(row: AdminMessageApi.Item) {
+  if (row.isRead) {
+    message.info($t('business.message.messageAlreadyRead'));
+    return;
+  }
+  await requestMarkMessageRead(row);
+  message.success($t('business.message.messageMarkedRead'));
+  await gridApi.reload();
+}
+
+// autoMarkMessageRead 在查看详情时静默标记已读，失败后回滚当前行展示状态。
+async function autoMarkMessageRead(row: AdminMessageApi.Item) {
+  try {
+    await requestMarkMessageRead(row);
+  } catch {
+    row.isRead = false;
+    await gridApi.reload().catch(() => undefined);
+    return;
+  }
+  await gridApi.reload();
+}
+
 // onViewDetail 展示单条消息详情。
 function onViewDetail(row: AdminMessageApi.Item) {
+  const shouldMarkRead = !row.isRead;
+  if (shouldMarkRead) {
+    row.isRead = true;
+  }
+  const detailRow = { ...row };
+  if (shouldMarkRead) {
+    void autoMarkMessageRead(row);
+  }
   const processable = isProcessableMessageType(row.type);
   const handled = Number(row.handledStatus || 0) === 1;
   Modal.info({
     content: h('div', { class: 'message-detail-shell' }, [
       h(Alert, {
         class: 'message-detail-alert',
-        message: row.isRead
+        message: detailRow.isRead
           ? $t('business.message.messageAlreadyReadStatus')
           : $t('business.message.messageUnreadStatus'),
         showIcon: true,
-        type: row.isRead ? 'info' : 'warning',
+        type: detailRow.isRead ? 'info' : 'warning',
       }),
       renderDetailOverview({
-        createdAt: row.createdAt,
-        level: row.level,
-        sender: row.senderAdminName,
-        subtitle: row.isRead
+        createdAt: detailRow.createdAt,
+        level: detailRow.level,
+        sender: detailRow.senderAdminName,
+        subtitle: detailRow.isRead
           ? $t('business.message.read')
           : $t('business.message.unread'),
-        title: row.title || $t('business.message.messageTitleWithId', [row.id]),
-        type: row.type,
+        title:
+          detailRow.title ||
+          $t('business.message.messageTitleWithId', [detailRow.id]),
+        type: detailRow.type,
       }),
       renderDetailMetaGrid([
-        { label: $t('business.message.sender'), value: row.senderAdminName },
-        { label: $t('business.message.createdAt'), value: row.createdAt },
-        { label: $t('business.message.readAt'), value: row.readAt },
+        {
+          label: $t('business.message.sender'),
+          value: detailRow.senderAdminName,
+        },
+        { label: $t('business.message.createdAt'), value: detailRow.createdAt },
+        { label: $t('business.message.readAt'), value: detailRow.readAt },
         {
           label: $t('business.message.handleStatus'),
-          value: resolveHandleText(row),
+          value: resolveHandleText(detailRow),
         },
-        { label: $t('business.message.handledAt'), value: row.handledAt },
+        { label: $t('business.message.handledAt'), value: detailRow.handledAt },
         {
           label: $t('business.message.messageLink'),
-          value: renderMessageLink(row.link),
+          value: renderMessageLink(detailRow.link),
         },
       ]),
-      renderMessageContent(row.content),
-      renderMessageData(row.data),
+      renderMessageContent(detailRow.content),
+      renderMessageData(detailRow.data),
     ]),
-    title: row.title || $t('business.message.messageDetailTitle', [row.id]),
+    title:
+      detailRow.title ||
+      $t('business.message.messageDetailTitle', [detailRow.id]),
     width: 860,
     wrapClassName: 'message-detail-modal',
     okText:
@@ -417,7 +454,7 @@ function onViewDetail(row: AdminMessageApi.Item) {
       if (!processable || handled) {
         return;
       }
-      const resp = await handleAdminMessage({ id: row.id });
+      const resp = await handleAdminMessage({ id: detailRow.id });
       if (resp?.alreadyHandled) {
         message.info(
           resp?.handledByAdminName
@@ -607,13 +644,7 @@ async function onViewReceivers(row: AdminMessageApi.SentItem) {
 
 // onMarkRead 标记单条消息已读并刷新列表。
 async function onMarkRead(row: AdminMessageApi.Item) {
-  if (row.isRead) {
-    message.info($t('business.message.messageAlreadyRead'));
-    return;
-  }
-  await markAdminMessageRead({ ids: [row.id] });
-  message.success($t('business.message.messageMarkedRead'));
-  await gridApi.reload();
+  await markMessageRead(row);
 }
 
 // onDeleteMessage 删除单条消息并刷新列表。
@@ -624,6 +655,7 @@ function onDeleteMessage(row: AdminMessageApi.Item) {
     okType: 'danger',
     onOk: async () => {
       await deleteAdminMessage({ ids: [row.id] });
+      notifyAdminMessageNotificationsChanged();
       message.success($t('business.message.deleteSucceeded'));
       await gridApi.reload();
     },
@@ -631,15 +663,14 @@ function onDeleteMessage(row: AdminMessageApi.Item) {
   });
 }
 
-// openSendModal 打开发送消息弹窗。
-function openSendModal() {
+// openSendDrawer 打开发送消息抽屉。
+function openSendDrawer() {
   sendFormApi.resetForm();
   sendFormApi.setValues({
     level: 1,
     type: 'work_handover',
   });
-  sendModalOpen.value = true;
-  measureSidebarWidth();
+  sendDrawerApi.open();
 }
 
 // onSendConfirm 提交发送消息。
@@ -648,6 +679,7 @@ async function onSendConfirm() {
     return;
   }
   sending.value = true;
+  sendDrawerApi.lock();
   try {
     const { valid } = await sendFormApi.validate();
     if (!valid) {
@@ -661,16 +693,18 @@ async function onSendConfirm() {
     }
     await sendAdminMessage({ ...values, content });
     message.success($t('business.message.sendSucceeded'));
-    sendModalOpen.value = false;
+    sendDrawerApi.close();
     await gridApi.reload();
   } finally {
     sending.value = false;
+    sendDrawerApi.unlock();
   }
 }
 
 // onMarkAllRead 把当前收件箱全部未读消息标记为已读。
 async function onMarkAllRead() {
   await markAdminMessageRead({ all: true });
+  notifyAdminMessageNotificationsChanged();
   message.success($t('business.message.allMessagesMarkedRead'));
   await gridApi.reload();
 }
@@ -709,7 +743,7 @@ function onClearRead() {
         </VbenButton>
       </Space>
       <Space v-if="activeTab === 'inbox'" wrap>
-        <VbenButton type="primary" @click="openSendModal">
+        <VbenButton type="primary" @click="openSendDrawer">
           {{ $t('business.message.sendMessage') }}
         </VbenButton>
         <VbenButton @click="onMarkAllRead">
@@ -726,17 +760,10 @@ function onClearRead() {
     />
     <SentGrid v-else :table-title="$t('business.message.mySentMessages')" />
 
-    <Modal
-      v-model:open="sendModalOpen"
-      :confirm-loading="sending"
-      :body-style="{ padding: '16px 20px' }"
-      :mask-style="sendModalSafeAreaStyle"
-      :mask-closable="false"
-      :wrap-style="sendModalSafeAreaStyle"
-      :width="sendModalWidth"
+    <SendDrawer
+      class="w-full max-w-[1040px]"
+      :loading="sending"
       :title="$t('business.message.sendMessage')"
-      @cancel="() => (sendModalOpen = false)"
-      @ok="onSendConfirm"
     >
       <div class="send-message-editor">
         <div class="send-message-guide">
@@ -776,15 +803,15 @@ function onClearRead() {
           <SendForm />
         </div>
       </div>
-    </Modal>
+    </SendDrawer>
 
     <Modal
       v-model:open="receiversModalOpen"
       :body-style="{ padding: '16px 20px' }"
       :footer="null"
       :mask-closable="true"
-      :mask-style="sendModalSafeAreaStyle"
-      :wrap-style="sendModalSafeAreaStyle"
+      :mask-style="overlaySafeAreaStyle"
+      :wrap-style="overlaySafeAreaStyle"
       :title="$t('business.message.receiverReadDetails')"
       :width="receiversModalWidth"
     >
@@ -969,6 +996,28 @@ function onClearRead() {
 
 .send-message-form :deep(.ant-form-item) {
   margin-bottom: 0;
+}
+
+:global(.message-send-content-item .vben-tiptap) {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(var(--vben-tiptap-min-height) + 58px);
+  max-height: min(72vh, 720px);
+  overflow: hidden;
+  resize: vertical;
+}
+
+:global(.message-send-content-item .vben-tiptap__editor) {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+:global(.message-send-content-item .vben-tiptap__content) {
+  flex: 1 1 auto;
+  max-height: none;
+  overflow-y: auto;
 }
 
 :global(.message-content-cell) {
