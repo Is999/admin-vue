@@ -7,7 +7,7 @@ import {
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 
-// routes 定义项目工具类页面，仅保留接口文档与安全调试台，删除 Vben 示例外链。
+// routes 定义项目工具类页面，统一承载接口文档与安全调试台。
 const routes: RouteRecordRaw[] = [
   {
     path: '/tools',

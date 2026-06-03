@@ -521,7 +521,7 @@ function findTaskTypeMeta(taskType?: string) {
   );
 }
 
-// normalizeFormText 统一归一化表单文本，便于判断是否仍是旧示例值。
+// normalizeFormText 统一归一化表单文本，便于判断是否仍是示例值。
 function normalizeFormText(value: unknown) {
   return String(value || '').trim();
 }
