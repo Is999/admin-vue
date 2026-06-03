@@ -35,6 +35,13 @@ import {
   getProgressPercentValue,
   safePrettyJson,
 } from '../shared';
+import {
+  buildTaskTraceMetricItems,
+  formatTaskTraceAction,
+  formatTaskTraceDetails,
+  hasTaskExecutionTrace,
+  normalizeTaskTraceAction,
+} from '../task-trace';
 
 // ================= 页面状态 =================
 // WORKFLOW_STATUS_AUTO_REFRESH_INTERVAL_MS 表示工作流状态自动刷新间隔；10 秒能兼顾页面新鲜度和管理端查询压力。
@@ -103,15 +110,6 @@ type WorkflowShardTraceRow = {
   nodeName: string;
   shard: TaskApi.WorkflowShardTraceItem;
 };
-
-// TraceMetricTone 表示处理量指标的展示语义，用于在数量面板中区分读写、风险和耗时。
-type TraceMetricTone =
-  | 'danger'
-  | 'info'
-  | 'neutral'
-  | 'primary'
-  | 'success'
-  | 'warning';
 
 // WorkflowStatusQueryOptions 描述一次工作流状态查询的页面副作用控制。
 type WorkflowStatusQueryOptions = {
@@ -184,55 +182,6 @@ function buildProgressMetricItems(progress?: TaskApi.TaskExecutionProgress) {
   ];
 }
 
-// hasExecutionTrace 判断执行追踪是否包含可展示的处理量。
-function hasExecutionTrace(trace?: TaskApi.TaskExecutionTrace) {
-  if (!trace) {
-    return false;
-  }
-  return (
-    Number(trace.totalCount || 0) > 0 ||
-    Number(trace.readCount || 0) > 0 ||
-    Number(trace.insertCount || 0) > 0 ||
-    Number(trace.updateCount || 0) > 0 ||
-    Number(trace.deleteCount || 0) > 0 ||
-    Number(trace.upsertCount || 0) > 0 ||
-    Number(trace.skipCount || 0) > 0 ||
-    Number(trace.errorCount || 0) > 0 ||
-    (trace.details || []).length > 0
-  );
-}
-
-// formatTaskTraceAction 把后端动作枚举转换为当前语言文案。
-function formatTaskTraceAction(action?: string) {
-  const actionMap: Record<string, string> = {
-    custom: $t('business.message.taskTraceActionCustom'),
-    delete: $t('business.message.taskTraceActionDelete'),
-    error: $t('business.message.taskTraceActionError'),
-    insert: $t('business.message.taskTraceActionInsert'),
-    read: $t('business.message.taskTraceActionRead'),
-    skip: $t('business.message.taskTraceActionSkip'),
-    update: $t('business.message.taskTraceActionUpdate'),
-    upsert: $t('business.message.taskTraceActionUpsert'),
-  };
-  return actionMap[String(action || '').toLowerCase()] || String(action || '-');
-}
-
-// normalizeTaskTraceAction 统一动作枚举，供表格标签色使用。
-function normalizeTaskTraceAction(action?: string) {
-  const currentAction = String(action || 'custom').toLowerCase();
-  const supportedActions = new Set([
-    'custom',
-    'delete',
-    'error',
-    'insert',
-    'read',
-    'skip',
-    'update',
-    'upsert',
-  ]);
-  return supportedActions.has(currentAction) ? currentAction : 'custom';
-}
-
 // normalizeTraceStatus 统一进度状态，供分片状态标签色使用。
 function normalizeTraceStatus(status?: string) {
   const currentStatus = String(status || '')
@@ -246,57 +195,6 @@ function normalizeTraceStatus(status?: string) {
     'success',
   ]);
   return supportedStatuses.has(currentStatus) ? currentStatus : 'default';
-}
-
-// buildTraceMetricItems 生成处理量指标，供工作流汇总和节点卡复用。
-function buildTraceMetricItems(trace?: TaskApi.TaskExecutionTrace) {
-  return [
-    {
-      label: $t('business.message.taskTraceTotalCount'),
-      tone: 'primary' as TraceMetricTone,
-      value: trace?.totalCount,
-    },
-    {
-      label: $t('business.message.taskTraceReadCount'),
-      tone: 'info' as TraceMetricTone,
-      value: trace?.readCount,
-    },
-    {
-      label: $t('business.message.taskTraceUpdateCount'),
-      tone: 'success' as TraceMetricTone,
-      value: trace?.updateCount,
-    },
-    {
-      label: $t('business.message.taskTraceInsertCount'),
-      tone: 'success' as TraceMetricTone,
-      value: trace?.insertCount,
-    },
-    {
-      label: $t('business.message.taskTraceDeleteCount'),
-      tone: 'warning' as TraceMetricTone,
-      value: trace?.deleteCount,
-    },
-    {
-      label: $t('business.message.taskTraceUpsertCount'),
-      tone: 'success' as TraceMetricTone,
-      value: trace?.upsertCount,
-    },
-    {
-      label: $t('business.message.taskTraceSkipCount'),
-      tone: 'warning' as TraceMetricTone,
-      value: trace?.skipCount,
-    },
-    {
-      label: $t('business.message.taskTraceErrorCount'),
-      tone: 'danger' as TraceMetricTone,
-      value: trace?.errorCount,
-    },
-    {
-      label: $t('business.message.taskTraceDuration'),
-      tone: 'neutral' as TraceMetricTone,
-      value: formatDurationMs(trace?.durationMs),
-    },
-  ];
 }
 
 // aggregateExecutionTraces 汇总前端过滤后的节点处理量，用于让汇总卡与可见明细一致。
@@ -332,30 +230,7 @@ function aggregateExecutionTraces(
 
 // buildNodeTraceMiniMetrics 生成节点卡片中的紧凑处理量指标。
 function buildNodeTraceMiniMetrics(trace?: TaskApi.TaskExecutionTrace) {
-  return buildTraceMetricItems(trace).slice(0, 3);
-}
-
-// formatTraceDetails 在分片表格中展示动作摘要，完整明细通过弹窗查看。
-function formatTraceDetails(
-  details?: TaskApi.TaskExecutionTraceDetail[],
-  limit = 4,
-) {
-  const rows = (details || []).slice(0, limit);
-  if (rows.length === 0) {
-    return '-';
-  }
-  const text = rows
-    .map(
-      (detail) =>
-        `${formatTaskTraceAction(detail.action)} ${detail.name || '-'}: ${formatTraceCount(
-          detail.count,
-        )}`,
-    )
-    .join(' / ');
-  if ((details || []).length > rows.length) {
-    return `${text} ...`;
-  }
-  return text;
+  return buildTaskTraceMetricItems(trace).slice(0, 3);
 }
 
 // hasTraceDetailRows 判断分片是否存在可展开的完整处理明细。
@@ -572,16 +447,16 @@ const workflowTraceNodeKeywordText = computed(() =>
 // workflowHasExecutionTrace 判断当前工作流是否已有处理量追踪数据。
 const workflowHasExecutionTrace = computed(
   () =>
-    hasExecutionTrace(workflowStatus.value?.executionTrace) ||
+    hasTaskExecutionTrace(workflowStatus.value?.executionTrace) ||
     workflowNodeRows.value.some((node) =>
-      hasExecutionTrace(node.executionTrace),
+      hasTaskExecutionTrace(node.executionTrace),
     ),
 );
 
 // allWorkflowNodeTraceRows 展示所有有处理量追踪的节点。
 const allWorkflowNodeTraceRows = computed(() =>
   workflowNodeRows.value.filter((node) =>
-    hasExecutionTrace(node.executionTrace),
+    hasTaskExecutionTrace(node.executionTrace),
   ),
 );
 
@@ -608,7 +483,7 @@ const workflowTraceTotalNodeCount = computed(
 
 // workflowTraceSummaryRows 展示全流程或当前节点过滤后的处理量汇总。
 const workflowTraceSummaryRows = computed(() =>
-  buildTraceMetricItems(
+  buildTaskTraceMetricItems(
     workflowTraceNodeKeywordText.value
       ? aggregateExecutionTraces(
           workflowNodeTraceRows.value.map((node) => node.executionTrace),
@@ -621,7 +496,7 @@ const workflowTraceSummaryRows = computed(() =>
 const workflowShardTraceRows = computed(() =>
   workflowNodeTraceRows.value.flatMap((node) =>
     (node.shardTraces || [])
-      .filter((shard) => hasExecutionTrace(shard.executionTrace))
+      .filter((shard) => hasTaskExecutionTrace(shard.executionTrace))
       .map((shard) => ({
         key: `${node.name}:${shard.shardIndex}`,
         nodeName: node.name,
@@ -1412,7 +1287,7 @@ watch(
                         </div>
 
                         <div
-                          v-if="hasExecutionTrace(node.executionTrace)"
+                          v-if="hasTaskExecutionTrace(node.executionTrace)"
                           class="workflow-node-trace-mini"
                         >
                           <div
@@ -1732,7 +1607,9 @@ watch(
                     <span class="workflow-trace-details">
                       <span class="workflow-trace-details__summary">
                         {{
-                          formatTraceDetails(row.shard.executionTrace?.details)
+                          formatTaskTraceDetails(
+                            row.shard.executionTrace?.details,
+                          )
                         }}
                       </span>
                       <Button

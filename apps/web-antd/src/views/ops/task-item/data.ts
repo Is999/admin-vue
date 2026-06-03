@@ -21,11 +21,10 @@ import {
   formatTraceCount as formatSharedTraceCount,
 } from '../shared';
 import { latencyTagMeta, taskQueueTagMap } from '../table-tags';
+import { hasTaskExecutionTrace } from '../task-trace';
 
 // TableActionHandler 定义表格操作列点击事件签名。
 type TableActionHandler<T = any> = (params: { code: string; row: T }) => void;
-
-const workflowIDHeaderName = 'x-app-workflow-id';
 
 export { formatSharedTraceCount as formatTraceCount };
 
@@ -34,37 +33,9 @@ export function getTaskExecutionTrace(task: TaskApi.TaskItem) {
   return task.executionTrace;
 }
 
-// hasTaskExecutionTrace 判断运行指标是否包含可展示的数据。
-export function hasTaskExecutionTrace(trace?: TaskApi.TaskExecutionTrace) {
-  if (!trace) {
-    return false;
-  }
-  return (
-    Number(trace.totalCount || 0) > 0 ||
-    Number(trace.readCount || 0) > 0 ||
-    Number(trace.insertCount || 0) > 0 ||
-    Number(trace.updateCount || 0) > 0 ||
-    Number(trace.deleteCount || 0) > 0 ||
-    Number(trace.upsertCount || 0) > 0 ||
-    Number(trace.skipCount || 0) > 0 ||
-    Number(trace.errorCount || 0) > 0 ||
-    (trace.details || []).length > 0
-  );
-}
-
-// getTaskWorkflowId 提取任务关联的工作流 ID，兼容标准字段和历史 header。
+// getTaskWorkflowId 提取任务关联的工作流 ID。
 export function getTaskWorkflowId(task: TaskApi.TaskItem) {
-  const directWorkflowID = String(task.workflowId || '').trim();
-  if (directWorkflowID) {
-    return directWorkflowID;
-  }
-  const matchedHeader = Object.entries(task.headers || {}).find(
-    ([key]) =>
-      String(key || '')
-        .trim()
-        .toLowerCase() === workflowIDHeaderName,
-  );
-  return String(matchedHeader?.[1] || '').trim();
+  return String(task.workflowId || '').trim();
 }
 
 // renderWorkflowIdLink 渲染可直达工作流状态页的任务列表链接。
