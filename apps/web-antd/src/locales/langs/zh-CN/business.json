@@ -1558,7 +1558,7 @@
     "taskQueueTag": "队列：{0}",
     "taskResult": "任务结果",
     "taskResultCopied": "任务结果已复制到剪贴板",
-    "taskResultEmptyGuide": "当前任务暂无结果数据。\n可能原因：\n1. 这是历史任务，执行时后端尚未写入 result。\n2. 该任务尚未成功完成。\n3. 当前查询命中了旧的 completed 记录。\n说明：新的成功任务会在这里显示结果摘要。",
+    "taskResultEmptyGuide": "当前任务暂无结果数据。\n可能原因：\n1. 该任务尚未成功完成。\n2. 任务执行结果为空。\n说明：成功任务会在这里显示结果摘要。",
     "taskRunNow": "立即执行",
     "taskRunNowSucceeded": "任务【{0}】已转为立即执行",
     "taskStateActive": "执行中",

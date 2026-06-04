@@ -906,7 +906,7 @@ function renderTaskExecutionTraceSection(trace?: TaskApi.TaskExecutionTrace) {
   );
 }
 
-// formatTaskResultText 返回任务结果展示文本；历史任务未写 result 时给出明确提示，避免误以为页面异常。
+// formatTaskResultText 返回任务结果展示文本；未写 result 时给出明确提示。
 function formatTaskResultText(task: TaskApi.TaskItem) {
   const result = task.result;
   if (!result || Object.keys(result).length === 0) {

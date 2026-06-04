@@ -46,18 +46,6 @@ export function createAsyncJobPoller<T extends AsyncJobItem>(
   };
 }
 
-// downloadBlobFile 把 Blob 数据保存为本地文件。
-export function downloadBlobFile(blob: Blob, fileName: string) {
-  const objectUrl = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = objectUrl;
-  link.download = fileName;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(objectUrl);
-}
-
 // isAsyncJobRunning 判断任务是否仍处于轮询阶段。
 export function isAsyncJobRunning(status?: AsyncJobStatus | string) {
   return status === 'queued' || status === 'running';

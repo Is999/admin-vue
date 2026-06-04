@@ -1558,7 +1558,7 @@
     "taskQueueTag": "Queue: {0}",
     "taskResult": "Task result",
     "taskResultCopied": "Task result copied to clipboard.",
-    "taskResultEmptyGuide": "No result data for this task.\nPossible reasons:\n1. This is a historical task and result was not written then.\n2. The task has not completed successfully.\n3. The query matched an old completed record.\nNote: new successful tasks will show the result summary here.",
+    "taskResultEmptyGuide": "No result data for this task.\nPossible reasons:\n1. The task has not completed successfully.\n2. The task result is empty.\nNote: successful tasks show the result summary here.",
     "taskRunNow": "Run now",
     "taskRunNowSucceeded": "Task {0} has been set to run immediately.",
     "taskStateActive": "Active",
