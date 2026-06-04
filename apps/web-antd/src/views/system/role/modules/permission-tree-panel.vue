@@ -28,14 +28,12 @@ import {
 
 interface Props {
   canWrite: boolean;
-  canWriteDescription?: string;
   readOnlyDescription?: string;
   treeData: SystemPermissionApi.Item[];
   modelValue: number[];
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  canWriteDescription: $t('business.message.permissionTreeCanWriteDesc'),
   readOnlyDescription: $t('business.message.permissionTreeReadOnlyDesc'),
 });
 
@@ -322,8 +320,8 @@ watch(
       </Tag>
     </div>
     <Alert
-      class="mb-3"
-      :description="canWrite ? canWriteDescription : readOnlyDescription"
+      class="mb-2"
+      :description="canWrite ? undefined : readOnlyDescription"
       show-icon
       type="info"
     >

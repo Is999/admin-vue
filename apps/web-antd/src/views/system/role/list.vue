@@ -438,9 +438,6 @@ function confirm(content: string, title: string) {
           class="role-permission-panel--modal"
           :can-write="canUpdateRolePermission"
           :tree-data="permissionTree"
-          :can-write-description="
-            $t('business.message.permissionModalCanWriteDesc')
-          "
           :read-only-description="
             $t('business.message.permissionTreeReadOnlyDesc')
           "
