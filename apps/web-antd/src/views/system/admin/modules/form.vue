@@ -24,6 +24,7 @@ import {
   fetchAdminDetail,
   fetchRoleTreeOptions,
   updateAdmin,
+  updateAdminMfaStatus,
 } from '#/api/system';
 import { $t } from '#/locales';
 import { resolveRequestErrorMessage } from '#/utils/file/download';
@@ -52,6 +53,8 @@ import {
 const emit = defineEmits<{ success: [] }>();
 // MFA_SCENARIO_ADD_USER 表示新增管理员二次校验场景。
 const MFA_SCENARIO_ADD_USER = 5;
+// MFA_SCENARIO_STATUS 表示修改管理员 MFA 状态二次校验场景。
+const MFA_SCENARIO_STATUS = 2;
 // MFA_SCENARIO_EDIT_USER 表示编辑管理员二次校验场景。
 const MFA_SCENARIO_EDIT_USER = 6;
 
@@ -117,6 +120,11 @@ function updateCheckedRoleIds(
     checkedSet.delete(nodeID);
   }
   return [...checkedSet].toSorted((a, b) => a - b);
+}
+
+// normalizeMfaStatus 把表单值收敛成后端支持的 MFA 状态枚举。
+function normalizeMfaStatus(value: unknown): SystemAdminApi.Status {
+  return Number(value) === 1 ? 1 : 0;
 }
 
 // filterRoleOptionTree 按关键字过滤角色树，并保留命中节点的父级路径。
@@ -312,6 +320,10 @@ async function onSubmit() {
     return;
   }
   const values = await formApi.getValues<SystemAdminApi.SaveParams>();
+  const isEdit = Boolean(formData.value?.id);
+  const nextMfaStatus = normalizeMfaStatus(values.mfaStatus);
+  const shouldUpdateMfaStatus =
+    isEdit && nextMfaStatus !== normalizeMfaStatus(formData.value?.mfaStatus);
   values.roleIDs = pruneInheritedRoleIDs(selectedRoleIds.value, roleTree.value);
   // 新增用户必须填写初始密码，编辑用户密码留空时不传给后端。
   if (!formData.value?.id && !String(values.password || '').trim()) {
@@ -331,10 +343,10 @@ async function onSubmit() {
   if (formData.value?.id && !String(values.password || '').trim()) {
     delete values.password;
   }
+  delete values.mfaStatus;
 
   drawerApi.lock();
   try {
-    const isEdit = Boolean(formData.value?.id);
     const payloadBase = {
       ...values,
       isUpdateRoles: isEdit,
@@ -351,6 +363,17 @@ async function onSubmit() {
         ? $t('business.message.editUserMfaTitle')
         : $t('business.message.addUserMfaTitle'),
     );
+    if (shouldUpdateMfaStatus) {
+      await submitWithMfaRetry(
+        MFA_SCENARIO_STATUS,
+        (ticket) =>
+          updateAdminMfaStatus(formData.value.id!, {
+            mfaStatus: nextMfaStatus,
+            ...ticketPayload(ticket),
+          }),
+        $t('business.message.switchUserMfaStatusMfaTitle'),
+      );
+    }
     message.success(
       isEdit
         ? $t('business.message.userUpdated')

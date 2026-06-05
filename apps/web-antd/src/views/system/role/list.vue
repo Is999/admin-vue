@@ -57,7 +57,7 @@ const accessStore = useAccessStore();
 const userStore = useUserStore();
 // permissionTree 保存角色权限树。
 const permissionTree = ref<SystemPermissionApi.Item[]>([]);
-// selectedPermissionIds 保存用户真正要提交的权限 ID；父级联动勾选仅用于展示，不直接进入提交数据。
+// selectedPermissionIds 保存权限树勾选态，保存时再过滤到可编辑权限。
 const selectedPermissionIds = ref<number[]>([]);
 
 // canUpdateRoleStatus 控制角色状态列是否允许直接切换。

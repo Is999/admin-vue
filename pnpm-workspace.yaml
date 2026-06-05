@@ -230,8 +230,8 @@ catalog:
   vue-router: ^5.0.7
   vue-tippy: ^6.7.1
   vue-tsc: ^3.3.1
-  vxe-pc-ui: ^4.14.16
-  vxe-table: ^4.18.13
+  vxe-pc-ui: ^4.15.11
+  vxe-table: ^4.19.19
   watermark-js-plus: ^1.6.3
   yaml-eslint-parser: ^2.0.0
   zod: ^3.25.76

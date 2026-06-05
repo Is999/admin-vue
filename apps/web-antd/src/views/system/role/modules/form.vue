@@ -14,7 +14,7 @@ import {
   createRole,
   fetchPermissionTree,
   fetchRolePermissionTree,
-  fetchRoleTree,
+  fetchRoleParentTreeOptions,
   updateRole,
 } from '#/api/system';
 import {
@@ -37,7 +37,7 @@ const formData = ref<Partial<SystemRoleApi.Item>>({});
 const roleTree = ref<Array<Record<string, any>>>([]);
 // permissionTree 保存角色表单中可直接勾选的权限树。
 const permissionTree = ref<SystemPermissionApi.Item[]>([]);
-// selectedPermissionIds 保存角色表单当前真正待提交的权限 ID 集合。
+// selectedPermissionIds 保存权限树勾选态，提交时再过滤到可编辑权限。
 const selectedPermissionIds = ref<number[]>([]);
 // accessStore 保存当前登录管理员权限码集合，用于控制“直接保存角色权限”能力。
 const accessStore = useAccessStore();
@@ -160,7 +160,10 @@ const [Drawer, drawerApi] = useVbenDrawer({
     const data = drawerApi.getData<Partial<SystemRoleApi.Item>>();
     formApi.resetForm();
     formData.value = data?.id ? data : {};
-    roleTree.value = buildRoleTreeOptions(await fetchRoleTree(), data?.id);
+    roleTree.value = buildRoleTreeOptions(
+      await fetchRoleParentTreeOptions(),
+      data?.id,
+    );
     const defaultPid = Number(
       data?.pid || findDefaultParentRoleID(roleTree.value),
     );
@@ -238,9 +241,14 @@ async function onSubmit() {
   if (isSuperRoleEdit.value) {
     values.status = 1;
   }
-  values.permissions = canWriteRolePermissions.value
-    ? selectedPermissionIds.value
-    : undefined;
+  if (canWriteRolePermissions.value) {
+    const enabledIds = collectPermissionState(permissionTree.value).enabledIds;
+    values.permissions = selectedPermissionIds.value.filter((item) =>
+      enabledIds.has(item),
+    );
+  } else {
+    values.permissions = undefined;
+  }
   drawerApi.lock();
   const action = formData.value?.id
     ? updateRole(formData.value.id, values)

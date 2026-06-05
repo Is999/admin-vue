@@ -1,8 +1,11 @@
+import { generateRoutesByFrontend } from '@vben/utils';
+
 import { describe, expect, it } from 'vitest';
 
 import { APP_DEFAULT_HOME_PATH } from '#/constants/app';
 import {
   OPS_ROUTE_PERMISSION_CODES,
+  SYSTEM_ROUTE_PERMISSION_CODES,
   USER_ROUTE_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { overridesPreferences } from '#/preferences';
@@ -229,5 +232,18 @@ describe('admin access routes', () => {
     expect(configReloadRoute?.meta?.authority).not.toContain(
       OPS_ROUTE_PERMISSION_CODES.TASK_CONSOLE,
     );
+  });
+
+  it('requires system parent and log child permissions for log menu', async () => {
+    const routesWithOnlyLog = await generateRoutesByFrontend(accessRoutes, [
+      SYSTEM_ROUTE_PERMISSION_CODES.ADMIN_LOG_QUERY,
+    ]);
+    expect(findRouteByName(routesWithOnlyLog, 'SystemLog')).toBeNull();
+
+    const routesWithSystemLog = await generateRoutesByFrontend(accessRoutes, [
+      SYSTEM_ROUTE_PERMISSION_CODES.SYSTEM_MANAGE,
+      SYSTEM_ROUTE_PERMISSION_CODES.ADMIN_LOG_QUERY,
+    ]);
+    expect(findRouteByName(routesWithSystemLog, 'SystemLog')).not.toBeNull();
   });
 });

@@ -15,17 +15,22 @@ export interface PermissionTreeNode {
   uuid?: string;
 }
 
-// collectPermissionState 从权限树提取可用节点与默认勾选节点。
+// collectPermissionState 从权限树提取已授权节点与可编辑节点。
 export function collectPermissionState(items: SystemPermissionApi.Item[]) {
   const checkedIds: number[] = [];
   const enabledIds = new Set<number>();
+  const readonlyCheckedIds: number[] = [];
   const walk = (nodes: SystemPermissionApi.Item[]) => {
     for (const item of nodes) {
-      if (!item.disableCheckbox && !item.disabled && item.status === 1) {
-        enabledIds.add(item.id);
-        if (item.checked) {
-          checkedIds.push(item.id);
+      const checkable = isPermissionNodeCheckable(item);
+      if (item.checked) {
+        checkedIds.push(item.id);
+        if (!checkable) {
+          readonlyCheckedIds.push(item.id);
         }
+      }
+      if (checkable) {
+        enabledIds.add(item.id);
       }
       if (item.children?.length) {
         walk(item.children);
@@ -36,6 +41,7 @@ export function collectPermissionState(items: SystemPermissionApi.Item[]) {
   return {
     checkedIds,
     enabledIds,
+    readonlyCheckedIds,
   };
 }
 
@@ -171,14 +177,14 @@ export function buildDisplayedPermissionCheckedIds(
   const checkedSet = new Set<number>();
   for (const currentID of sourceSelectedIDs) {
     const currentNode = nodeById.get(currentID);
-    if (!isPermissionNodeCheckable(currentNode)) {
+    if (!currentNode) {
       continue;
     }
     checkedSet.add(currentID);
     let parentID = parentById.get(currentID);
     while (parentID) {
       const parentNode = nodeById.get(parentID);
-      if (isPermissionNodeCheckable(parentNode)) {
+      if (parentNode) {
         checkedSet.add(parentID);
       }
       parentID = parentById.get(parentID);
@@ -195,6 +201,7 @@ export function buildPermissionViewTree(
     keyword?: string;
     onlyShowChecked?: boolean;
     permissionType?: number;
+    readOnly?: boolean;
     renderTitle: (item: SystemPermissionApi.Item) => any;
   },
 ): PermissionTreeNode[] {
@@ -206,6 +213,7 @@ export function buildPermissionViewTree(
     typeof options.permissionType === 'number' && options.permissionType >= 0
       ? options.permissionType
       : undefined;
+  const readOnly = Boolean(options.readOnly);
   const checkedSet = new Set(options.displayedPermissionIds);
   const walk = (nodes: SystemPermissionApi.Item[]): PermissionTreeNode[] => {
     const result: PermissionTreeNode[] = [];
@@ -228,13 +236,13 @@ export function buildPermissionViewTree(
       ) {
         result.push({
           children,
-          disableCheckbox: item.disableCheckbox,
+          disableCheckbox: readOnly || item.disableCheckbox,
           description: item.description,
-          disabled: item.disabled,
+          disabled: readOnly || item.disabled,
           id: item.id,
           key: item.id,
           module: item.module,
-          selectable: item.selectable,
+          selectable: readOnly ? false : item.selectable,
           title: options.renderTitle(item),
           type: item.type,
           uuid: item.uuid,
