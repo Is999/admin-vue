@@ -32,7 +32,12 @@ import {
 
 // MFA_LOGIN_SCENARIO 表示登录后的MFA校验场景。
 const MFA_LOGIN_SCENARIO = 0;
+// MFA_STATUS_SCENARIO 表示启停 MFA 状态的二次校验场景。
 const MFA_STATUS_SCENARIO = 2;
+// LOGIN_MFA_BIND_REQUIRED_CODE 表示后端要求当前账号先完成 MFA 绑定与启用。
+const LOGIN_MFA_BIND_REQUIRED_CODE = 5;
+// LOGIN_MFA_REQUIRED_CODE 表示后端要求当前登录会话先完成 MFA 校验。
+const LOGIN_MFA_REQUIRED_CODE = 6;
 // MFA_CANCELLED_ERROR 表示用户主动取消登录阶段 MFA 认证。
 const MFA_CANCELLED_ERROR = 'MFA_CANCELLED';
 export const useAuthStore = defineStore('auth', () => {
@@ -215,7 +220,9 @@ export const useAuthStore = defineStore('auth', () => {
   function isMfaRequiredError(error: any) {
     const data = error?.response?.data ?? error;
     const code = Number(data?.code || 0);
-    return code === 6 || code === 9;
+    return (
+      code === LOGIN_MFA_BIND_REQUIRED_CODE || code === LOGIN_MFA_REQUIRED_CODE
+    );
   }
 
   /**

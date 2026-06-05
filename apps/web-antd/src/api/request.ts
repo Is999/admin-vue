@@ -588,7 +588,7 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
     },
   });
 
-  // 登录后若后端统一返回 code=6，自动拉起 MFA 认证或首次绑定流程，成功后重放原请求。
+  // 登录后若后端返回 code=5/6，自动拉起 MFA 绑定或认证流程，成功后重放原请求。
   client.addResponseInterceptor({
     rejected: async (error) => {
       const response = error?.response;
