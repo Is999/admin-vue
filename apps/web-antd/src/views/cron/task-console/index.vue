@@ -118,6 +118,28 @@ type FieldGuideRow = {
 
 type OverflowTooltipProps = InstanceType<typeof Tooltip>['$props'];
 
+type WorkflowDefaultOptions = {
+  force?: boolean;
+  previousWorkflowName?: string;
+  silent?: boolean;
+};
+
+type TaskDefaultOptions = {
+  force?: boolean;
+  previousTaskType?: string;
+  silent?: boolean;
+};
+
+const minimalTaskPayloadText = '{\n  "appId": "203"\n}';
+const defaultTaskQueue = 'default';
+const defaultTaskRetry = 3;
+const defaultTaskTimeoutSeconds = 120;
+const defaultTaskUniqueTTLSeconds = 60;
+const defaultWorkflowShardTotal = 1;
+const defaultWorkflowGrayPercent = 100;
+const defaultProcessInSeconds = 0;
+const defaultDeadlineSeconds = 7200;
+
 // taskQueueHintText 用于在“展开说明”区域展示队列用途说明，降低配置猜测成本。
 const taskQueueHintText = computed(() =>
   queueOptions.value
@@ -479,9 +501,79 @@ const currentWorkflowMeta = computed(() =>
   ),
 );
 
+// findWorkflowMeta 按工作流名称查找注册元信息。
+function findWorkflowMeta(workflowName?: string) {
+  const normalizedName = String(workflowName || '').trim();
+  if (!normalizedName) {
+    return undefined;
+  }
+  return workflowRegistryItems.value.find(
+    (item) => item.name === normalizedName,
+  );
+}
+
+// findTaskTypeMeta 按任务类型查找注册元信息。
+function findTaskTypeMeta(taskType?: string) {
+  const normalizedTaskType = String(taskType || '').trim();
+  if (!normalizedTaskType) {
+    return undefined;
+  }
+  return taskTypeRegistryItems.value.find(
+    (item) => item.taskType === normalizedTaskType,
+  );
+}
+
+// normalizeFormText 统一归一化表单文本，便于判断是否仍是旧示例值。
+function normalizeFormText(value: unknown) {
+  return String(value || '').trim();
+}
+
+// isWorkflowTargetsExample 判断当前 targets 是否来自已注册工作流示例。
+function isWorkflowTargetsExample(text: string) {
+  const normalizedText = normalizeFormText(text);
+  if (!normalizedText) {
+    return false;
+  }
+  return workflowRegistryItems.value.some(
+    (item) => normalizeFormText(item.targetsExample) === normalizedText,
+  );
+}
+
+// isTaskPayloadExample 判断当前 payload 是否来自已注册任务示例。
+function isTaskPayloadExample(text: string) {
+  const normalizedText = normalizeFormText(text);
+  if (!normalizedText) {
+    return false;
+  }
+  if (normalizedText === normalizeFormText(minimalTaskPayloadText)) {
+    return true;
+  }
+  return taskTypeRegistryItems.value.some(
+    (item) => normalizeFormText(item.payloadExample) === normalizedText,
+  );
+}
+
+// buildManualUniqueKey 生成短周期防重复点击用的去重键。
+function buildManualUniqueKey(kind: string, name: string, targetsText = '') {
+  const targetKey = splitTextToItems(targetsText).join('|') || 'all';
+  return `${kind}:${name}:${targetKey}`
+    .replaceAll(/[^\w:|.-]+/g, '_')
+    .slice(0, 160);
+}
+
+// isManualUniqueKey 判断当前去重键是否仍是总控台自动生成值。
+function isManualUniqueKey(value: unknown) {
+  return /^manual[-_a-z]*:/.test(normalizeFormText(value));
+}
+
 // buildRFC3339TimeString 统一生成 RFC3339 时间文本，降低人工填写成本。
 function buildRFC3339TimeString(addSeconds = 0) {
   return new Date(Date.now() + addSeconds * 1000).toISOString();
+}
+
+// shouldFillDefaultValue 判断字段是否适合被默认值补齐。
+function shouldFillDefaultValue(value: unknown, force = false) {
+  return force || value === '' || value === null || value === undefined;
 }
 
 // rebuildTaskConsoleSchemas 按当前队列和注册清单重建表单 schema，统一维护联动逻辑。
@@ -502,15 +594,24 @@ function rebuildTaskConsoleSchemas() {
   );
 }
 
-// handleWorkflowSelectionChange 同步当前工作流选中值，并尽量自动带出默认队列。
+// handleWorkflowSelectionChange 同步当前工作流选中值，并尽量自动套用默认参数。
 function handleWorkflowSelectionChange(value?: string) {
+  const previousWorkflowName = selectedWorkflowName.value;
   selectedWorkflowName.value = String(value || '').trim();
-  void syncSelectedWorkflowQueueIfEmpty(selectedWorkflowName.value);
+  void applySelectedWorkflowDefaults({
+    previousWorkflowName,
+    silent: true,
+  });
 }
 
 // handleTaskTypeSelectionChange 同步当前任务类型选中值，供下方提示区联动展示。
 function handleTaskTypeSelectionChange(value?: string) {
+  const previousTaskType = selectedTaskType.value;
   selectedTaskType.value = String(value || '').trim();
+  void applySelectedTaskDefaults({
+    previousTaskType,
+    silent: true,
+  });
 }
 
 // loadQueueOptions 拉取当前任务系统可见队列，并更新总控台表单 schema。
@@ -636,34 +737,137 @@ async function clearEnqueueTaskSchedule() {
 async function fillSampleTaskPayload() {
   await enqueueTaskFormApi.setFieldValue(
     'payloadText',
-    '{\n  "appId": "203"\n}',
+    minimalTaskPayloadText,
     false,
   );
   message.success($t('business.message.minimalTaskPayloadExampleFilled'));
 }
 
-// syncSelectedWorkflowQueueIfEmpty 在用户切换工作流时，若未手填队列则自动带出默认队列。
-async function syncSelectedWorkflowQueueIfEmpty(workflowName?: string) {
-  const normalizedName = String(workflowName || '').trim();
-  if (!normalizedName) {
+// fillTriggerWorkflowDefaultParams 回填工作流触发的保守默认参数。
+async function fillTriggerWorkflowDefaultParams(
+  workflowName: string,
+  targetsText: string,
+  values: Record<string, any>,
+  force = false,
+) {
+  if (shouldFillDefaultValue(values.shardTotal, force)) {
+    await triggerWorkflowFormApi.setFieldValue(
+      'shardTotal',
+      defaultWorkflowShardTotal,
+      false,
+    );
+  }
+  if (shouldFillDefaultValue(values.grayPercent, force)) {
+    await triggerWorkflowFormApi.setFieldValue(
+      'grayPercent',
+      defaultWorkflowGrayPercent,
+      false,
+    );
+  }
+  if (
+    force ||
+    !normalizeFormText(values.uniqueKey) ||
+    isManualUniqueKey(values.uniqueKey)
+  ) {
+    await triggerWorkflowFormApi.setFieldValue(
+      'uniqueKey',
+      buildManualUniqueKey('manual-workflow', workflowName, targetsText),
+      false,
+    );
+  }
+  if (shouldFillDefaultValue(values.uniqueTTLSeconds, force)) {
+    await triggerWorkflowFormApi.setFieldValue(
+      'uniqueTTLSeconds',
+      defaultTaskUniqueTTLSeconds,
+      false,
+    );
+  }
+  if (shouldFillDefaultValue(values.retry, force)) {
+    await triggerWorkflowFormApi.setFieldValue(
+      'retry',
+      defaultTaskRetry,
+      false,
+    );
+  }
+  if (shouldFillDefaultValue(values.timeoutSeconds, force)) {
+    await triggerWorkflowFormApi.setFieldValue(
+      'timeoutSeconds',
+      defaultTaskTimeoutSeconds,
+      false,
+    );
+  }
+  if (shouldFillDefaultValue(values.processAt, force)) {
+    await triggerWorkflowFormApi.setFieldValue(
+      'processAt',
+      buildRFC3339TimeString(0),
+      false,
+    );
+  }
+  if (shouldFillDefaultValue(values.processInSeconds, force)) {
+    await triggerWorkflowFormApi.setFieldValue(
+      'processInSeconds',
+      defaultProcessInSeconds,
+      false,
+    );
+  }
+  if (shouldFillDefaultValue(values.deadline, force)) {
+    await triggerWorkflowFormApi.setFieldValue(
+      'deadline',
+      buildRFC3339TimeString(defaultDeadlineSeconds),
+      false,
+    );
+  }
+}
+
+// applySelectedWorkflowDefaults 自动套用当前工作流默认队列和目标示例。
+async function applySelectedWorkflowDefaults(
+  options: WorkflowDefaultOptions = {},
+) {
+  const workflowMeta = currentWorkflowMeta.value;
+  if (!workflowMeta) {
+    if (!options.silent) {
+      message.warning($t('business.message.workflowDefaultsUnavailable'));
+    }
     return;
   }
-  const workflowMeta = workflowRegistryItems.value.find(
-    (item) => item.name === normalizedName,
-  );
-  if (!workflowMeta?.defaultQueue) {
-    return;
-  }
+  const previousMeta = findWorkflowMeta(options.previousWorkflowName);
   const currentValues =
     await triggerWorkflowFormApi.getValues<Record<string, any>>();
-  if (String(currentValues.queue || '').trim()) {
-    return;
+  const currentQueue = normalizeFormText(currentValues.queue);
+  const previousQueue = normalizeFormText(previousMeta?.defaultQueue);
+  const nextQueue = normalizeFormText(workflowMeta.defaultQueue);
+  if (
+    nextQueue &&
+    (options.force || !currentQueue || currentQueue === previousQueue)
+  ) {
+    await triggerWorkflowFormApi.setFieldValue('queue', nextQueue, false);
   }
-  await triggerWorkflowFormApi.setFieldValue(
-    'queue',
-    workflowMeta.defaultQueue,
-    false,
+  const currentTargets = normalizeFormText(currentValues.targetsText);
+  const previousTargetsExample = normalizeFormText(
+    previousMeta?.targetsExample,
   );
+  const nextTargetsExample = normalizeFormText(workflowMeta.targetsExample);
+  const shouldReplaceTargets =
+    options.force ||
+    !currentTargets ||
+    currentTargets === previousTargetsExample ||
+    isWorkflowTargetsExample(currentTargets);
+  if (shouldReplaceTargets) {
+    await triggerWorkflowFormApi.setFieldValue(
+      'targetsText',
+      nextTargetsExample,
+      false,
+    );
+  }
+  await fillTriggerWorkflowDefaultParams(
+    workflowMeta.name,
+    shouldReplaceTargets ? nextTargetsExample : currentTargets,
+    currentValues,
+    options.force,
+  );
+  if (!options.silent) {
+    message.success($t('business.message.workflowDefaultsFilled'));
+  }
 }
 
 // fillSelectedWorkflowQueue 按当前工作流元信息回填默认执行队列。
@@ -694,6 +898,93 @@ async function fillSelectedWorkflowTargetsExample() {
     false,
   );
   message.success($t('business.message.workflowTargetExampleFilled'));
+}
+
+// fillEnqueueTaskDefaultParams 回填通用任务投递的保守默认参数。
+async function fillEnqueueTaskDefaultParams(
+  values: Record<string, any>,
+  force = false,
+) {
+  if (force) {
+    await enqueueTaskFormApi.setFieldValue('group', '', false);
+  }
+  if (shouldFillDefaultValue(values.queue, force)) {
+    await enqueueTaskFormApi.setFieldValue('queue', defaultTaskQueue, false);
+  }
+  if (shouldFillDefaultValue(values.retry, force)) {
+    await enqueueTaskFormApi.setFieldValue('retry', defaultTaskRetry, false);
+  }
+  if (shouldFillDefaultValue(values.timeoutSeconds, force)) {
+    await enqueueTaskFormApi.setFieldValue(
+      'timeoutSeconds',
+      defaultTaskTimeoutSeconds,
+      false,
+    );
+  }
+  if (shouldFillDefaultValue(values.processAt, force)) {
+    await enqueueTaskFormApi.setFieldValue(
+      'processAt',
+      buildRFC3339TimeString(0),
+      false,
+    );
+  }
+  if (shouldFillDefaultValue(values.processInSeconds, force)) {
+    await enqueueTaskFormApi.setFieldValue(
+      'processInSeconds',
+      defaultProcessInSeconds,
+      false,
+    );
+  }
+  if (shouldFillDefaultValue(values.deadline, force)) {
+    await enqueueTaskFormApi.setFieldValue(
+      'deadline',
+      buildRFC3339TimeString(defaultDeadlineSeconds),
+      false,
+    );
+  }
+  if (shouldFillDefaultValue(values.uniqueTTLSeconds, force)) {
+    await enqueueTaskFormApi.setFieldValue(
+      'uniqueTTLSeconds',
+      defaultTaskUniqueTTLSeconds,
+      false,
+    );
+  }
+}
+
+// applySelectedTaskDefaults 自动套用当前任务类型推荐 payload 和默认投递参数。
+async function applySelectedTaskDefaults(options: TaskDefaultOptions = {}) {
+  const taskMeta = currentTaskTypeMeta.value;
+  if (!taskMeta) {
+    if (!options.silent) {
+      message.warning($t('business.message.taskDefaultsUnavailable'));
+    }
+    return;
+  }
+  const previousMeta = findTaskTypeMeta(options.previousTaskType);
+  const currentValues =
+    await enqueueTaskFormApi.getValues<Record<string, any>>();
+  const currentPayload = normalizeFormText(currentValues.payloadText);
+  const previousPayloadExample = normalizeFormText(
+    previousMeta?.payloadExample,
+  );
+  const nextPayloadText =
+    normalizeFormText(taskMeta.payloadExample) || minimalTaskPayloadText;
+  const shouldReplacePayload =
+    options.force ||
+    !currentPayload ||
+    currentPayload === previousPayloadExample ||
+    isTaskPayloadExample(currentPayload);
+  if (shouldReplacePayload) {
+    await enqueueTaskFormApi.setFieldValue(
+      'payloadText',
+      nextPayloadText,
+      false,
+    );
+  }
+  await fillEnqueueTaskDefaultParams(currentValues, options.force);
+  if (!options.silent) {
+    message.success($t('business.message.taskDefaultsFilled'));
+  }
 }
 
 // fillSelectedTaskPayloadExample 按当前任务类型元信息回填推荐 JSON 示例。
@@ -903,7 +1194,7 @@ onMounted(() => {
             <div
               class="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300/80"
             >
-              Task Ops Control Center
+              {{ $t('business.message.taskConsoleEyebrow') }}
             </div>
             <div class="mt-2 text-2xl font-semibold tracking-tight text-white">
               {{ $t('business.message.taskConsoleTitle') }}
@@ -1128,8 +1419,11 @@ onMounted(() => {
             <Button
               size="small"
               type="primary"
-              @click="fillSelectedWorkflowQueue"
+              @click="applySelectedWorkflowDefaults({ force: true })"
             >
+              {{ $t('business.message.fillWorkflowDefaults') }}
+            </Button>
+            <Button size="small" @click="fillSelectedWorkflowQueue">
               {{ $t('business.message.fillDefaultQueue') }}
             </Button>
             <Button size="small" @click="fillSelectedWorkflowTargetsExample">
@@ -1252,14 +1546,17 @@ onMounted(() => {
             </div>
           </div>
           <Space class="mb-4" :size="8" wrap>
-            <Button size="small" @click="fillSampleTaskPayload">
-              {{ $t('business.message.fillJsonExample') }}
-            </Button>
             <Button
               size="small"
               type="primary"
-              @click="fillSelectedTaskPayloadExample"
+              @click="applySelectedTaskDefaults({ force: true })"
             >
+              {{ $t('business.message.fillTaskDefaults') }}
+            </Button>
+            <Button size="small" @click="fillSampleTaskPayload">
+              {{ $t('business.message.fillJsonExample') }}
+            </Button>
+            <Button size="small" @click="fillSelectedTaskPayloadExample">
               {{ $t('business.message.fillCurrentTaskExample') }}
             </Button>
             <Button size="small" @click="fillEnqueueTaskDelay(60)">

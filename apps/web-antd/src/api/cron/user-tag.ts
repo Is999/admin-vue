@@ -28,6 +28,8 @@ export namespace UserTagApi {
     uniqueKey?: string;
     /** 去重 TTL，单位秒 */
     uniqueTTLSeconds?: number;
+    /** 工作流节点重试次数 */
+    retry?: number;
     /** 触发任务超时时间，单位秒 */
     timeoutSeconds?: number;
   }
@@ -48,6 +50,8 @@ export namespace UserTagApi {
     dry_run?: boolean;
     /** 去重 TTL，单位秒 */
     unique_ttl_seconds?: number;
+    /** 工作流节点重试次数 */
+    retry?: number;
     /** 触发任务超时时间，单位秒 */
     timeout_seconds?: number;
   }

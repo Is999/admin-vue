@@ -38,6 +38,14 @@ const SIGN_FIELD_ALL = '*';
 const CIPHER_WHOLE_BODY = 'cipher';
 // CIPHER_JSON_PREFIX 表示字段值需要按 JSON 文本整体加解密。
 const CIPHER_JSON_PREFIX = 'json:';
+// MAX_SECURITY_FIELD_COUNT 表示字段级安全处理的最大字段数。
+const MAX_SECURITY_FIELD_COUNT = 8;
+// MAX_SECURITY_FIELD_BYTES 表示普通签名或加密字段的最大字节数。
+const MAX_SECURITY_FIELD_BYTES = 4096;
+// MAX_SECURITY_JSON_FIELD_BYTES 表示 json: 小对象字段的最大字节数。
+const MAX_SECURITY_JSON_FIELD_BYTES = 8192;
+// MAX_SECURITY_REQUEST_BODY_BYTES 表示安全链路处理请求体的最大字节数。
+const MAX_SECURITY_REQUEST_BODY_BYTES = 65_536;
 
 // ADMIN_ROUTE_SECURITY_POLICIES 与 admin-cron/internal/security.RouteSecurityPolicies 保持一致。
 // 每个 key 都对应一个后端路由别名，用于声明该接口的请求签名、请求加密、响应加密与响应回签策略。
@@ -607,6 +615,49 @@ function uniqueStrings(items: string[] = []) {
   ];
 }
 
+// byteLength 计算 UTF-8 字节长度，和后端按字节限制保持一致。
+function byteLength(text: string) {
+  return new TextEncoder().encode(text).length;
+}
+
+// assertSecurityTextSize 校验签名、加密和请求体文本大小。
+function assertSecurityTextSize(
+  scope: string,
+  value: string,
+  maxBytes: number,
+) {
+  if (byteLength(value) > maxBytes) {
+    throw new Error(
+      $t('business.message.securityPayloadTooLarge', [scope, String(maxBytes)]),
+    );
+  }
+}
+
+// stringifySecurityValue 序列化安全字段，并限制序列化后的大小。
+function stringifySecurityValue(scope: string, value: any, maxBytes: number) {
+  const text =
+    typeof value === 'string' ? value : JSON.stringify(value ?? null);
+  assertSecurityTextSize(scope, text, maxBytes);
+  return text;
+}
+
+// assertSecurityFieldCount 校验字段级安全处理数量。
+function assertSecurityFieldCount(scope: string, fields: string[]) {
+  const normalized = uniqueStrings(fields);
+  if (
+    normalized.length > MAX_SECURITY_FIELD_COUNT &&
+    !normalized.includes(CIPHER_WHOLE_BODY) &&
+    !normalized.includes(SIGN_FIELD_ALL)
+  ) {
+    throw new Error(
+      $t('business.message.securityFieldCountTooLarge', [
+        scope,
+        String(MAX_SECURITY_FIELD_COUNT),
+      ]),
+    );
+  }
+}
+
 // resolveSignParams 解析签名字段；配置为 * 时改为当前首层所有字段。
 function resolveSignParams(data: Record<string, any>, params: string[] = []) {
   const normalized = uniqueStrings(params);
@@ -632,10 +683,14 @@ export function buildSignString(
     if (isEmptySignValue(value)) {
       continue;
     }
-    chunks.push(`${key}=${signValueString(value)}`);
+    const text = signValueString(value);
+    assertSecurityTextSize(key, text, MAX_SECURITY_FIELD_BYTES);
+    chunks.push(`${key}=${text}`);
   }
   chunks.push(`key=${md5Hex(`${appID}-${traceId}`)}`);
-  return chunks.join('&');
+  const text = chunks.join('&');
+  assertSecurityTextSize('signature', text, MAX_SECURITY_REQUEST_BODY_BYTES);
+  return text;
 }
 
 // encodeAppID 对 AppID 做 base64 编码，后端会从 X-App-Id 解码真实 AppID。
@@ -644,15 +699,20 @@ function encodeAppID(appID: string) {
 }
 
 // encodeCipherHeader 把字段加密配置编码成后端兼容的 X-Cipher 请求头。
-function encodeCipherHeader(params: string[] = []) {
+export function encodeCipherHeader(params: string[] = []) {
   const normalized = uniqueStrings(params);
   if (normalized.length === 0) {
     return '';
   }
+  assertSecurityFieldCount('X-Cipher', normalized);
   if (normalized.length === 1 && normalized[0] === CIPHER_WHOLE_BODY) {
     return CIPHER_WHOLE_BODY;
   }
-  return bytesToBase64(new TextEncoder().encode(JSON.stringify(normalized)));
+  const header = bytesToBase64(
+    new TextEncoder().encode(JSON.stringify(normalized)),
+  );
+  assertSecurityTextSize('X-Cipher', header, MAX_SECURITY_JSON_FIELD_BYTES);
+  return header;
 }
 
 // decodeCipherHeader 按 vue-vben-admin 兼容方式解析 X-Cipher：
@@ -663,6 +723,7 @@ function decodeCipherHeader(cipherHeader: string) {
   if (!text) {
     return [];
   }
+  assertSecurityTextSize('X-Cipher', text, MAX_SECURITY_JSON_FIELD_BYTES);
   if (text === CIPHER_WHOLE_BODY) {
     return [CIPHER_WHOLE_BODY];
   }
@@ -817,8 +878,13 @@ async function attachCrypto(
   setHeader(headers, 'X-Crypto', cryptoType);
   setHeader(headers, 'X-Cipher', encodeCipherHeader(cipherConfig));
   if (cipherConfig.length === 1 && cipherConfig[0] === CIPHER_WHOLE_BODY) {
+    const plainBody = stringifySecurityValue(
+      'request body',
+      body,
+      MAX_SECURITY_REQUEST_BODY_BYTES,
+    );
     const ciphertext = await aesCbcEncrypt(
-      JSON.stringify(body),
+      plainBody,
       import.meta.env.VITE_ADMIN_SECURITY_AES_KEY || '',
       import.meta.env.VITE_ADMIN_SECURITY_AES_IV || '',
     );
@@ -837,11 +903,23 @@ async function attachCrypto(
     // plainValue 根据字段配置生成待加密明文，兼容字符串和 JSON 对象。
     let plainValue = '';
     if (isJSON) {
-      plainValue = JSON.stringify(current);
+      plainValue = stringifySecurityValue(
+        fieldPath,
+        current,
+        MAX_SECURITY_JSON_FIELD_BYTES,
+      );
     } else if (typeof current === 'string') {
-      plainValue = current;
+      plainValue = stringifySecurityValue(
+        fieldPath,
+        current,
+        MAX_SECURITY_FIELD_BYTES,
+      );
     } else {
-      plainValue = JSON.stringify(current);
+      plainValue = stringifySecurityValue(
+        fieldPath,
+        current,
+        MAX_SECURITY_JSON_FIELD_BYTES,
+      );
     }
     result[fieldPath] = await aesCbcEncrypt(
       plainValue,
@@ -894,7 +972,17 @@ async function decryptResponseData(payload: any, headers: any) {
     if (typeof payload !== 'string' || payload.trim() === '') {
       return payload;
     }
+    assertSecurityTextSize(
+      'response ciphertext',
+      payload,
+      MAX_SECURITY_REQUEST_BODY_BYTES,
+    );
     const plain = await aesCbcDecrypt(payload, key, iv);
+    assertSecurityTextSize(
+      'response body',
+      plain,
+      MAX_SECURITY_REQUEST_BODY_BYTES,
+    );
     try {
       return JSON.parse(plain);
     } catch {
@@ -915,7 +1003,17 @@ async function decryptResponseData(payload: any, headers: any) {
     if (typeof ciphertext !== 'string' || ciphertext.trim() === '') {
       continue;
     }
+    assertSecurityTextSize(
+      fieldPath,
+      ciphertext,
+      MAX_SECURITY_JSON_FIELD_BYTES,
+    );
     const plain = await aesCbcDecrypt(ciphertext, key, iv);
+    assertSecurityTextSize(
+      fieldPath,
+      plain,
+      isJSON ? MAX_SECURITY_JSON_FIELD_BYTES : MAX_SECURITY_FIELD_BYTES,
+    );
     let decryptedValue: any = plain;
     if (isJSON) {
       try {
@@ -999,6 +1097,7 @@ async function verifyResponseSignature(
   if (typeof sign !== 'string' || sign.trim() === '') {
     throw new Error($t('business.message.responseSignMissing'));
   }
+  assertSecurityTextSize('response sign', sign, MAX_SECURITY_FIELD_BYTES);
   const appID = import.meta.env.VITE_ADMIN_SECURITY_APP_ID || '';
   const signatureType = String(
     headers?.['x-signature'] ||
@@ -1016,6 +1115,11 @@ async function verifyResponseSignature(
 
   for (const traceId of traceIdCandidates) {
     const signText = buildSignString(data, signFields, String(traceId), appID);
+    assertSecurityTextSize(
+      'response signature',
+      signText,
+      MAX_SECURITY_REQUEST_BODY_BYTES,
+    );
     const ok = await verifyString(signText, sign, signatureType);
     if (ok) {
       return payload;
@@ -1048,6 +1152,11 @@ export async function attachAdminSecurityHeaders(config: any) {
     : { requestSign: [SIGN_FIELD_ALL] };
   const { payload, target } = resolveRequestPayload(config);
   let nextBody = { ...payload };
+  stringifySecurityValue(
+    target === 'data' ? 'request body' : 'request params',
+    nextBody,
+    MAX_SECURITY_REQUEST_BODY_BYTES,
+  );
   if (shouldEnableSignature()) {
     nextBody = await attachSignature(config, nextBody, policy, appID);
   }

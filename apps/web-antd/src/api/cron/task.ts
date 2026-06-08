@@ -6,7 +6,7 @@ export namespace TaskApi {
   export interface TriggerWorkflowReq {
     /** 工作流名称 */
     name: string;
-    /** 执行目标列表 */
+    /** 业务目标列表 */
     targets?: string[];
     /** 指定投递队列 */
     queue?: string;
@@ -69,10 +69,10 @@ export namespace TaskApi {
     workflowId?: string;
     /** 任务名称关键字，支持按 task_periodic.name 或展示名筛选 */
     taskName?: string;
-    /** 任务活动时间开始，RFC3339；scheduled 按 nextProcessAt 过滤 */
-    timeStart?: string;
-    /** 任务活动时间结束，RFC3339；scheduled 按 nextProcessAt 过滤 */
-    timeEnd?: string;
+    /** 任务时间段开始时间 */
+    startTime?: string;
+    /** 任务时间段结束时间 */
+    endTime?: string;
     /** 页码 */
     page?: number;
     /** 每页条数 */
@@ -83,7 +83,7 @@ export namespace TaskApi {
   export interface ListTaskItemsOverviewReq {
     /** 队列名称；为空时由后端按可见队列聚合 */
     queue?: string;
-    /** 任务状态；为空时聚合常用状态并按任务时间倒序返回 */
+    /** 任务状态；为空时由后端按推荐顺序探测 */
     state?: '' | ListTaskItemsReq['state'];
     /** 聚合组名称，仅 aggregating 使用 */
     group?: string;
@@ -91,15 +91,15 @@ export namespace TaskApi {
     workflowId?: string;
     /** 任务名称关键字，支持按 task_periodic.name 或展示名筛选 */
     taskName?: string;
-    /** 任务活动时间开始，RFC3339；scheduled 按 nextProcessAt 过滤 */
-    timeStart?: string;
-    /** 任务活动时间结束，RFC3339；scheduled 按 nextProcessAt 过滤 */
-    timeEnd?: string;
+    /** 任务时间段开始时间 */
+    startTime?: string;
+    /** 任务时间段结束时间 */
+    endTime?: string;
     /** 页码 */
     page?: number;
     /** 每页条数 */
     pageSize?: number;
-    /** 状态为空时是否纳入 aggregating 聚合 */
+    /** 状态为空时是否纳入 aggregating 探测 */
     includeAggregating?: boolean;
   }
 
@@ -161,6 +161,94 @@ export namespace TaskApi {
     processAt?: string;
   }
 
+  /** 单个任务处理量明细 */
+  export interface TaskExecutionTraceDetail {
+    /** 动作类型 */
+    action: string;
+    /** 业务对象或阶段名称 */
+    name: string;
+    /** 累计处理数量 */
+    count: number;
+    /** 记录次数 */
+    times: number;
+    /** 累计耗时，单位毫秒 */
+    elapsedMs?: number;
+  }
+
+  /** 任务执行处理量追踪摘要 */
+  export interface TaskExecutionTrace {
+    /** 追踪器名称 */
+    name?: string;
+    /** 追踪开始时间 */
+    startedAt?: string;
+    /** 快照生成时间 */
+    finishedAt?: string;
+    /** 追踪总耗时，单位毫秒 */
+    durationMs?: number;
+    /** 所有动作累计数量 */
+    totalCount?: number;
+    /** 读取数量 */
+    readCount?: number;
+    /** 新增数量 */
+    insertCount?: number;
+    /** 更新数量 */
+    updateCount?: number;
+    /** 删除数量 */
+    deleteCount?: number;
+    /** 新增或更新数量 */
+    upsertCount?: number;
+    /** 跳过数量 */
+    skipCount?: number;
+    /** 隔离错误数量 */
+    errorCount?: number;
+    /** 按动作和对象聚合后的明细 */
+    details?: TaskExecutionTraceDetail[];
+  }
+
+  /** 执行进度摘要 */
+  export interface TaskExecutionProgress {
+    /** 进度单位 */
+    unit?: string;
+    /** 当前状态 */
+    status?: string;
+    /** 计划执行总量 */
+    total?: number;
+    /** 已进入终态数量 */
+    finished?: number;
+    /** 成功数量 */
+    succeeded?: number;
+    /** 失败数量 */
+    failed?: number;
+    /** 跳过数量 */
+    skipped?: number;
+    /** 运行中数量 */
+    running?: number;
+    /** 等待执行数量 */
+    pending?: number;
+    /** 未进入终态数量 */
+    remaining?: number;
+    /** 终态完成比例，0~100 */
+    percent?: number;
+    /** 成功比例，0~100 */
+    successPercent?: number;
+    /** 是否缺少总量，无法计算百分比 */
+    indeterminate?: boolean;
+  }
+
+  /** 工作流节点分片处理量明细 */
+  export interface WorkflowShardTraceItem {
+    /** 分片下标 */
+    shardIndex: number;
+    /** 分片总数 */
+    shardTotal: number;
+    /** 分片状态 */
+    status?: string;
+    /** 分片执行进度 */
+    progress?: TaskExecutionProgress;
+    /** 分片处理量摘要 */
+    executionTrace?: TaskExecutionTrace;
+  }
+
   /** 单个任务状态快照 */
   export interface TaskItem {
     /** 任务 ID */
@@ -205,6 +293,8 @@ export namespace TaskApi {
     payload: Record<string, any>;
     /** 任务结果 */
     result?: Record<string, any>;
+    /** 本次任务处理量追踪摘要 */
+    executionTrace?: TaskExecutionTrace;
   }
 
   /** 任务列表响应 */
@@ -219,10 +309,10 @@ export namespace TaskApi {
     workflowId?: string;
     /** 任务名称关键字筛选条件 */
     taskName?: string;
-    /** 时间范围开始 */
-    timeStart?: string;
-    /** 时间范围结束 */
-    timeEnd?: string;
+    /** 任务时间段开始时间 */
+    startTime?: string;
+    /** 任务时间段结束时间 */
+    endTime?: string;
     /** 当前页码 */
     page: number;
     /** 当前页大小 */
@@ -247,10 +337,10 @@ export namespace TaskApi {
     workflowId?: string;
     /** 任务名称关键字筛选条件 */
     taskName?: string;
-    /** 时间范围开始 */
-    timeStart?: string;
-    /** 时间范围结束 */
-    timeEnd?: string;
+    /** 任务时间段开始时间 */
+    startTime?: string;
+    /** 任务时间段结束时间 */
+    endTime?: string;
     /** 当前页码 */
     page: number;
     /** 当前页大小 */
@@ -295,6 +385,12 @@ export namespace TaskApi {
     finishedAt?: string;
     /** 节点执行耗时，单位毫秒；运行中节点表示已运行时长 */
     durationMs?: number;
+    /** 节点实例执行进度 */
+    progress?: TaskExecutionProgress;
+    /** 节点处理量聚合摘要 */
+    executionTrace?: TaskExecutionTrace;
+    /** 节点分片处理量明细 */
+    shardTraces?: WorkflowShardTraceItem[];
   }
 
   /** 工作流整体状态 */
@@ -309,7 +405,7 @@ export namespace TaskApi {
     source: string;
     /** 默认执行队列 */
     queue: string;
-    /** 执行目标列表 */
+    /** 业务目标列表 */
     targets?: string[];
     /** 分片总数 */
     shardTotal: number;
@@ -325,6 +421,10 @@ export namespace TaskApi {
     finishedAt?: string;
     /** 工作流总耗时，单位毫秒；运行中工作流表示已运行时长 */
     durationMs?: number;
+    /** 工作流执行进度 */
+    progress?: TaskExecutionProgress;
+    /** 工作流处理量聚合摘要 */
+    executionTrace?: TaskExecutionTrace;
     /** 节点明细 */
     nodes: WorkflowNodeItem[];
   }
@@ -361,7 +461,7 @@ export namespace TaskApi {
     nodeCount: number;
     /** 使用提示 */
     usageHint?: string;
-    /** 执行目标填写示例 */
+    /** 业务目标填写示例 */
     targetsExample?: string;
   }
 
