@@ -105,7 +105,7 @@ type CachedMFATwoStep = {
 };
 
 // MFA_TWO_STEP_CACHE_KEY 表示当前标签页缓存最近一次 MFA 二次票据的 sessionStorage key。
-const MFA_TWO_STEP_CACHE_KEY = 'admin-cron:mfa-two-step-ticket';
+const MFA_TWO_STEP_CACHE_KEY = 'admin:mfa-two-step-ticket';
 // MFA_TWO_STEP_EXPIRE_SAFETY_MS 表示前端本地复用票据时预留的安全余量，避免边界时刻刚好撞上后端过期。
 const MFA_TWO_STEP_EXPIRE_SAFETY_MS = 3000;
 
@@ -435,7 +435,7 @@ function buildMfaBindingMeta(
         h(
           'div',
           { class: 'mt-2 text-sm leading-6 text-foreground' },
-          `${info.issuer || 'admin-cron'} / ${info.account || options.accountName || $t('business.message.mfaCurrentAccount')}`,
+          `${info.issuer || 'admin'} / ${info.account || options.accountName || $t('business.message.mfaCurrentAccount')}`,
         ),
       ],
     ),

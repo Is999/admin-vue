@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 // ================= 类型与依赖引入 =================
-import type { TaskApi } from '#/api/cron/task';
+import type { TaskApi } from '#/api/ops/task';
 
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
@@ -24,10 +24,10 @@ import {
   fetchTaskRegistryTaskTypes,
   fetchTaskRegistryWorkflows,
   triggerTaskWorkflow,
-} from '#/api/cron/task';
+} from '#/api/ops/task';
 import {
   asActionPermission,
-  CRON_ACTION_PERMISSION_CODES,
+  OPS_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 
@@ -1107,7 +1107,7 @@ async function handleOpenWorkflowTask() {
     return;
   }
   await router.push({
-    name: 'CronTaskItem',
+    name: 'OpsTaskItem',
     query: {
       queue: currentWorkflow.queue,
       source: $t('business.message.taskConsoleWorkflowSource', [
@@ -1125,7 +1125,7 @@ async function handleReuseWorkflowID() {
     return;
   }
   await router.push({
-    name: 'CronTaskWorkflowStatus',
+    name: 'OpsWorkflowStatus',
     query: {
       source: $t('business.message.taskConsoleWorkflowSource', [
         currentWorkflow.workflowName,
@@ -1142,7 +1142,7 @@ async function handleOpenEnqueueTask() {
     return;
   }
   await router.push({
-    name: 'CronTaskItem',
+    name: 'OpsTaskItem',
     query: {
       queue: currentTask.queue,
       source: $t('business.message.taskConsoleManualEnqueueSource', [
@@ -1163,7 +1163,7 @@ async function handleOpenSchedulerLastTask() {
     return;
   }
   await router.push({
-    name: 'CronTaskItem',
+    name: 'OpsTaskItem',
     query: {
       source: $t('business.message.taskConsoleLatestEnqueuedSource', [
         taskName,
@@ -1312,7 +1312,7 @@ onMounted(() => {
             <VbenButton
               v-access="
                 asActionPermission(
-                  CRON_ACTION_PERMISSION_CODES.TASK_WORKFLOW_TRIGGER,
+                  OPS_ACTION_PERMISSION_CODES.TASK_WORKFLOW_TRIGGER,
                 )
               "
               type="primary"
@@ -1489,7 +1489,7 @@ onMounted(() => {
           <div class="mb-4 flex justify-end gap-2">
             <VbenButton
               v-access="
-                asActionPermission(CRON_ACTION_PERMISSION_CODES.TASK_ENQUEUE)
+                asActionPermission(OPS_ACTION_PERMISSION_CODES.TASK_ENQUEUE)
               "
               type="primary"
               :disabled="submitting"

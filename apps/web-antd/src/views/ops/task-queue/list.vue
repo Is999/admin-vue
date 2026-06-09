@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 // ================= 类型与依赖引入 =================
-import type { TaskApi } from '#/api/cron/task';
+import type { TaskApi } from '#/api/ops/task';
 
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
@@ -15,7 +15,7 @@ import {
   fetchTaskQueues,
   pauseTaskQueue,
   resumeTaskQueue,
-} from '#/api/cron/task';
+} from '#/api/ops/task';
 import { $t } from '#/locales';
 
 import { useColumns } from './data';
@@ -167,7 +167,7 @@ function onActionClick(e: TableActionParams<TaskApi.TaskQueueItem>) {
 // handleOpenQueueTasks 跳转到任务列表页，并自动带入当前队列。
 async function handleOpenQueueTasks(row: TaskApi.TaskQueueItem) {
   await router.push({
-    name: 'CronTaskItem',
+    name: 'OpsTaskItem',
     query: {
       queue: row.name,
       source: $t('business.message.taskQueueSource', [row.name]),

@@ -674,7 +674,7 @@ async function submitWithMfa<T>(
             <div class="min-w-0 space-y-3">
               <Descriptions :column="1" size="small" bordered>
                 <DescriptionsItem :label="$t('business.message.mfaIssuer')">
-                  admin-cron
+                  admin
                 </DescriptionsItem>
                 <DescriptionsItem :label="$t('business.message.mfaAccount')">
                   {{ profile.username || '-' }}

@@ -42,7 +42,7 @@ function defineApplicationConfig(userConfigPromise?: DefineApplicationOptions) {
       mode,
       print: !isBuild,
       printInfoMap: {
-        'Admin Cron API Docs': '/api/docs#/',
+        'Admin API Docs': '/api/docs#/',
       },
       pwa: true,
       pwaOptions: getDefaultPwaOptions(appTitle),

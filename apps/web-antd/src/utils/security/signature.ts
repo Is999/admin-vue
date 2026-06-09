@@ -32,14 +32,13 @@ interface RouteSecurityRule {
   pattern: RegExp;
 }
 
-// SIGN_FIELD_ALL 表示当前请求或响应的全部首层字段都参与签名。
+// SIGN_FIELD_ALL 表示安全调试工具里当前对象的全部首层字段都参与签名。
 const SIGN_FIELD_ALL = '*';
-// CIPHER_WHOLE_BODY 表示当前请求体或响应体按整包方式加解密。
-const CIPHER_WHOLE_BODY = 'cipher';
+const SIGNATURE_TIMESTAMP_HEADER = 'X-Timestamp';
 // CIPHER_JSON_PREFIX 表示字段值需要按 JSON 文本整体加解密。
 const CIPHER_JSON_PREFIX = 'json:';
 // MAX_SECURITY_FIELD_COUNT 表示字段级安全处理的最大字段数。
-const MAX_SECURITY_FIELD_COUNT = 8;
+const MAX_SECURITY_FIELD_COUNT = 24;
 // MAX_SECURITY_FIELD_BYTES 表示普通签名或加密字段的最大字节数。
 const MAX_SECURITY_FIELD_BYTES = 4096;
 // MAX_SECURITY_JSON_FIELD_BYTES 表示 json: 小对象字段的最大字节数。
@@ -47,12 +46,12 @@ const MAX_SECURITY_JSON_FIELD_BYTES = 8192;
 // MAX_SECURITY_REQUEST_BODY_BYTES 表示安全链路处理请求体的最大字节数。
 const MAX_SECURITY_REQUEST_BODY_BYTES = 65_536;
 
-// ADMIN_ROUTE_SECURITY_POLICIES 与 admin-cron/internal/security.RouteSecurityPolicies 保持一致。
+// ADMIN_ROUTE_SECURITY_POLICIES 与 admin/internal/security.RouteSecurityPolicies 保持一致。
 // 每个 key 都对应一个后端路由别名，用于声明该接口的请求签名、请求加密、响应加密与响应回签策略。
 const ADMIN_ROUTE_SECURITY_POLICIES: Record<string, RouteSecurityPolicy> = {
   // admin.add 表示新增管理员接口。
   'admin.add': {
-    requestCipher: [CIPHER_WHOLE_BODY],
+    requestCipher: ['password', 'mfaSecureKey', 'twoStepKey', 'twoStepValue'],
     requestSign: [
       'username',
       'realName',
@@ -66,12 +65,12 @@ const ADMIN_ROUTE_SECURITY_POLICIES: Record<string, RouteSecurityPolicy> = {
   },
   // admin.password.reset 表示管理员重置密码接口。
   'admin.password.reset': {
-    requestCipher: [CIPHER_WHOLE_BODY],
+    requestCipher: ['password', 'twoStepKey', 'twoStepValue'],
     requestSign: ['password', 'twoStepKey', 'twoStepValue'],
   },
   // admin.reset.initial_state 表示管理员重置初始状态接口。
   'admin.reset.initial_state': {
-    requestCipher: [CIPHER_WHOLE_BODY],
+    requestCipher: ['password', 'twoStepKey', 'twoStepValue'],
     requestSign: ['password', 'twoStepKey', 'twoStepValue'],
   },
   // admin.role.update 表示覆盖保存管理员角色接口。
@@ -84,7 +83,7 @@ const ADMIN_ROUTE_SECURITY_POLICIES: Record<string, RouteSecurityPolicy> = {
   },
   // admin.update 表示编辑管理员接口。
   'admin.update': {
-    requestCipher: [CIPHER_WHOLE_BODY],
+    requestCipher: ['password', 'mfaSecureKey', 'twoStepKey', 'twoStepValue'],
     requestSign: [
       'username',
       'realName',
@@ -102,7 +101,7 @@ const ADMIN_ROUTE_SECURITY_POLICIES: Record<string, RouteSecurityPolicy> = {
   },
   // auth.login 表示新版登录接口。
   'auth.login': {
-    requestCipher: [CIPHER_WHOLE_BODY],
+    requestCipher: ['password', 'secureCode'],
     requestSign: ['username', 'password', 'secureCode', 'key', 'captcha'],
     responseCipher: ['token', 'user.phone', 'user.buildMFAURL'],
     responseSign: ['token'],
@@ -112,14 +111,22 @@ const ADMIN_ROUTE_SECURITY_POLICIES: Record<string, RouteSecurityPolicy> = {
     responseCipher: ['token'],
     responseSign: ['token', 'isRefresh'],
   },
-  // auth.login_after_info 表示登录后初始化资料接口。
-  'auth.login_after_info': {
+  // auth.profile 表示登录后初始化资料接口。
+  'auth.profile': {
     responseCipher: ['token'],
     responseSign: ['token'],
   },
   // secretKey.add 表示新增秘钥接口。
   'secretKey.add': {
-    requestCipher: [CIPHER_WHOLE_BODY],
+    requestCipher: [
+      'aesKeyRef',
+      'aesIvRef',
+      'rsaPublicKeyUserRef',
+      'rsaPublicKeyServerRef',
+      'rsaPrivateKeyServerRef',
+      'twoStepKey',
+      'twoStepValue',
+    ],
     requestSign: [
       'uuid',
       'title',
@@ -143,7 +150,15 @@ const ADMIN_ROUTE_SECURITY_POLICIES: Record<string, RouteSecurityPolicy> = {
   },
   // secretKey.edit 表示编辑秘钥接口。
   'secretKey.edit': {
-    requestCipher: [CIPHER_WHOLE_BODY],
+    requestCipher: [
+      'aesKeyRef',
+      'aesIvRef',
+      'rsaPublicKeyUserRef',
+      'rsaPublicKeyServerRef',
+      'rsaPrivateKeyServerRef',
+      'twoStepKey',
+      'twoStepValue',
+    ],
     requestSign: [
       'uuid',
       'title',
@@ -182,37 +197,58 @@ const ADMIN_ROUTE_SECURITY_POLICIES: Record<string, RouteSecurityPolicy> = {
   },
   // security.debug.sign 表示安全调试台签名接口。
   'security.debug.sign': {
-    requestCipher: [CIPHER_WHOLE_BODY],
+    requestCipher: ['payloadText'],
     responseCipher: ['payloadText', 'signText', 'sign'],
-    responseSign: [SIGN_FIELD_ALL],
+    responseSign: [
+      'appId',
+      'requestId',
+      'traceId',
+      'timestamp',
+      'signatureType',
+      'payloadText',
+      'signText',
+      'sign',
+    ],
   },
   // security.debug.verify 表示安全调试台验签接口。
   'security.debug.verify': {
-    requestCipher: [CIPHER_WHOLE_BODY],
+    requestCipher: ['payloadText', 'sign'],
     responseCipher: ['payloadText', 'signText', 'sign'],
-    responseSign: [SIGN_FIELD_ALL],
+    responseSign: [
+      'appId',
+      'requestId',
+      'traceId',
+      'timestamp',
+      'signatureType',
+      'payloadText',
+      'signText',
+      'sign',
+      'verified',
+    ],
   },
   // security.debug.encrypt 表示安全调试台加密接口。
   'security.debug.encrypt': {
-    requestCipher: [CIPHER_WHOLE_BODY],
-    responseCipher: [
+    requestCipher: ['payloadText'],
+    responseCipher: ['payloadText', 'resultPayloadText'],
+    responseSign: [
+      'appId',
+      'cryptoType',
+      'cipherHeader',
       'payloadText',
       'resultPayloadText',
-      'ciphertext',
-      'plaintext',
     ],
-    responseSign: [SIGN_FIELD_ALL],
   },
   // security.debug.decrypt 表示安全调试台解密接口。
   'security.debug.decrypt': {
-    requestCipher: [CIPHER_WHOLE_BODY],
-    responseCipher: [
+    requestCipher: ['payloadText'],
+    responseCipher: ['payloadText', 'resultPayloadText'],
+    responseSign: [
+      'appId',
+      'cryptoType',
+      'cipherHeader',
       'payloadText',
       'resultPayloadText',
-      'ciphertext',
-      'plaintext',
     ],
-    responseSign: [SIGN_FIELD_ALL],
   },
   // secretKey.renew 表示刷新秘钥缓存接口。
   'secretKey.renew': {
@@ -220,7 +256,15 @@ const ADMIN_ROUTE_SECURITY_POLICIES: Record<string, RouteSecurityPolicy> = {
   },
   // secretKey.validate 表示秘钥路径预检接口。
   'secretKey.validate': {
-    requestCipher: [CIPHER_WHOLE_BODY],
+    requestCipher: [
+      'aesKeyRef',
+      'aesIvRef',
+      'rsaPublicKeyUserRef',
+      'rsaPublicKeyServerRef',
+      'rsaPrivateKeyServerRef',
+      'twoStepKey',
+      'twoStepValue',
+    ],
     requestSign: [
       'uuid',
       'title',
@@ -241,55 +285,81 @@ const ADMIN_ROUTE_SECURITY_POLICIES: Record<string, RouteSecurityPolicy> = {
       'twoStepKey',
       'twoStepValue',
     ],
-    responseSign: [SIGN_FIELD_ALL],
+    responseSign: [
+      'uuid',
+      'title',
+      'keyVersion',
+      'mode',
+      'status',
+      'allPassed',
+      'canSave',
+      'canEnable',
+      'runtimeChecked',
+      'cacheRefreshed',
+      'checkedAt',
+      'durationMs',
+    ],
   },
   // secretKey.self_check 表示秘钥运行态自检接口。
   'secretKey.self_check': {
     requestSign: ['keyVersion', 'twoStepKey', 'twoStepValue'],
-    responseSign: [SIGN_FIELD_ALL],
+    responseSign: [
+      'uuid',
+      'title',
+      'keyVersion',
+      'mode',
+      'status',
+      'allPassed',
+      'canSave',
+      'canEnable',
+      'runtimeChecked',
+      'cacheRefreshed',
+      'checkedAt',
+      'durationMs',
+    ],
   },
-  // user.admin_mfa_status 表示后台修改管理员 MFA 状态接口。
-  'user.admin_mfa_status': {
+  // admin.mfa_status.update 表示后台修改管理员 MFA 状态接口。
+  'admin.mfa_status.update': {
     requestSign: ['mfaStatus', 'twoStepKey', 'twoStepValue'],
   },
-  // user.build_secret_verify_account 表示兼容登录预校验接口。
-  'user.build_secret_verify_account': {
-    requestCipher: [CIPHER_WHOLE_BODY],
+  // auth.verify_account 表示登录预校验接口。
+  'auth.verify_account': {
+    requestCipher: ['password', 'secureCode'],
     requestSign: ['username', 'password', 'secureCode', 'key', 'captcha'],
     responseCipher: ['token', 'user.phone', 'user.buildMFAURL'],
     responseSign: ['token'],
   },
-  // user.check_mfa_secure 表示 MFA 动态码校验接口。
-  'user.check_mfa_secure': {
-    requestCipher: [CIPHER_WHOLE_BODY],
+  // profile.check_mfa 表示 MFA 动态码校验接口。
+  'profile.check_mfa': {
+    requestCipher: ['secure', 'mfaSecureKey'],
     requestSign: ['secure', 'scenarios', 'mfaSecureKey'],
   },
-  // user.check_secure 表示通用安全码校验接口。
-  'user.check_secure': {
-    requestCipher: [CIPHER_WHOLE_BODY],
+  // profile.check_secure 表示通用安全码校验接口。
+  'profile.check_secure': {
+    requestCipher: ['secure'],
     requestSign: ['secure'],
   },
-  // user.mine 表示个人中心资料接口，手机号和 MFA 绑定地址都需要按响应字段级解密。
-  'user.mine': {
+  // profile.mine 表示个人中心资料接口，手机号和 MFA 绑定地址都需要按响应字段级解密。
+  'profile.mine': {
     responseCipher: ['phone', 'buildMFAURL'],
   },
-  // user.update_avatar 表示个人头像更新接口。
-  'user.update_avatar': {
+  // profile.update_avatar 表示个人头像更新接口。
+  'profile.update_avatar': {
     requestSign: ['avatar'],
   },
-  // user.update_mfa_secret 表示刷新个人 MFA 秘钥接口。
-  'user.update_mfa_secret': {
-    requestCipher: [CIPHER_WHOLE_BODY],
+  // profile.update_mfa_secret 表示刷新个人 MFA 秘钥接口。
+  'profile.update_mfa_secret': {
+    requestCipher: ['mfaSecureKey', 'twoStepKey', 'twoStepValue'],
     requestSign: ['mfaSecureKey', 'twoStepKey', 'twoStepValue'],
   },
-  // user.update_mfa_status 表示个人中心启停 MFA 接口。
-  'user.update_mfa_status': {
-    requestCipher: [CIPHER_WHOLE_BODY],
+  // profile.update_mfa_status 表示个人中心启停 MFA 接口。
+  'profile.update_mfa_status': {
+    requestCipher: ['mfaSecureKey', 'twoStepKey', 'twoStepValue'],
     requestSign: ['mfaStatus', 'mfaSecureKey', 'twoStepKey', 'twoStepValue'],
   },
-  // user.update_mine 表示个人中心资料更新接口。
-  'user.update_mine': {
-    requestCipher: [CIPHER_WHOLE_BODY],
+  // profile.update_mine 表示个人中心资料更新接口。
+  'profile.update_mine': {
+    requestCipher: ['email', 'phone', 'twoStepKey', 'twoStepValue'],
     requestSign: [
       'realName',
       'email',
@@ -300,9 +370,15 @@ const ADMIN_ROUTE_SECURITY_POLICIES: Record<string, RouteSecurityPolicy> = {
       'twoStepValue',
     ],
   },
-  // user.update_password 表示个人中心改密接口。
-  'user.update_password': {
-    requestCipher: [CIPHER_WHOLE_BODY],
+  // profile.update_password 表示个人中心改密接口。
+  'profile.update_password': {
+    requestCipher: [
+      'passwordOld',
+      'passwordNew',
+      'confirmPassword',
+      'twoStepKey',
+      'twoStepValue',
+    ],
     requestSign: [
       'passwordOld',
       'passwordNew',
@@ -330,34 +406,34 @@ const ROUTE_SECURITY_RULES: RouteSecurityRule[] = [
   // auth.codes 表示获取当前登录用户权限码接口。
   { alias: 'auth.codes', method: 'GET', pattern: /^\/auth\/codes$/ },
   {
-    // auth.login_after_info 表示登录后初始化资料接口。
-    alias: 'auth.login_after_info',
+    // auth.profile 表示登录后初始化资料接口。
+    alias: 'auth.profile',
     method: 'GET',
-    pattern: /^\/login\/after\/info$/,
+    pattern: /^\/auth\/profile$/,
   },
   {
-    // user.build_secret_verify_account 表示兼容登录预校验并生成 MFA 绑定信息接口。
-    alias: 'user.build_secret_verify_account',
+    // auth.verify_account 表示登录预校验并生成 MFA 绑定信息接口。
+    alias: 'auth.verify_account',
     method: 'POST',
-    pattern: /^\/admin\/buildSecretVerifyAccount$/,
+    pattern: /^\/auth\/verify-account$/,
   },
   {
-    // user.check_secure 表示校验当前管理员密码接口。
-    alias: 'user.check_secure',
+    // profile.check_secure 表示校验当前管理员密码接口。
+    alias: 'profile.check_secure',
     method: 'POST',
-    pattern: /^\/admin\/checkSecure$/,
+    pattern: /^\/profile\/check-secure$/,
   },
   {
-    // user.check_mfa_secure 表示校验当前管理员 MFA 动态码接口。
-    alias: 'user.check_mfa_secure',
+    // profile.check_mfa 表示校验当前管理员 MFA 动态码接口。
+    alias: 'profile.check_mfa',
     method: 'POST',
-    pattern: /^\/admin\/checkMfaSecure$/,
+    pattern: /^\/profile\/check-mfa$/,
   },
-  // user.mine 表示获取当前管理员个人资料接口。
-  { alias: 'user.mine', method: 'GET', pattern: /^\/admin\/mine$/ },
+  // profile.mine 表示获取当前管理员个人资料接口。
+  { alias: 'profile.mine', method: 'GET', pattern: /^\/profile$/ },
   {
-    // user.permissions 表示获取当前管理员角色权限接口。
-    alias: 'user.permissions',
+    // profile.permissions 表示获取当前管理员角色权限接口。
+    alias: 'profile.permissions',
     method: 'GET',
     pattern: /^\/admin\/permissions$/,
   },
@@ -398,8 +474,8 @@ const ROUTE_SECURITY_RULES: RouteSecurityRule[] = [
     pattern: /^\/admins\/roles\/\d+$/,
   },
   {
-    // user.admin_mfa_status 表示后台修改指定管理员 MFA 状态接口。
-    alias: 'user.admin_mfa_status',
+    // admin.mfa_status.update 表示后台修改指定管理员 MFA 状态接口。
+    alias: 'admin.mfa_status.update',
     method: 'PATCH',
     pattern: /^\/admins\/mfa-status\/\d+$/,
   },
@@ -470,34 +546,40 @@ const ROUTE_SECURITY_RULES: RouteSecurityRule[] = [
     pattern: /^\/security\/debug\/decrypt$/,
   },
   {
-    // user.update_password 表示个人中心修改密码接口。
-    alias: 'user.update_password',
-    method: 'POST',
-    pattern: /^\/admin\/updatePassword$/,
+    // profile.update_password 表示个人中心修改密码接口。
+    alias: 'profile.update_password',
+    method: 'PATCH',
+    pattern: /^\/profile\/password$/,
   },
   {
-    // user.update_mine 表示个人中心修改资料接口。
-    alias: 'user.update_mine',
-    method: 'POST',
-    pattern: /^\/admin\/updateMine$/,
+    // profile.update_mine 表示个人中心修改资料接口。
+    alias: 'profile.update_mine',
+    method: 'PATCH',
+    pattern: /^\/profile$/,
   },
   {
-    // user.update_mfa_status 表示个人中心启停 MFA 接口。
-    alias: 'user.update_mfa_status',
-    method: 'POST',
-    pattern: /^\/admin\/updateMfaStatus$/,
+    // profile.update_mfa_status 表示个人中心启停 MFA 接口。
+    alias: 'profile.update_mfa_status',
+    method: 'PATCH',
+    pattern: /^\/profile\/mfa-status$/,
   },
   {
-    // user.update_mfa_secret 表示个人中心刷新 MFA 秘钥接口。
-    alias: 'user.update_mfa_secret',
-    method: 'POST',
-    pattern: /^\/admin\/updateMfaSecureKey$/,
+    // profile.update_mfa_secret 表示个人中心刷新 MFA 秘钥接口。
+    alias: 'profile.update_mfa_secret',
+    method: 'PATCH',
+    pattern: /^\/profile\/mfa-secret$/,
   },
   {
-    // user.update_avatar 表示个人中心修改头像接口。
-    alias: 'user.update_avatar',
+    // profile.refresh_mfa_secret 表示个人中心重新生成 MFA 秘钥接口。
+    alias: 'profile.refresh_mfa_secret',
     method: 'POST',
-    pattern: /^\/admin\/updateAvatar$/,
+    pattern: /^\/profile\/mfa-secret\/refresh$/,
+  },
+  {
+    // profile.update_avatar 表示个人中心修改头像接口。
+    alias: 'profile.update_avatar',
+    method: 'PATCH',
+    pattern: /^\/profile\/avatar$/,
   },
   {
     // user_tag.workflow_lease.release 表示释放用户标签工作流互斥锁接口。
@@ -553,16 +635,12 @@ export function resolveRouteSecurityRule(method?: string, url?: string) {
   );
 }
 
-// resolvePolicyForAlias 根据别名返回策略；未显式配置时默认全字段验签。
+// resolvePolicyForAlias 根据别名返回显式安全策略。
 export function resolvePolicyForAlias(alias?: string): RouteSecurityPolicy {
   if (!alias || alias === 'ignore') {
     return {};
   }
-  return (
-    ADMIN_ROUTE_SECURITY_POLICIES[alias] || {
-      requestSign: [SIGN_FIELD_ALL],
-    }
-  );
+  return ADMIN_ROUTE_SECURITY_POLICIES[alias] || {};
 }
 
 // signValueString 将参与签名的值转换为后端兼容的字符串。
@@ -644,11 +722,7 @@ function stringifySecurityValue(scope: string, value: any, maxBytes: number) {
 // assertSecurityFieldCount 校验字段级安全处理数量。
 function assertSecurityFieldCount(scope: string, fields: string[]) {
   const normalized = uniqueStrings(fields);
-  if (
-    normalized.length > MAX_SECURITY_FIELD_COUNT &&
-    !normalized.includes(CIPHER_WHOLE_BODY) &&
-    !normalized.includes(SIGN_FIELD_ALL)
-  ) {
+  if (normalized.length > MAX_SECURITY_FIELD_COUNT) {
     throw new Error(
       $t('business.message.securityFieldCountTooLarge', [
         scope,
@@ -669,11 +743,12 @@ function resolveSignParams(data: Record<string, any>, params: string[] = []) {
     .filter((key) => key && key !== 'ciphertext' && key !== 'sign');
 }
 
-// buildSignString 生成 laravel-admin 兼容的待签名字符串。
+// buildSignString 生成后端兼容的待签名字符串。
 export function buildSignString(
   data: Record<string, any>,
   params: string[],
   traceId: string,
+  timestamp: string,
   appID: string,
 ) {
   const items = [...resolveSignParams(data, params)].toSorted();
@@ -687,10 +762,14 @@ export function buildSignString(
     assertSecurityTextSize(key, text, MAX_SECURITY_FIELD_BYTES);
     chunks.push(`${key}=${text}`);
   }
-  chunks.push(`key=${md5Hex(`${appID}-${traceId}`)}`);
+  chunks.push(`key=${md5Hex(`${appID}-${traceId}-${timestamp}`)}`);
   const text = chunks.join('&');
   assertSecurityTextSize('signature', text, MAX_SECURITY_REQUEST_BODY_BYTES);
   return text;
+}
+
+function createSignatureTimestamp() {
+  return String(Math.floor(Date.now() / 1000));
 }
 
 // encodeAppID 对 AppID 做 base64 编码，后端会从 X-App-Id 解码真实 AppID。
@@ -698,15 +777,15 @@ function encodeAppID(appID: string) {
   return bytesToBase64(new TextEncoder().encode(appID));
 }
 
-// encodeCipherHeader 把字段加密配置编码成后端兼容的 X-Cipher 请求头。
+// encodeCipherHeader 把字段加密配置编码成后端 X-Cipher 请求头。
 export function encodeCipherHeader(params: string[] = []) {
   const normalized = uniqueStrings(params);
   if (normalized.length === 0) {
     return '';
   }
   assertSecurityFieldCount('X-Cipher', normalized);
-  if (normalized.length === 1 && normalized[0] === CIPHER_WHOLE_BODY) {
-    return CIPHER_WHOLE_BODY;
+  if (normalized.some((field) => field.toLowerCase() === 'cipher')) {
+    throw new Error($t('business.message.wholeBodyCipherForbidden'));
   }
   const header = bytesToBase64(
     new TextEncoder().encode(JSON.stringify(normalized)),
@@ -715,17 +794,15 @@ export function encodeCipherHeader(params: string[] = []) {
   return header;
 }
 
-// decodeCipherHeader 按 vue-vben-admin 兼容方式解析 X-Cipher：
-// 1. `cipher` 表示整包加解密；
-// 2. 其它值为 base64(JSON数组) 字段名单。
+// decodeCipherHeader 解析 base64(JSON数组) 格式的字段名单。
 function decodeCipherHeader(cipherHeader: string) {
   const text = String(cipherHeader || '').trim();
   if (!text) {
     return [];
   }
   assertSecurityTextSize('X-Cipher', text, MAX_SECURITY_JSON_FIELD_BYTES);
-  if (text === CIPHER_WHOLE_BODY) {
-    return [CIPHER_WHOLE_BODY];
+  if (text.toLowerCase() === 'cipher') {
+    throw new Error($t('business.message.wholeBodyCipherForbidden'));
   }
   try {
     const decoded = new TextDecoder().decode(
@@ -823,7 +900,7 @@ async function verifyString(text: string, sign: string, type: SignatureType) {
 }
 
 // attachSignature 给请求体补充 sign 字段和签名请求头。
-// 这里会统一写入 X-App-Id、X-Trace-Id、X-Signature，避免调用方各自拼装。
+// 这里会统一写入 X-App-Id、X-Trace-Id、X-Timestamp、X-Signature。
 async function attachSignature(
   config: any,
   body: Record<string, any>,
@@ -831,19 +908,24 @@ async function attachSignature(
   appID: string,
 ) {
   const headers = config.headers as Record<string, any>;
-  // 签名链路统一只认 X-Trace-Id，避免 X-Request-Id 被上游代理或服务器特殊处理。
+  // 签名链路统一只认 X-Trace-Id 与 X-Timestamp。
   const traceId = resolveHeader(headers, 'X-Trace-Id') || createTraceId();
+  const timestamp =
+    resolveHeader(headers, SIGNATURE_TIMESTAMP_HEADER) ||
+    createSignatureTimestamp();
   const signatureType = String(
     import.meta.env.VITE_ADMIN_SIGNATURE_TYPE || 'R',
   ).toUpperCase() as SignatureType;
   const signStringText = buildSignString(
     body,
-    policy.requestSign || [SIGN_FIELD_ALL],
+    policy.requestSign || [],
     String(traceId),
+    String(timestamp),
     appID,
   );
   setHeader(headers, 'X-App-Id', encodeAppID(appID));
   setHeader(headers, 'X-Trace-Id', traceId);
+  setHeader(headers, SIGNATURE_TIMESTAMP_HEADER, timestamp);
   setHeader(headers, 'X-Signature', signatureType);
   return {
     ...body,
@@ -851,7 +933,7 @@ async function attachSignature(
   };
 }
 
-// attachCrypto 按策略对签名后的请求体做整包加密或字段级加密。
+// attachCrypto 按策略对签名后的请求体做字段级加密。
 // 当前浏览器端只支持 AES 请求加密，因此字段级模式也会走同一套 AES-CBC 实现。
 async function attachCrypto(
   config: any,
@@ -877,19 +959,6 @@ async function attachCrypto(
   );
   setHeader(headers, 'X-Crypto', cryptoType);
   setHeader(headers, 'X-Cipher', encodeCipherHeader(cipherConfig));
-  if (cipherConfig.length === 1 && cipherConfig[0] === CIPHER_WHOLE_BODY) {
-    const plainBody = stringifySecurityValue(
-      'request body',
-      body,
-      MAX_SECURITY_REQUEST_BODY_BYTES,
-    );
-    const ciphertext = await aesCbcEncrypt(
-      plainBody,
-      import.meta.env.VITE_ADMIN_SECURITY_AES_KEY || '',
-      import.meta.env.VITE_ADMIN_SECURITY_AES_IV || '',
-    );
-    return { ciphertext };
-  }
   const result = { ...body };
   for (const field of cipherConfig) {
     const { fieldPath, isJSON } = resolveCipherFieldConfig(field);
@@ -968,27 +1037,6 @@ async function decryptResponseData(payload: any, headers: any) {
   }
   const key = import.meta.env.VITE_ADMIN_SECURITY_AES_KEY || '';
   const iv = import.meta.env.VITE_ADMIN_SECURITY_AES_IV || '';
-  if (cipherFields.length === 1 && cipherFields[0] === CIPHER_WHOLE_BODY) {
-    if (typeof payload !== 'string' || payload.trim() === '') {
-      return payload;
-    }
-    assertSecurityTextSize(
-      'response ciphertext',
-      payload,
-      MAX_SECURITY_REQUEST_BODY_BYTES,
-    );
-    const plain = await aesCbcDecrypt(payload, key, iv);
-    assertSecurityTextSize(
-      'response body',
-      plain,
-      MAX_SECURITY_REQUEST_BODY_BYTES,
-    );
-    try {
-      return JSON.parse(plain);
-    } catch {
-      return plain;
-    }
-  }
   const envelope = extractEnvelope(payload);
   if (!envelope || !envelope.data || typeof envelope.data !== 'object') {
     return payload;
@@ -1112,24 +1160,44 @@ async function verifyResponseSignature(
     config?.headers?.['X-Trace-Id'],
     config?.headers?.['x-trace-id'],
   ]);
+  const timestampCandidates = uniqueStrings([
+    headers?.['x-timestamp'],
+    headers?.[SIGNATURE_TIMESTAMP_HEADER],
+    config?.headers?.[SIGNATURE_TIMESTAMP_HEADER],
+    config?.headers?.['x-timestamp'],
+  ]);
+  if (traceIdCandidates.length === 0) {
+    throw new Error($t('business.message.responseTraceIdRequiredForVerify'));
+  }
+  if (timestampCandidates.length === 0) {
+    throw new Error($t('business.message.responseTimestampRequiredForVerify'));
+  }
 
   for (const traceId of traceIdCandidates) {
-    const signText = buildSignString(data, signFields, String(traceId), appID);
-    assertSecurityTextSize(
-      'response signature',
-      signText,
-      MAX_SECURITY_REQUEST_BODY_BYTES,
-    );
-    const ok = await verifyString(signText, sign, signatureType);
-    if (ok) {
-      return payload;
+    for (const timestamp of timestampCandidates) {
+      const signText = buildSignString(
+        data,
+        signFields,
+        String(traceId),
+        String(timestamp),
+        appID,
+      );
+      assertSecurityTextSize(
+        'response signature',
+        signText,
+        MAX_SECURITY_REQUEST_BODY_BYTES,
+      );
+      const ok = await verifyString(signText, sign, signatureType);
+      if (ok) {
+        return payload;
+      }
     }
   }
 
   throw new Error($t('business.message.responseSignVerifyFailed'));
 }
 
-// attachAdminSecurityHeaders 统一对后台接口执行“默认验签 + 敏感请求加密”。
+// attachAdminSecurityHeaders 统一对后台接口执行显式签名和敏感请求加密。
 // 该入口挂在 request interceptor 上，是前端安全头、签名和请求加密的统一收口。
 export async function attachAdminSecurityHeaders(config: any) {
   const appID = import.meta.env.VITE_ADMIN_SECURITY_APP_ID || '';
@@ -1142,14 +1210,15 @@ export async function attachAdminSecurityHeaders(config: any) {
     'X-App-Id',
     resolveHeader(headers, 'X-App-Id') || encodeAppID(appID),
   );
-  // 每个安全请求必须携带 X-Trace-Id，供前后端签名、防重放与排障统一复用。
+  // 每个安全请求必须携带 X-Trace-Id 和 X-Timestamp。
   if (!resolveHeader(headers, 'X-Trace-Id')) {
     setHeader(headers, 'X-Trace-Id', createTraceId());
   }
+  if (!resolveHeader(headers, SIGNATURE_TIMESTAMP_HEADER)) {
+    setHeader(headers, SIGNATURE_TIMESTAMP_HEADER, createSignatureTimestamp());
+  }
   const routeRule = resolveRouteSecurityRule(config.method, config.url);
-  const policy = routeRule
-    ? resolvePolicyForAlias(routeRule.alias)
-    : { requestSign: [SIGN_FIELD_ALL] };
+  const policy = routeRule ? resolvePolicyForAlias(routeRule.alias) : {};
   const { payload, target } = resolveRequestPayload(config);
   let nextBody = { ...payload };
   stringifySecurityValue(
@@ -1157,7 +1226,7 @@ export async function attachAdminSecurityHeaders(config: any) {
     nextBody,
     MAX_SECURITY_REQUEST_BODY_BYTES,
   );
-  if (shouldEnableSignature()) {
+  if (shouldEnableSignature() && (policy.requestSign?.length || 0) > 0) {
     nextBody = await attachSignature(config, nextBody, policy, appID);
   }
   if (target === 'data' && shouldEnableRequestCrypto(policy)) {

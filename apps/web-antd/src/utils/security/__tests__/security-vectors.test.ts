@@ -11,6 +11,7 @@ interface SecurityVectorFile {
     expected: string;
     fields: string[];
     name: string;
+    timestamp: string;
     traceID: string;
   }>;
   cipherHeaderVectors: Array<{
@@ -42,6 +43,7 @@ describe('security vectors', () => {
           vector.data,
           vector.fields,
           vector.traceID,
+          vector.timestamp,
           vector.appID,
         ),
       ).toBe(vector.expected);

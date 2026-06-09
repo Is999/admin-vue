@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import type { Dayjs } from 'dayjs';
 
-import type { TaskApi } from '#/api/cron/task';
+import type { TaskApi } from '#/api/ops/task';
 
 import { computed, h, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -31,10 +31,10 @@ import {
   fetchTaskQueues,
   getTaskInfo,
   runTaskNow,
-} from '#/api/cron/task';
+} from '#/api/ops/task';
 import {
   asActionPermission,
-  CRON_ACTION_PERMISSION_CODES,
+  OPS_ACTION_PERMISSION_CODES,
   hasAnyPermission,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
@@ -119,13 +119,13 @@ let taskDetailModalHandle: null | TaskDetailModalHandle = null;
 
 const canBatchRun = computed(() =>
   hasAnyPermission(accessStore.accessCodes, [
-    CRON_ACTION_PERMISSION_CODES.TASK_RUN,
+    OPS_ACTION_PERMISSION_CODES.TASK_RUN,
   ]),
 );
 
 const canBatchDelete = computed(() =>
   hasAnyPermission(accessStore.accessCodes, [
-    CRON_ACTION_PERMISSION_CODES.TASK_DELETE,
+    OPS_ACTION_PERMISSION_CODES.TASK_DELETE,
   ]),
 );
 
@@ -1046,7 +1046,7 @@ async function openWorkflowStatusFromTask(task: TaskApi.TaskItem) {
     return;
   }
   await router.push({
-    name: 'CronTaskWorkflowStatus',
+    name: 'OpsWorkflowStatus',
     query: {
       source: $t('business.message.taskListTaskDetailSource', [task.id]),
       workflowId,
@@ -2078,7 +2078,7 @@ watch(
               <Button
                 v-if="canBatchRun"
                 v-access="
-                  asActionPermission(CRON_ACTION_PERMISSION_CODES.TASK_RUN)
+                  asActionPermission(OPS_ACTION_PERMISSION_CODES.TASK_RUN)
                 "
                 size="middle"
                 type="primary"
@@ -2093,7 +2093,7 @@ watch(
               <Button
                 v-if="canBatchDelete"
                 v-access="
-                  asActionPermission(CRON_ACTION_PERMISSION_CODES.TASK_DELETE)
+                  asActionPermission(OPS_ACTION_PERMISSION_CODES.TASK_DELETE)
                 "
                 danger
                 size="middle"

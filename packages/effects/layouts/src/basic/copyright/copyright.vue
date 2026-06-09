@@ -12,7 +12,7 @@ defineOptions({
 });
 
 withDefaults(defineProps<Props>(), {
-  companyName: 'Admin Cron',
+  companyName: 'Admin',
   companySiteLink: '',
   date: '2026',
   icp: '',

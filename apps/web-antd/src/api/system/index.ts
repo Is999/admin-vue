@@ -494,7 +494,7 @@ export namespace SystemSecurityDebugApi {
     appId: string; // AppID，对应 secret_key.uuid
     payloadText: string; // 待签名 JSON 文本
     requestId?: string; // 可选请求标识，和真实链路 X-Trace-Id 等价并参与签名
-    traceId?: string; // 兼容字段，对应 X-Trace-Id
+    timestamp?: string; // 可选秒级时间戳，和真实链路 X-Timestamp 等价并参与签名
     signatureType?: 'A' | 'M' | 'R'; // 签名方式
     signFields?: string[]; // 参与签名的字段
   }
@@ -506,9 +506,8 @@ export namespace SystemSecurityDebugApi {
   export interface CipherParams {
     appId: string; // AppID，对应 secret_key.uuid
     cryptoType?: 'A' | 'R'; // 加密方式
-    cipherFields?: string[]; // 字段加解密配置，传 ["cipher"] 表示整包
-    ciphertext?: string; // 整包解密时的密文
-    payloadText?: string; // 明文或字段模式 JSON 文本
+    cipherFields?: string[]; // 字段加解密配置
+    payloadText?: string; // JSON 文本
   }
 
   export interface SignResult {
@@ -517,6 +516,7 @@ export namespace SystemSecurityDebugApi {
     payloadText: string; // 归一化后的 JSON 文本
     requestId?: string; // 后端返回的请求标识
     traceId: string; // 实际参与签名的追踪标识，对应 X-Trace-Id
+    timestamp: string; // 实际参与签名的秒级时间戳，对应 X-Timestamp
     sign: string; // 生成的签名值
     signFields: string[]; // 实际参与签名的字段
     signText: string; // 最终签名串
@@ -531,14 +531,11 @@ export namespace SystemSecurityDebugApi {
     appId: string; // AppID
     cipherFields: string[]; // 字段配置
     cipherHeader: string; // 可直接用于 X-Cipher 的头值
-    ciphertext?: string; // 整包加密后的密文
     cryptoType: string; // 实际加密方式
     payload?: Record<string, any>; // 输入对象
     payloadText: string; // 输入文本
-    plaintext?: string; // 解密后的明文
     resultPayload?: Record<string, any>; // 处理后的对象
     resultPayloadText?: string; // 处理后的 JSON 文本
-    wholeBody: boolean; // 是否整包模式
   }
 }
 
@@ -871,21 +868,12 @@ export async function fetchCacheKeyInfo(key: string) {
   });
 }
 
-// normalizeCacheSearchResp 兼容后端历史数组响应和当前分页对象响应。
+// normalizeCacheSearchResp 归一化当前分页搜索响应，避免页面散落默认值处理。
 function normalizeCacheSearchResp(
-  resp: SystemCacheApi.SearchItem[] | SystemCacheApi.SearchResp,
+  resp: SystemCacheApi.SearchResp,
   fallbackPage = 1,
   fallbackPageSize = 20,
 ): SystemCacheApi.SearchResp {
-  if (Array.isArray(resp)) {
-    return {
-      hasMore: false,
-      list: resp,
-      page: fallbackPage,
-      pageSize: fallbackPageSize,
-      total: resp.length,
-    };
-  }
   return {
     hasMore: !!resp.hasMore,
     list: resp.list || [],
@@ -907,11 +895,12 @@ function normalizeCacheSearchResp(
 export async function searchCacheKeys(params: SystemCacheApi.SearchParams) {
   const page = params.page || 1;
   const pageSize = params.pageSize || 20;
-  const resp = await requestClient.get<
-    SystemCacheApi.SearchItem[] | SystemCacheApi.SearchResp
-  >('/caches/keys', {
-    params: { ...params, page, pageSize },
-  });
+  const resp = await requestClient.get<SystemCacheApi.SearchResp>(
+    '/caches/keys',
+    {
+      params: { ...params, page, pageSize },
+    },
+  );
   return normalizeCacheSearchResp(resp, page, pageSize);
 }
 
@@ -1072,28 +1061,28 @@ export async function debugSecurityDecrypt(
 
 // fetchProfileInfo 查询当前登录管理员资料。
 export async function fetchProfileInfo() {
-  return requestClient.get<SystemProfileApi.Item>('/admin/mine');
+  return requestClient.get<SystemProfileApi.Item>('/profile');
 }
 
 // updateProfileInfo 更新当前登录管理员基础资料。
 export async function updateProfileInfo(
   data: SystemProfileApi.UpdateMineParams,
 ) {
-  return requestClient.post('/admin/updateMine', data);
+  return requestClient.patch('/profile', data);
 }
 
 // updateProfilePassword 修改当前登录管理员密码。
 export async function updateProfilePassword(
   data: SystemProfileApi.UpdatePasswordParams,
 ) {
-  return requestClient.post('/admin/updatePassword', data);
+  return requestClient.patch('/profile/password', data);
 }
 
 // updateProfileMfaStatus 修改当前登录管理员MFA状态。
 export async function updateProfileMfaStatus(
   data: SystemProfileApi.UpdateMfaStatusParams,
 ) {
-  return requestClient.post('/admin/updateMfaStatus', data);
+  return requestClient.patch('/profile/mfa-status', data);
 }
 
 // refreshProfileMfaSecretKey 重新生成当前登录管理员 MFA 秘钥。
@@ -1102,7 +1091,7 @@ export async function refreshProfileMfaSecretKey(data?: {
   twoStepValue?: string;
 }) {
   return requestClient.post<SystemProfileApi.RefreshMfaSecretResp>(
-    '/admin/refreshMfaSecretKey',
+    '/profile/mfa-secret/refresh',
     data || {},
   );
 }

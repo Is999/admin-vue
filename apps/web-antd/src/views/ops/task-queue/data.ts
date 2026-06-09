@@ -2,7 +2,7 @@ import type { VxeTableGridOptions } from '#/adapter/vxe-table';
 
 import {
   asActionPermission,
-  CRON_ACTION_PERMISSION_CODES,
+  OPS_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 
@@ -78,9 +78,7 @@ export function useColumns<T = any>(
             icon: 'taskList',
             iconOnly: true,
             text: $t('business.message.viewTasks'),
-            auth: asActionPermission(
-              CRON_ACTION_PERMISSION_CODES.TASK_INFO_GET,
-            ),
+            auth: asActionPermission(OPS_ACTION_PERMISSION_CODES.TASK_INFO_GET),
           },
           {
             code: 'toggleConsume',
@@ -88,8 +86,8 @@ export function useColumns<T = any>(
             iconOnly: true,
             text: $t('business.message.toggleConsume'),
             auth: asActionPermission([
-              CRON_ACTION_PERMISSION_CODES.TASK_QUEUE_PAUSE,
-              CRON_ACTION_PERMISSION_CODES.TASK_QUEUE_RESUME,
+              OPS_ACTION_PERMISSION_CODES.TASK_QUEUE_PAUSE,
+              OPS_ACTION_PERMISSION_CODES.TASK_QUEUE_RESUME,
             ]),
           },
         ],

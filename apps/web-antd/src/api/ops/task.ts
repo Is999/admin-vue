@@ -1,6 +1,6 @@
 import { requestClient } from '#/api/request';
 
-// TaskApi 定义 cron 任务系统相关接口的请求与响应结构。
+// TaskApi 定义运维任务系统相关接口的请求与响应结构。
 export namespace TaskApi {
   /** 手动触发工作流请求 */
   export interface TriggerWorkflowReq {

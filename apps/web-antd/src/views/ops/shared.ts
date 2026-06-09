@@ -8,7 +8,7 @@ export function splitTextToItems(text: string) {
     .filter(Boolean);
 }
 
-// TASK_QUEUE_OPTIONS 定义 cron 当前约定的内置队列说明。
+// TASK_QUEUE_OPTIONS 定义运维任务当前约定的内置队列说明。
 export const TASK_QUEUE_OPTIONS = [
   {
     label: $t('business.message.queueCriticalLabel'),

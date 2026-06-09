@@ -5,12 +5,12 @@
   "bugs": "https://github.com/vbenjs/vue-vben-admin/issues",
   "repository": {
     "type": "git",
-    "url": "admin-cron-vue",
+    "url": "gozero-admin-vue",
     "directory": "apps/web-antd"
   },
   "license": "MIT",
   "author": {
-    "name": "admin-cron"
+    "name": "admin"
   },
   "type": "module",
   "scripts": {

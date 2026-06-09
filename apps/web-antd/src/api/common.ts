@@ -1,6 +1,6 @@
 import type { Recordable } from '@vben/types';
 
-// CommonApi 收口后台通用接口类型，避免 Cron/System 模块依赖已删除的业务目录。
+// CommonApi 收口后台通用接口类型，避免 Admin/System 模块依赖已删除的业务目录。
 export namespace CommonApi {
   // DropdownItem 表示通用下拉选项。
   export interface DropdownItem {

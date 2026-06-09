@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 // ================= 类型与依赖引入 =================
-import type { TaskApi } from '#/api/cron/task';
-import type { UserTagApi } from '#/api/cron/user-tag';
+import type { TaskApi } from '#/api/ops/task';
+import type { UserTagApi } from '#/api/ops/user-tag';
 
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
@@ -11,15 +11,15 @@ import { Page, VbenButton } from '@vben/common-ui';
 import { Button, Card, message, Modal, Space } from 'ant-design-vue';
 
 import { useVbenForm } from '#/adapter/form';
-import { fetchTaskQueues } from '#/api/cron/task';
+import { fetchTaskQueues } from '#/api/ops/task';
 import {
   recalculateUserTagByTypes,
   releaseUserTagWorkflowLease,
   triggerUserTagWorkflow,
-} from '#/api/cron/user-tag';
+} from '#/api/ops/user-tag';
 import {
   asActionPermission,
-  CRON_ACTION_PERMISSION_CODES,
+  OPS_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
@@ -633,7 +633,7 @@ async function handleOpenWorkflowTask() {
     return;
   }
   await router.push({
-    name: 'CronTaskItem',
+    name: 'OpsTaskItem',
     query: {
       queue: currentWorkflow.queue,
       source: $t('business.message.userTagWorkflowSource', [
@@ -650,7 +650,7 @@ async function handleOpenWorkflowStatus() {
     return;
   }
   await router.push({
-    name: 'CronTaskWorkflowStatus',
+    name: 'OpsWorkflowStatus',
     query: {
       source: $t('business.message.userTagWorkflowSource', [
         currentWorkflow.workflowName,
@@ -666,7 +666,7 @@ async function handleOpenRecalculateTask() {
     return;
   }
   await router.push({
-    name: 'CronTaskItem',
+    name: 'OpsTaskItem',
     query: {
       queue: currentTask.queue,
       source: $t('business.message.userTagRecalculateSource', [
@@ -683,7 +683,7 @@ async function handleOpenRecalculateWorkflow() {
     return;
   }
   await router.push({
-    name: 'CronTaskWorkflowStatus',
+    name: 'OpsWorkflowStatus',
     query: {
       source: $t('business.message.userTagRecalculateSource', [
         currentTask.workflowName,
@@ -989,7 +989,7 @@ onMounted(() => {
             <VbenButton
               v-access="
                 asActionPermission(
-                  CRON_ACTION_PERMISSION_CODES.USER_TAG_WORKFLOW_TRIGGER,
+                  OPS_ACTION_PERMISSION_CODES.USER_TAG_WORKFLOW_TRIGGER,
                 )
               "
               type="primary"
@@ -1089,7 +1089,7 @@ onMounted(() => {
             <VbenButton
               v-access="
                 asActionPermission(
-                  CRON_ACTION_PERMISSION_CODES.USER_TAG_RECALCULATE,
+                  OPS_ACTION_PERMISSION_CODES.USER_TAG_RECALCULATE,
                 )
               "
               type="primary"
@@ -1186,7 +1186,7 @@ onMounted(() => {
             <VbenButton
               v-access="
                 asActionPermission(
-                  CRON_ACTION_PERMISSION_CODES.USER_TAG_WORKFLOW_LEASE_RELEASE,
+                  OPS_ACTION_PERMISSION_CODES.USER_TAG_WORKFLOW_LEASE_RELEASE,
                 )
               "
               danger

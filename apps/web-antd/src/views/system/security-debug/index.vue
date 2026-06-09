@@ -13,7 +13,6 @@ import {
   message,
   Select,
   Space,
-  Switch,
   Tag,
 } from 'ant-design-vue';
 
@@ -48,7 +47,6 @@ type DebugFlowMode = 'request' | 'response';
 type DebugSignatureType = 'A' | 'M' | 'R';
 type DebugCryptoType = 'A' | 'R';
 
-const CIPHER_WHOLE_BODY = 'cipher';
 const CIPHER_JSON_PREFIX = 'json:';
 
 // flowMode 表示当前模拟的是前端请求链路还是后端响应链路。
@@ -57,6 +55,8 @@ const flowMode = ref<DebugFlowMode>('request');
 const appId = ref(import.meta.env.VITE_ADMIN_SECURITY_APP_ID || '');
 // traceId 保存当前调试使用的请求追踪标识，对应真实请求头 X-Trace-Id。
 const traceId = ref('');
+// signatureTimestamp 保存当前调试使用的秒级时间戳，对应真实请求头 X-Timestamp。
+const signatureTimestamp = ref('');
 // signatureType 保存当前签名方式。
 const signatureType = ref<DebugSignatureType>('R');
 // cryptoType 保存当前加密方式。
@@ -64,19 +64,15 @@ const cryptoType = ref<DebugCryptoType>('A');
 // signFieldsText 保存签名字段列表输入。
 const signFieldsText = ref('*');
 // cipherFieldsText 保存加解密字段列表输入。
-const cipherFieldsText = ref(CIPHER_WHOLE_BODY);
+const cipherFieldsText = ref('password');
 // payloadText 保存调试原始 JSON 文本。
 const payloadText = ref(
   '{\n  "username": "admin999",\n  "password": "123456",\n  "token": "demo-token"\n}',
 );
 // signValue 保存待验签签名值。
 const signValue = ref('');
-// wholeCiphertextText 保存整包密文文本。
-const wholeCiphertextText = ref('');
 // fieldCipherPayloadText 保存字段模式下包含密文字段的 JSON 文本。
 const fieldCipherPayloadText = ref('');
-// wholeBodyMode 控制是否使用整包加解密模式。
-const wholeBodyMode = ref(true);
 const rawPasteText = ref('');
 const pasteSegmentIndex = ref(0);
 
@@ -185,18 +181,12 @@ const frontendSecurityConfigItems = computed(() => [
   },
 ]);
 
-// cipherInputText 把整包密文与字段模式输入收口到同一个文本框。
+// cipherInputText 保存字段加解密调试输入。
 const cipherInputText = computed({
   get() {
-    return wholeBodyMode.value
-      ? wholeCiphertextText.value
-      : fieldCipherPayloadText.value;
+    return fieldCipherPayloadText.value;
   },
   set(value: string) {
-    if (wholeBodyMode.value) {
-      wholeCiphertextText.value = value;
-      return;
-    }
     fieldCipherPayloadText.value = value;
   },
 });
@@ -214,16 +204,13 @@ const effectiveSignFields = computed(() =>
   normalizedSignFields.value.length > 0 ? normalizedSignFields.value : ['*'],
 );
 
-// normalizedCipherFields 把加解密字段输入拆分为数组；整包模式固定返回 cipher。
-const normalizedCipherFields = computed(() => {
-  if (wholeBodyMode.value) {
-    return [CIPHER_WHOLE_BODY];
-  }
-  return cipherFieldsText.value
+// normalizedCipherFields 把加解密字段输入拆分为数组。
+const normalizedCipherFields = computed(() =>
+  cipherFieldsText.value
     .split(',')
     .map((item) => item.trim())
-    .filter(Boolean);
-});
+    .filter(Boolean),
+);
 
 // flowSummaryText 说明当前模式下各按钮真正对应的链路侧。
 const flowSummaryText = computed(() =>
@@ -290,9 +277,9 @@ async function executeAction(action: () => Promise<void>) {
   }
 }
 
-// ensureCipherFields 在字段模式下确保用户已填写字段配置。
+// ensureCipherFields 确保用户已填写字段配置。
 function ensureCipherFields() {
-  if (!wholeBodyMode.value && normalizedCipherFields.value.length === 0) {
+  if (normalizedCipherFields.value.length === 0) {
     throw new Error($t('business.message.cipherFieldsRequired'));
   }
 }
@@ -304,7 +291,18 @@ function resolveActionTraceId() {
   return current;
 }
 
-// resolveResultTraceId 从调试结果中读取真实参与签名的 X-Trace-Id，兼容后端历史 requestId 字段。
+function createSignatureTimestamp() {
+  return String(Math.floor(Date.now() / 1000));
+}
+
+// resolveActionTimestamp 获取当前动作应该使用的 X-Timestamp，并同步回表单。
+function resolveActionTimestamp() {
+  const current = signatureTimestamp.value.trim() || createSignatureTimestamp();
+  signatureTimestamp.value = current;
+  return current;
+}
+
+// resolveResultTraceId 从调试结果中读取真实参与签名的 X-Trace-Id。
 function resolveResultTraceId(
   result:
     | null
@@ -312,6 +310,16 @@ function resolveResultTraceId(
     | SystemSecurityDebugApi.VerifyResult,
 ) {
   return String(result?.traceId || result?.requestId || '').trim();
+}
+
+// resolveResultTimestamp 从调试结果中读取真实参与签名的 X-Timestamp。
+function resolveResultTimestamp(
+  result:
+    | null
+    | SystemSecurityDebugApi.SignResult
+    | SystemSecurityDebugApi.VerifyResult,
+) {
+  return String(result?.timestamp || '').trim();
 }
 
 // getAESConfig 读取前端本地 AES 配置。
@@ -367,8 +375,8 @@ function encodeCipherHeaderText(fields: string[]) {
   if (normalized.length === 0) {
     return '';
   }
-  if (normalized.length === 1 && normalized[0] === CIPHER_WHOLE_BODY) {
-    return CIPHER_WHOLE_BODY;
+  if (normalized.some((field) => field.toLowerCase() === 'cipher')) {
+    throw new Error($t('business.message.wholeBodyCipherForbidden'));
   }
   return bytesToBase64(new TextEncoder().encode(JSON.stringify(normalized)));
 }
@@ -461,21 +469,7 @@ async function encryptRequestLocally(): Promise<SystemSecurityDebugApi.CipherRes
     cipherHeader: encodeCipherHeaderText(cipherFields),
     cryptoType: cryptoType.value,
     payloadText: payloadText.value,
-    wholeBody: wholeBodyMode.value,
   };
-  if (wholeBodyMode.value) {
-    const payload = tryParseJson(payloadText.value);
-    const plainText =
-      payload && typeof payload === 'object'
-        ? JSON.stringify(payload)
-        : String(payloadText.value || '').trim();
-    if (!plainText) {
-      throw new Error($t('business.message.encryptPayloadRequired'));
-    }
-    result.ciphertext = await aesCbcEncrypt(plainText, key, iv);
-    result.plaintext = plainText;
-    return result;
-  }
   const payload = parseJSONObjectText(payloadText.value);
   const encryptedPayload = cloneJSONObject(payload);
   for (const field of cipherFields) {
@@ -511,18 +505,7 @@ async function decryptResponseLocally(): Promise<SystemSecurityDebugApi.CipherRe
     cipherHeader: encodeCipherHeaderText(cipherFields),
     cryptoType: cryptoType.value,
     payloadText: '',
-    wholeBody: wholeBodyMode.value,
   };
-  if (wholeBodyMode.value) {
-    const ciphertext = normalizeCiphertextText(wholeCiphertextText.value);
-    if (!ciphertext) {
-      throw new Error($t('business.message.ciphertextRequired'));
-    }
-    result.ciphertext = ciphertext;
-    result.payloadText = ciphertext;
-    result.plaintext = await aesCbcDecrypt(ciphertext, key, iv);
-    return result;
-  }
   const payload = parseJSONObjectText(fieldCipherPayloadText.value);
   const decryptedPayload = cloneJSONObject(payload);
   for (const field of cipherFields) {
@@ -557,10 +540,12 @@ async function decryptResponseLocally(): Promise<SystemSecurityDebugApi.CipherRe
 async function signRequestLocally(): Promise<SystemSecurityDebugApi.SignResult> {
   const payload = parseJSONObjectText(payloadText.value);
   const currentTraceId = resolveActionTraceId();
+  const currentTimestamp = resolveActionTimestamp();
   const signText = buildSignString(
     payload,
     effectiveSignFields.value,
     currentTraceId,
+    currentTimestamp,
     appId.value.trim(),
   );
   const sign = await signTextLocally(signText, signatureType.value);
@@ -570,6 +555,7 @@ async function signRequestLocally(): Promise<SystemSecurityDebugApi.SignResult> 
     payloadText: formatJsonText(payload),
     requestId: currentTraceId,
     traceId: currentTraceId,
+    timestamp: currentTimestamp,
     sign,
     signFields: effectiveSignFields.value,
     signText,
@@ -583,6 +569,10 @@ async function verifyResponseLocally(): Promise<SystemSecurityDebugApi.VerifyRes
   if (!currentTraceId) {
     throw new Error($t('business.message.responseTraceIdRequiredForVerify'));
   }
+  const currentTimestamp = signatureTimestamp.value.trim();
+  if (!currentTimestamp) {
+    throw new Error($t('business.message.responseTimestampRequiredForVerify'));
+  }
   const currentSign = signValue.value.trim();
   if (!currentSign) {
     throw new Error($t('business.message.signValueRequired'));
@@ -592,6 +582,7 @@ async function verifyResponseLocally(): Promise<SystemSecurityDebugApi.VerifyRes
     payload,
     effectiveSignFields.value,
     currentTraceId,
+    currentTimestamp,
     appId.value.trim(),
   );
   return {
@@ -600,6 +591,7 @@ async function verifyResponseLocally(): Promise<SystemSecurityDebugApi.VerifyRes
     payloadText: formatJsonText(payload),
     requestId: currentTraceId,
     traceId: currentTraceId,
+    timestamp: currentTimestamp,
     sign: currentSign,
     signFields: effectiveSignFields.value,
     signText,
@@ -622,10 +614,13 @@ async function handleSign() {
             appId: appId.value.trim(),
             payloadText: payloadText.value,
             requestId: traceId.value.trim() || undefined,
+            timestamp: signatureTimestamp.value.trim() || undefined,
             signFields: effectiveSignFields.value,
             signatureType: signatureType.value,
           });
     traceId.value = resolveResultTraceId(signResult.value) || traceId.value;
+    signatureTimestamp.value =
+      resolveResultTimestamp(signResult.value) || signatureTimestamp.value;
     signValue.value = signResult.value?.sign || '';
     message.success(
       $t('business.message.signDebugCompleted', [currentFlowTitle.value]),
@@ -639,18 +634,24 @@ async function handleVerify() {
     if (!traceId.value.trim() && signValue.value.trim()) {
       throw new Error($t('business.message.traceIdRequiredForVerify'));
     }
+    if (!signatureTimestamp.value.trim() && signValue.value.trim()) {
+      throw new Error($t('business.message.timestampRequiredForVerify'));
+    }
     verifyResult.value =
       flowMode.value === 'request'
         ? await debugSecurityVerify({
             appId: appId.value.trim(),
             payloadText: payloadText.value,
             requestId: traceId.value.trim() || undefined,
+            timestamp: signatureTimestamp.value.trim() || undefined,
             sign: signValue.value.trim(),
             signFields: effectiveSignFields.value,
             signatureType: signatureType.value,
           })
         : await verifyResponseLocally();
     traceId.value = resolveResultTraceId(verifyResult.value) || traceId.value;
+    signatureTimestamp.value =
+      resolveResultTimestamp(verifyResult.value) || signatureTimestamp.value;
     message.success(
       verifyResult.value?.verified
         ? $t('business.message.verifySucceeded')
@@ -680,12 +681,7 @@ async function handleEncrypt() {
             cryptoType: cryptoType.value,
             payloadText: payloadText.value,
           });
-    if (encryptResult.value?.wholeBody) {
-      wholeCiphertextText.value = encryptResult.value?.ciphertext || '';
-    } else {
-      fieldCipherPayloadText.value =
-        encryptResult.value?.resultPayloadText || '';
-    }
+    fieldCipherPayloadText.value = encryptResult.value?.resultPayloadText || '';
     message.success(
       $t('business.message.encryptDebugCompleted', [currentFlowTitle.value]),
     );
@@ -700,26 +696,14 @@ async function handleDecrypt() {
         ? await debugSecurityDecrypt({
             appId: appId.value.trim(),
             cipherFields: normalizedCipherFields.value,
-            ciphertext: wholeBodyMode.value
-              ? normalizeCiphertextText(wholeCiphertextText.value)
-              : undefined,
             cryptoType: cryptoType.value,
-            payloadText: wholeBodyMode.value
-              ? undefined
-              : fieldCipherPayloadText.value,
+            payloadText: fieldCipherPayloadText.value,
           })
         : await decryptResponseLocally();
     message.success(
       $t('business.message.decryptDebugCompleted', [currentFlowTitle.value]),
     );
   });
-}
-
-// handleNormalizeCiphertext 把复制出来的密文归一化为标准 base64 文本。
-function handleNormalizeCiphertext() {
-  wholeCiphertextText.value = normalizeCiphertextText(
-    wholeCiphertextText.value,
-  );
 }
 
 // normalizeCiphertextText 兼容去掉换行、URL 安全 base64 和缺失 padding 的情况。
@@ -770,8 +754,9 @@ function decodeCipherHeaderText(cipherHeader: string) {
   if (!text) {
     return [];
   }
-  if (text === CIPHER_WHOLE_BODY) {
-    return [CIPHER_WHOLE_BODY];
+  if (text.toLowerCase() === 'cipher') {
+    message.warning($t('business.message.wholeBodyCipherForbidden'));
+    return [];
   }
   try {
     const decoded = decodeBase64Text(text);
@@ -1099,9 +1084,6 @@ function applyRoutePolicyByRaw(text: string, mode: DebugFlowMode) {
   const cipherFields =
     mode === 'request' ? policy.requestCipher : policy.responseCipher;
   if (cipherFields && cipherFields.length > 0) {
-    wholeBodyMode.value =
-      cipherFields.length === 1 &&
-      String(cipherFields[0]).trim() === CIPHER_WHOLE_BODY;
     cipherFieldsText.value = cipherFields.join(',');
   }
 }
@@ -1116,6 +1098,10 @@ function applyHeadersToForm(headers: Record<string, string>) {
   const traceIdHeader = headers['x-trace-id'] || '';
   if (traceIdHeader) {
     traceId.value = String(traceIdHeader).trim();
+  }
+  const timestampHeader = headers['x-timestamp'] || '';
+  if (timestampHeader) {
+    signatureTimestamp.value = String(timestampHeader).trim();
   }
   const signatureHeader = headers['x-signature'] || '';
   if (signatureHeader) {
@@ -1135,8 +1121,6 @@ function applyHeadersToForm(headers: Record<string, string>) {
   if (cipherHeader) {
     const fields = decodeCipherHeaderText(cipherHeader);
     if (fields.length > 0) {
-      wholeBodyMode.value =
-        fields.length === 1 && fields[0] === CIPHER_WHOLE_BODY;
       cipherFieldsText.value = fields.join(',');
     }
   }
@@ -1155,8 +1139,8 @@ function resolveResponsePayloadTarget(parsed: any) {
 function parseAsRequest() {
   flowMode.value = 'request';
   traceId.value = '';
+  signatureTimestamp.value = '';
   signValue.value = '';
-  wholeCiphertextText.value = '';
   fieldCipherPayloadText.value = '';
   signResult.value = null;
   verifyResult.value = null;
@@ -1175,16 +1159,7 @@ function parseAsRequest() {
       signValue.value = sign.trim();
       delete (parsed as any).sign;
     }
-    const ciphertext = (parsed as any).ciphertext;
-    if (typeof ciphertext === 'string' && ciphertext.trim()) {
-      wholeBodyMode.value = true;
-      wholeCiphertextText.value = normalizeCiphertextText(ciphertext);
-      delete (parsed as any).ciphertext;
-      payloadText.value = formatJsonText(parsed);
-      return;
-    }
     payloadText.value = formatJsonText(parsed);
-    wholeBodyMode.value = false;
     fieldCipherPayloadText.value = formatJsonText(parsed);
     return;
   }
@@ -1197,19 +1172,14 @@ function parseAsRequest() {
   if (hasParams || sign) {
     payloadText.value = formatJsonText(hasParams ? params : {});
   }
-  const normalized = normalizeCiphertextText(sourceText);
-  if (normalized) {
-    wholeBodyMode.value = true;
-    wholeCiphertextText.value = normalized;
-  }
 }
 
 // parseAsResponse 把粘贴内容识别为后端响应，并自动回填表单。
 function parseAsResponse() {
   flowMode.value = 'response';
   traceId.value = '';
+  signatureTimestamp.value = '';
   signValue.value = '';
-  wholeCiphertextText.value = '';
   fieldCipherPayloadText.value = '';
   signResult.value = null;
   verifyResult.value = null;
@@ -1225,24 +1195,17 @@ function parseAsResponse() {
   const parsed = tryParseJson(jsonText);
   if (parsed && typeof parsed === 'object') {
     const target = resolveResponsePayloadTarget(parsed);
-    wholeBodyMode.value = false;
     fieldCipherPayloadText.value = formatJsonText(target);
     payloadText.value = formatJsonText(target);
     extractSignFromPayload();
-    return;
-  }
-  const normalized = normalizeCiphertextText(responseText);
-  if (normalized) {
-    wholeBodyMode.value = true;
-    wholeCiphertextText.value = normalized;
   }
 }
 
 function clearInputs() {
   rawPasteText.value = '';
   traceId.value = '';
+  signatureTimestamp.value = '';
   signValue.value = '';
-  wholeCiphertextText.value = '';
   fieldCipherPayloadText.value = '';
   payloadText.value = '{}';
   signResult.value = null;
@@ -1252,7 +1215,7 @@ function clearInputs() {
   pasteSegmentIndex.value = 0;
 }
 
-// injectSignIntoPayload 把当前 sign 值写回 payload，便于继续做整包加密模拟。
+// injectSignIntoPayload 把当前 sign 值写回 payload，便于继续做字段级加密模拟。
 function injectSignIntoPayload() {
   const currentSign = signValue.value.trim() || signResult.value?.sign || '';
   if (!currentSign) {
@@ -1273,9 +1236,8 @@ async function handleDecryptToPayload() {
   }
   const resultText =
     decryptResult.value?.resultPayloadText ||
-    (decryptResult.value?.plaintext
-      ? String(decryptResult.value.plaintext)
-      : '');
+    decryptResult.value?.payloadText ||
+    '';
   if (!resultText) {
     return;
   }
@@ -1313,6 +1275,7 @@ function fillVerifyFromSign() {
   }
   payloadText.value = signResult.value.payloadText;
   traceId.value = resolveResultTraceId(signResult.value);
+  signatureTimestamp.value = resolveResultTimestamp(signResult.value);
   signValue.value = signResult.value.sign;
   signFieldsText.value = signResult.value.signFields.join(',');
 }
@@ -1323,13 +1286,8 @@ function fillDecryptFromEncrypt() {
     message.warning($t('business.message.runEncryptDebugFirst'));
     return;
   }
-  wholeBodyMode.value = encryptResult.value.wholeBody;
   cipherFieldsText.value = encryptResult.value.cipherFields.join(',');
-  if (encryptResult.value.wholeBody) {
-    wholeCiphertextText.value = encryptResult.value.ciphertext || '';
-  } else {
-    fieldCipherPayloadText.value = encryptResult.value.resultPayloadText || '';
-  }
+  fieldCipherPayloadText.value = encryptResult.value.resultPayloadText || '';
 }
 </script>
 
@@ -1412,7 +1370,7 @@ function fillDecryptFromEncrypt() {
 
       <Card size="small" :title="$t('business.message.debugParams')">
         <Alert class="mb-4" :message="flowSummaryText" show-icon type="info" />
-        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <Select
             v-model:value="flowMode"
             :options="flowOptions"
@@ -1425,6 +1383,10 @@ function fillDecryptFromEncrypt() {
           <Input
             v-model:value="traceId"
             :placeholder="$t('business.message.optionalTraceId')"
+          />
+          <Input
+            v-model:value="signatureTimestamp"
+            :placeholder="$t('business.message.optionalTimestamp')"
           />
           <Select
             v-model:value="signatureType"
@@ -1442,16 +1404,10 @@ function fillDecryptFromEncrypt() {
             v-model:value="signFieldsText"
             :placeholder="$t('business.message.signFieldsPlaceholder')"
           />
-          <Space>
-            <span>{{ $t('business.message.wholeBodyMode') }}</span>
-            <Switch v-model:checked="wholeBodyMode" />
-            <Input
-              v-if="!wholeBodyMode"
-              v-model:value="cipherFieldsText"
-              class="w-[360px]"
-              :placeholder="$t('business.message.cipherFieldsPlaceholder')"
-            />
-          </Space>
+          <Input
+            v-model:value="cipherFieldsText"
+            :placeholder="$t('business.message.cipherFieldsPlaceholder')"
+          />
         </div>
       </Card>
 
@@ -1542,13 +1498,6 @@ function fillDecryptFromEncrypt() {
                 @click="handleDecrypt"
               >
                 {{ currentDecryptActionText }}
-              </VbenButton>
-              <VbenButton
-                v-if="wholeBodyMode"
-                :disabled="busy"
-                @click="handleNormalizeCiphertext"
-              >
-                {{ $t('business.message.normalizeCiphertext') }}
               </VbenButton>
               <VbenButton :disabled="busy" @click="fillDecryptFromEncrypt">
                 {{ $t('business.message.fillFromEncryptResult') }}

@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 // ================= 类型与依赖引入 =================
-import type { TaskApi } from '#/api/cron/task';
+import type { TaskApi } from '#/api/ops/task';
 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -20,10 +20,10 @@ import {
 } from 'ant-design-vue';
 
 import { useVbenForm } from '#/adapter/form';
-import { getTaskWorkflowStatus } from '#/api/cron/task';
+import { getTaskWorkflowStatus } from '#/api/ops/task';
 import {
   asActionPermission,
-  CRON_ACTION_PERMISSION_CODES,
+  OPS_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 import { copyTextToClipboard } from '#/utils/security/password';
@@ -930,7 +930,7 @@ async function handleOpenWorkflowStatusTasks() {
     return;
   }
   await router.push({
-    name: 'CronTaskItem',
+    name: 'OpsTaskItem',
     query: {
       queue: currentWorkflow.queue,
       source: $t('business.message.workflowStatusSource', [
@@ -949,7 +949,7 @@ async function handleOpenWorkflowNodeTasks(node: TaskApi.WorkflowNodeItem) {
   }
   const taskName = buildWorkflowNodeTaskName(node);
   await router.push({
-    name: 'CronTaskItem',
+    name: 'OpsTaskItem',
     query: {
       queue: node.queue || currentWorkflow.queue,
       source: $t('business.message.workflowStatusNodeSource', [
@@ -1159,7 +1159,7 @@ watch(
             <VbenButton
               v-access="
                 asActionPermission(
-                  CRON_ACTION_PERMISSION_CODES.TASK_WORKFLOW_STATUS,
+                  OPS_ACTION_PERMISSION_CODES.TASK_WORKFLOW_STATUS,
                 )
               "
               type="primary"

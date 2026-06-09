@@ -1,5 +1,5 @@
 import type { VxeGridPropTypes } from '#/adapter/vxe-table';
-import type { CollectorApi } from '#/api/cron/collector';
+import type { CollectorApi } from '#/api/ops/collector';
 
 import { h } from 'vue';
 

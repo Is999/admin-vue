@@ -2,7 +2,7 @@ import type { RouteRecordRaw } from 'vue-router';
 
 import {
   asRouteAuthority,
-  CRON_ROUTE_PERMISSION_CODES,
+  OPS_ROUTE_PERMISSION_CODES,
   SYSTEM_ROUTE_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
@@ -11,22 +11,21 @@ import { $t } from '#/locales';
 const routes: RouteRecordRaw[] = [
   {
     path: '/tools',
-    name: 'AdminCronTools',
+    name: 'AdminTools',
     meta: {
       authority: asRouteAuthority(SYSTEM_ROUTE_PERMISSION_CODES.PROJECT_DIR),
       icon: 'lucide:wrench',
       order: 1200,
-      title: $t('cron.route.tools'),
+      title: $t('admin.route.tools'),
     },
     children: [
       {
         path: '/tools/api-docs',
-        alias: '/cron-admin/api-docs',
-        name: 'CronApiDocs',
+        name: 'OpsApiDocs',
         meta: {
-          authority: asRouteAuthority(CRON_ROUTE_PERMISSION_CODES.API_DOCS),
+          authority: asRouteAuthority(OPS_ROUTE_PERMISSION_CODES.API_DOCS),
           icon: 'lucide:book-open-text',
-          title: $t('cron.route.apiDocs'),
+          title: $t('admin.route.apiDocs'),
         },
         component: () => import('#/views/tools/api-docs/index.vue'),
       },
@@ -39,7 +38,7 @@ const routes: RouteRecordRaw[] = [
             SYSTEM_ROUTE_PERMISSION_CODES.SECURITY_DEBUG_INDEX,
           ),
           icon: 'ant-design:safety-outlined',
-          title: $t('cron.route.securityDebug'),
+          title: $t('admin.route.securityDebug'),
         },
         component: () => import('#/views/system/security-debug/index.vue'),
       },
