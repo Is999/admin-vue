@@ -2,7 +2,7 @@ import process from 'node:process';
 
 import { defineConfig } from '@vben/vite-config';
 
-// 本地联调默认直连当前 gozero-admin API 端口。
+// 本地联调默认直连当前 admin API 端口。
 const proxyTarget = process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:8999';
 
 const appConfig: any = async () => {
