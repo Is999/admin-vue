@@ -1,0 +1,4 @@
+interface:
+  display_name: "Vue Vben 功能交付"
+  short_description: "完整交付 vben 页面、路由和交互状态。"
+  default_prompt: "使用 $vue-vben-feature-delivery 端到端实现这个 vben 前端功能。"

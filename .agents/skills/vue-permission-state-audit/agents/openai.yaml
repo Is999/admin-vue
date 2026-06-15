@@ -1,0 +1,4 @@
+interface:
+  display_name: "Vue 权限状态审计"
+  short_description: "审计路由、按钮、安全和 UI 状态。"
+  default_prompt: "使用 $vue-permission-state-audit 复核这个前端权限或安全流程。"
