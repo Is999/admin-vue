@@ -99,6 +99,50 @@ const ADMIN_ROUTE_SECURITY_POLICIES: Record<string, RouteSecurityPolicy> = {
   'admin.delete': {
     requestSign: ['twoStepKey', 'twoStepValue'],
   },
+  // api_user.add 表示后台新增前台用户接口。
+  'api_user.add': {
+    requestCipher: ['password', 'email', 'phone', 'twoStepKey', 'twoStepValue'],
+    requestSign: [
+      'username',
+      'password',
+      'nickname',
+      'email',
+      'phone',
+      'avatar',
+      'status',
+      'twoStepKey',
+      'twoStepValue',
+    ],
+  },
+  // api_user.update 表示后台编辑前台用户资料接口。
+  'api_user.update': {
+    requestCipher: ['email', 'phone', 'twoStepKey', 'twoStepValue'],
+    requestSign: [
+      'nickname',
+      'email',
+      'phone',
+      'avatar',
+      'twoStepKey',
+      'twoStepValue',
+    ],
+  },
+  // api_user.status.update 表示后台修改前台用户状态接口。
+  'api_user.status.update': {
+    requestSign: ['status', 'twoStepKey', 'twoStepValue'],
+  },
+  // api_user.password.reset 表示后台重置前台用户密码接口。
+  'api_user.password.reset': {
+    requestCipher: ['password', 'twoStepKey', 'twoStepValue'],
+    requestSign: ['password', 'twoStepKey', 'twoStepValue'],
+  },
+  // api_user.runtime.sync 表示手动同步前台用户 API 运行态接口。
+  'api_user.runtime.sync': {
+    requestSign: ['profile', 'sessions', 'twoStepKey', 'twoStepValue'],
+  },
+  // api_runtime.config_reload.run 表示后台触发 API 配置热加载接口。
+  'api_runtime.config_reload.run': {
+    requestSign: ['twoStepKey', 'twoStepValue'],
+  },
   // auth.login 表示新版登录接口。
   'auth.login': {
     requestCipher: ['password', 'secureCode'],
@@ -478,6 +522,42 @@ const ROUTE_SECURITY_RULES: RouteSecurityRule[] = [
     alias: 'admin.mfa_status.update',
     method: 'PATCH',
     pattern: /^\/admins\/mfa-status\/\d+$/,
+  },
+  {
+    // api_user.add 表示后台新增前台用户接口。
+    alias: 'api_user.add',
+    method: 'POST',
+    pattern: /^\/api-users$/,
+  },
+  {
+    // api_user.update 表示后台编辑前台用户资料接口。
+    alias: 'api_user.update',
+    method: 'PATCH',
+    pattern: /^\/api-users\/\d+$/,
+  },
+  {
+    // api_user.status.update 表示后台修改前台用户状态接口。
+    alias: 'api_user.status.update',
+    method: 'PATCH',
+    pattern: /^\/api-users\/status\/\d+$/,
+  },
+  {
+    // api_user.password.reset 表示后台重置前台用户密码接口。
+    alias: 'api_user.password.reset',
+    method: 'POST',
+    pattern: /^\/api-users\/password\/reset\/\d+$/,
+  },
+  {
+    // api_user.runtime.sync 表示手动同步前台用户 API 运行态接口。
+    alias: 'api_user.runtime.sync',
+    method: 'POST',
+    pattern: /^\/api-users\/runtime-sync\/\d+$/,
+  },
+  {
+    // api_runtime.config_reload.run 表示后台触发 API 配置热加载接口。
+    alias: 'api_runtime.config_reload.run',
+    method: 'POST',
+    pattern: /^\/api-runtime\/config-reload$/,
   },
   {
     // secretKey.add 表示新增秘钥接口。
