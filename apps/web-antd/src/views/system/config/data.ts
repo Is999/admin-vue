@@ -9,6 +9,12 @@ import {
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 
+import {
+  configLevelTagMeta,
+  configTypeTagMap,
+  countTagMeta,
+} from '../table-tags';
+
 // configTypeOptions 返回字典配置类型，避免语言切换后沿用模块初始化时的旧文案。
 function configTypeOptions() {
   return [
@@ -156,14 +162,6 @@ function formatJsonValue(value: any, space?: number) {
   return JSON.stringify(value, null, space);
 }
 
-// formatConfigType 将配置类型转换为当前语言文案。
-function formatConfigType(type: any) {
-  return (
-    configTypeOptions().find((item) => item.value === Number(type))?.label ??
-    type
-  );
-}
-
 // useColumns 返回字典管理表格列配置。
 export function useColumns<T = SystemConfigApi.Item>(
   onActionClick: OnActionClickFn<T>,
@@ -192,27 +190,33 @@ export function useColumns<T = SystemConfigApi.Item>(
         emptyDblclickCopyMessage: $t('business.message.noDictionaryUuidToCopy'),
       },
     ),
-    buildClampTextColumn(
-      {
-        field: 'type',
-        title: $t('business.message.type'),
-        width: 100,
+    {
+      align: 'center',
+      cellRender: {
+        attrs: { tagMap: configTypeTagMap() },
+        name: 'CellTag',
       },
-      {
-        getText: ({ row }) =>
-          formatConfigType((row as SystemConfigApi.Item).type),
-      },
-    ),
+      field: 'type',
+      title: $t('business.message.type'),
+      width: 100,
+    },
     buildClampTextColumn({
       field: 'parentTitle',
       minWidth: 140,
       title: $t('business.message.parentConfig'),
     }),
-    buildClampTextColumn({
+    {
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ value }: { value: unknown }) => configLevelTagMeta(value),
+        },
+        name: 'CellTag',
+      },
       field: 'levelText',
       title: $t('business.message.level'),
       width: 90,
-    }),
+    },
     buildClampTextColumn({
       field: 'page',
       minWidth: 160,
@@ -243,11 +247,19 @@ export function useColumns<T = SystemConfigApi.Item>(
           formatJsonValue((row as SystemConfigApi.Item).value, 2),
       },
     ),
-    buildClampTextColumn({
+    {
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ value }: { value: unknown }) =>
+            countTagMeta(value, 'processing'),
+        },
+        name: 'CellTag',
+      },
       field: 'version',
       title: $t('business.message.version'),
       width: 90,
-    }),
+    },
     buildClampTextColumn({
       field: 'remark',
       minWidth: 180,

@@ -6,6 +6,8 @@ import {
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 
+import { countRiskTagMeta, latencyTagMeta } from '../table-tags';
+
 // TableActionHandler 定义表格操作列点击事件签名。
 type TableActionHandler<T = any> = (params: { code: string; row: T }) => void;
 
@@ -51,14 +53,49 @@ export function useColumns<T = any>(
       title: $t('business.message.scheduledTask'),
       width: 100,
     },
-    { field: 'retry', title: $t('business.message.retryQueue'), width: 100 },
+    {
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ value }: { value: unknown }) =>
+            countRiskTagMeta(value, 'warning'),
+        },
+        name: 'CellTag',
+      },
+      field: 'retry',
+      title: $t('business.message.retryQueue'),
+      width: 100,
+    },
     {
       field: 'completed',
       title: $t('business.message.collectorStateDone'),
       width: 100,
     },
-    { field: 'failed', title: $t('business.message.todayFailed'), width: 100 },
-    { field: 'latencyMs', title: $t('business.message.latencyMs'), width: 110 },
+    {
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ value }: { value: unknown }) =>
+            countRiskTagMeta(value, 'error'),
+        },
+        name: 'CellTag',
+      },
+      field: 'failed',
+      title: $t('business.message.todayFailed'),
+      width: 100,
+    },
+    {
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ value }: { value: unknown }) => latencyTagMeta(value),
+        },
+        name: 'CellTag',
+      },
+      field: 'latencyMs',
+      title: $t('business.message.latencyMs'),
+      width: 110,
+    },
     {
       field: 'memoryUsage',
       title: $t('business.message.memoryUsage'),

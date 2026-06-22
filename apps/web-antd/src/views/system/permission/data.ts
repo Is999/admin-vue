@@ -18,23 +18,27 @@ export const STATUS_OPTIONS = [
 // TYPE_OPTIONS 定义权限类型选项，按 laravel-admin 的 0-8 类型含义展示。
 export const TYPE_OPTIONS = [
   {
-    color: 'green',
+    color: 'geekblue',
     label: $t('business.message.permissionTypeDirectory'),
     value: 4,
   },
   {
-    color: 'green',
+    color: 'processing',
     label: $t('business.message.permissionTypeMenu'),
     value: 5,
   },
   {
-    color: 'blue',
+    color: 'purple',
     label: $t('business.message.permissionTypeButton'),
     value: 7,
   },
-  { color: 'gold', label: $t('business.message.permissionTypeAdd'), value: 1 },
   {
-    color: 'orange',
+    color: 'success',
+    label: $t('business.message.permissionTypeAdd'),
+    value: 1,
+  },
+  {
+    color: 'warning',
     label: $t('business.message.permissionTypeUpdate'),
     value: 2,
   },
@@ -45,7 +49,7 @@ export const TYPE_OPTIONS = [
   },
   { color: 'cyan', label: $t('business.message.permissionTypeView'), value: 0 },
   {
-    color: 'purple',
+    color: 'blue',
     label: $t('business.message.permissionTypePage'),
     value: 6,
   },
@@ -231,20 +235,23 @@ export function useColumns<T = SystemPermissionApi.Item>(
     }),
     {
       align: 'center',
-      field: 'type',
-      formatter: ({ row }: { row: SystemPermissionApi.Item }) =>
-        TYPE_OPTIONS.find((item) => item.value === row.type)?.label ?? row.type,
       cellRender: {
         attrs: { tagMap: TYPE_TAG_MAP },
         name: 'CellTag',
       },
+      field: 'type',
       title: $t('business.message.type'),
       width: 100,
     },
     {
       align: 'center',
       cellRender: {
-        attrs: { beforeChange: onStatusChange },
+        attrs: {
+          auth: asActionPermission(
+            SYSTEM_ACTION_PERMISSION_CODES.PERMISSION_UPDATE,
+          ),
+          beforeChange: onStatusChange,
+        },
         name: onStatusChange ? 'CellSwitch' : 'CellTag',
       },
       field: 'status',

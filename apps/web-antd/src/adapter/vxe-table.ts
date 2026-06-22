@@ -364,7 +364,10 @@ setupVbenVxeTable({
         const field = String(column.field || '');
         const rowMap = row as Record<string, any>;
         const value = rowMap[field];
-        const tagMeta = attrs?.tagMap?.[value] || resolveTagMeta(field, value);
+        const tagMeta =
+          attrs?.getMeta?.({ column, field, row, value }) ||
+          attrs?.tagMap?.[value] ||
+          resolveTagMeta(field, value);
         return h(
           Tag,
           { color: tagMeta.color },
@@ -388,11 +391,21 @@ setupVbenVxeTable({
           attrs?.checkedChildren ?? $t('business.message.enable');
         const unCheckedChildren =
           attrs?.unCheckedChildren ?? $t('business.message.disable');
+        const auth = attrs?.auth;
+        let auths: string[] = [];
+        if (Array.isArray(auth)) {
+          auths = auth;
+        } else if (auth) {
+          auths = [auth];
+        }
+        const { hasAccessByCodes } = useAccess();
+        const hasAuth = auths.length === 0 || hasAccessByCodes(auths);
         const currentValue = rowMap[field];
-        const disabled =
+        const rowDisabled =
           typeof attrs?.disabled === 'function'
             ? attrs.disabled(row)
             : Boolean(attrs?.disabled);
+        const disabled = !hasAuth || rowDisabled;
         const isChecked =
           currentValue === true ||
           currentValue === checkedValue ||

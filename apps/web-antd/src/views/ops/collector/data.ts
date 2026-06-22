@@ -7,6 +7,8 @@ import { Tag } from 'ant-design-vue';
 
 import { $t } from '#/locales';
 
+import { collectorTransportTagMap } from '../table-tags';
+
 // getCollectorStateOptions 生成任务状态下拉选项，确保语言切换后文案来自当前语言包。
 export function getCollectorStateOptions(): Array<{
   label: string;
@@ -77,7 +79,16 @@ export function useColumns(): VxeGridPropTypes.Columns<CollectorApi.TaskItem> {
       title: $t('business.message.partitionKey'),
       minWidth: 160,
     },
-    { field: 'transport', title: $t('business.message.channel'), width: 100 },
+    {
+      align: 'center',
+      cellRender: {
+        attrs: { tagMap: collectorTransportTagMap() },
+        name: 'CellTag',
+      },
+      field: 'transport',
+      title: $t('business.message.channel'),
+      width: 100,
+    },
     {
       field: 'state',
       title: $t('business.message.status'),

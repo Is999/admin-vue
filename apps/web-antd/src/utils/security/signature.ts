@@ -73,9 +73,9 @@ const ADMIN_ROUTE_SECURITY_POLICIES: Record<string, RouteSecurityPolicy> = {
     requestCipher: ['password', 'twoStepKey', 'twoStepValue'],
     requestSign: ['password', 'twoStepKey', 'twoStepValue'],
   },
-  // admin.role.update 表示覆盖保存管理员角色接口。
+  // admin.role.update 表示覆盖保存管理员角色接口；roleIDs 是数组，不进入轻量签名载荷。
   'admin.role.update': {
-    requestSign: ['roleIDs', 'twoStepKey', 'twoStepValue'],
+    requestSign: ['twoStepKey', 'twoStepValue'],
   },
   // admin.status.update 表示修改管理员状态接口。
   'admin.status.update': {
@@ -99,8 +99,8 @@ const ADMIN_ROUTE_SECURITY_POLICIES: Record<string, RouteSecurityPolicy> = {
   'admin.delete': {
     requestSign: ['twoStepKey', 'twoStepValue'],
   },
-  // api_user.add 表示后台新增前台用户接口。
-  'api_user.add': {
+  // user.add 表示后台新增用户接口。
+  'user.add': {
     requestCipher: ['password', 'email', 'phone', 'twoStepKey', 'twoStepValue'],
     requestSign: [
       'username',
@@ -114,8 +114,8 @@ const ADMIN_ROUTE_SECURITY_POLICIES: Record<string, RouteSecurityPolicy> = {
       'twoStepValue',
     ],
   },
-  // api_user.update 表示后台编辑前台用户资料接口。
-  'api_user.update': {
+  // user.update 表示后台编辑用户资料接口。
+  'user.update': {
     requestCipher: ['email', 'phone', 'twoStepKey', 'twoStepValue'],
     requestSign: [
       'nickname',
@@ -126,17 +126,17 @@ const ADMIN_ROUTE_SECURITY_POLICIES: Record<string, RouteSecurityPolicy> = {
       'twoStepValue',
     ],
   },
-  // api_user.status.update 表示后台修改前台用户状态接口。
-  'api_user.status.update': {
+  // user.status.update 表示后台修改用户状态接口。
+  'user.status.update': {
     requestSign: ['status', 'twoStepKey', 'twoStepValue'],
   },
-  // api_user.password.reset 表示后台重置前台用户密码接口。
-  'api_user.password.reset': {
+  // user.password.reset 表示后台重置用户密码接口。
+  'user.password.reset': {
     requestCipher: ['password', 'twoStepKey', 'twoStepValue'],
     requestSign: ['password', 'twoStepKey', 'twoStepValue'],
   },
-  // api_user.runtime.sync 表示手动同步前台用户 API 运行态接口。
-  'api_user.runtime.sync': {
+  // user.runtime.sync 表示手动同步用户 API 运行态接口。
+  'user.runtime.sync': {
     requestSign: ['profile', 'sessions', 'twoStepKey', 'twoStepValue'],
   },
   // api_runtime.config_reload.run 表示后台触发 API 配置热加载接口。
@@ -524,34 +524,40 @@ const ROUTE_SECURITY_RULES: RouteSecurityRule[] = [
     pattern: /^\/admins\/mfa-status\/\d+$/,
   },
   {
-    // api_user.add 表示后台新增前台用户接口。
-    alias: 'api_user.add',
+    // user.add 表示后台新增用户接口。
+    alias: 'user.add',
     method: 'POST',
-    pattern: /^\/api-users$/,
+    pattern: /^\/users$/,
   },
   {
-    // api_user.update 表示后台编辑前台用户资料接口。
-    alias: 'api_user.update',
+    // user.update 表示后台编辑用户资料接口。
+    alias: 'user.update',
     method: 'PATCH',
-    pattern: /^\/api-users\/\d+$/,
+    pattern: /^\/users\/\d+$/,
   },
   {
-    // api_user.status.update 表示后台修改前台用户状态接口。
-    alias: 'api_user.status.update',
+    // user.status.update 表示后台修改用户状态接口。
+    alias: 'user.status.update',
     method: 'PATCH',
-    pattern: /^\/api-users\/status\/\d+$/,
+    pattern: /^\/users\/status\/\d+$/,
   },
   {
-    // api_user.password.reset 表示后台重置前台用户密码接口。
-    alias: 'api_user.password.reset',
+    // user.password.reset 表示后台重置用户密码接口。
+    alias: 'user.password.reset',
     method: 'POST',
-    pattern: /^\/api-users\/password\/reset\/\d+$/,
+    pattern: /^\/users\/password\/reset\/\d+$/,
   },
   {
-    // api_user.runtime.sync 表示手动同步前台用户 API 运行态接口。
-    alias: 'api_user.runtime.sync',
+    // user.runtime.sync 表示手动同步用户 API 运行态接口。
+    alias: 'user.runtime.sync',
     method: 'POST',
-    pattern: /^\/api-users\/runtime-sync\/\d+$/,
+    pattern: /^\/users\/runtime-sync\/\d+$/,
+  },
+  {
+    // api_runtime.config_reload.items 表示查询 API 运行态配置项接口。
+    alias: 'api_runtime.config_reload.items',
+    method: 'GET',
+    pattern: /^\/api-runtime\/config-reload\/items$/,
   },
   {
     // api_runtime.config_reload.run 表示后台触发 API 配置热加载接口。

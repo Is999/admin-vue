@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 // ================= 类型与依赖引入 =================
+import type { OpsAPIRuntimeApi } from '#/api/ops/runtime';
 import type { TaskApi } from '#/api/ops/task';
-import type { SystemAPIUserApi } from '#/api/system';
 
 import { computed, onMounted, ref } from 'vue';
 
@@ -24,25 +24,28 @@ import {
   Space,
   Switch,
   Table,
+  Tabs,
   Tag,
   Tooltip,
 } from 'ant-design-vue';
 
+import {
+  fetchAPIRuntimeConfigReloadItems,
+  fetchAPIRuntimeConfigReloadStatus,
+  runAPIRuntimeConfigReload,
+} from '#/api/ops/runtime';
 import {
   fetchConfigReloadItems,
   fetchConfigReloadStatus,
   runConfigReload,
 } from '#/api/ops/task';
 import {
-  fetchAPIRuntimeConfigReloadStatus,
-  runAPIRuntimeConfigReload,
-} from '#/api/system';
-import {
   asActionPermission,
   OPS_ACTION_PERMISSION_CODES,
   hasAnyPermission,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
+import { resolveRequestErrorMessage } from '#/utils/file/download';
 import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
 import { copyTextToClipboard } from '#/utils/security/password';
 
@@ -105,6 +108,8 @@ const configYamlTokenClassMap: Record<ConfigYamlTokenType, string> = {
 // ================= 页面状态 =================
 // accessStore 保存当前登录账号的 uuid 权限码集合，用于判断是否自动拉取热加载状态。
 const accessStore = useAccessStore();
+// activeReloadTab 控制 Admin 与 API 热加载分区，避免两类运行态混在同一屏卡片里。
+const activeReloadTab = ref('admin');
 // submitting 避免查询与执行热加载时重复点击。
 const submitting = ref(false);
 // configReloadStatusText 保存热加载接口原始响应，便于排障复制。
@@ -140,11 +145,31 @@ const apiRuntimeSubmitting = ref(false);
 // apiRuntimeStatusText 保存 API 热加载接口原始回执，便于复制排障。
 const apiRuntimeStatusText = ref('');
 // apiRuntimeStatus 保存最近一次 API 热加载状态回执。
-const apiRuntimeStatus = ref<null | SystemAPIUserApi.APIRuntimeReloadResp>(
-  null,
-);
+const apiRuntimeStatus = ref<null | OpsAPIRuntimeApi.ReloadResp>(null);
 // showAPIRuntimeRaw 控制 API 热加载原始 JSON 回执是否展开。
 const showAPIRuntimeRaw = ref(false);
+// apiConfigItems 保存 API 返回的运行态配置项，值已经由 API 后端脱敏。
+const apiConfigItems = ref<TaskApi.TaskConfigItem[]>([]);
+// apiConfigItemResult 保存 API 配置项查询完整响应。
+const apiConfigItemResult = ref<null | TaskApi.TaskConfigItemQueryResp>(null);
+// apiConfigItemsLoading 控制 API 配置项查询按钮与表格加载状态。
+const apiConfigItemsLoading = ref(false);
+// apiConfigItemsLoaded 标记是否已经完成过一次 API 配置项查询。
+const apiConfigItemsLoaded = ref(false);
+// apiConfigItemKeyword 保存 API 配置项搜索关键字。
+const apiConfigItemKeyword = ref('');
+// apiConfigItemSensitiveOnly 控制是否只查询 API 敏感配置项。
+const apiConfigItemSensitiveOnly = ref(false);
+// apiConfigItemPage 保存 API 配置项表格当前页码。
+const apiConfigItemPage = ref(1);
+// apiConfigItemPageSize 保存 API 配置项表格分页大小。
+const apiConfigItemPageSize = ref(20);
+// apiConfigItemTotal 保存 API 当前筛选条件下配置项总数。
+const apiConfigItemTotal = ref(0);
+// apiConfigItemViewMode 控制 API 结果展示为 YAML 或表格。
+const apiConfigItemViewMode = ref<ConfigItemViewMode>('yaml');
+// apiConfigYamlViewMode 控制 API YAML 视图展示运行期结构或完整快照。
+const apiConfigYamlViewMode = ref<ConfigYamlViewMode>('runtime');
 
 // canQueryConfigReloadStatus 判断当前账号是否可以查询热加载状态。
 const canQueryConfigReloadStatus = computed(() =>
@@ -170,9 +195,18 @@ const canQueryAPIRuntimeConfigReloadStatus = computed(() =>
   ),
 );
 
+// canQueryAPIRuntimeConfigReloadItems 判断当前账号是否可以查询 API 运行态配置项。
+const canQueryAPIRuntimeConfigReloadItems = computed(() =>
+  hasAnyPermission(
+    accessStore.accessCodes,
+    OPS_ACTION_PERMISSION_CODES.API_RUNTIME_CONFIG_RELOAD_ITEMS,
+  ),
+);
+
 // canManageConfigReload 判断当前账号是否具备任一热加载相关操作权限。
 const canManageConfigReload = computed(() =>
   hasAnyPermission(accessStore.accessCodes, [
+    OPS_ACTION_PERMISSION_CODES.API_RUNTIME_CONFIG_RELOAD_ITEMS,
     OPS_ACTION_PERMISSION_CODES.API_RUNTIME_CONFIG_RELOAD_RUN,
     OPS_ACTION_PERMISSION_CODES.API_RUNTIME_CONFIG_RELOAD_STATUS,
     OPS_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_ITEMS,
@@ -210,79 +244,12 @@ const configItemColumns = computed(() => [
 
 // configItemOverviewRows 生成配置项结果总览，帮助确认当前响应来自运行态快照。
 const configItemOverviewRows = computed(() => {
-  const result = configItemResult.value;
-  if (!result) {
-    return [];
-  }
-  return [
-    {
-      label: $t('business.message.configMatchedItems'),
-      value: String(result.total || 0),
-      description: result.keyword || $t('business.message.all'),
-    },
-    {
-      label: $t('business.message.configTotalItems'),
-      value: String(result.totalItems || 0),
-      description: $t('business.message.configTotalItemsDesc'),
-    },
-    {
-      label: $t('business.message.configSensitiveItems'),
-      value: String(result.sensitiveTotal || 0),
-      description: $t('business.message.configSensitiveItemsDesc'),
-    },
-    {
-      label: $t('business.message.configSnapshotVersion'),
-      value: result.source?.configVersion || '-',
-      description: $t('business.message.configSnapshotVersionDesc'),
-    },
-  ];
+  return buildConfigItemOverviewRows(configItemResult.value);
 });
 
 // configItemSourceRows 展示热加载来源元信息，避免把 YAML 快照误认为磁盘原文件。
 const configItemSourceRows = computed(() => {
-  const source = configItemResult.value?.source;
-  if (!source) {
-    return [];
-  }
-  return [
-    {
-      label: $t('business.message.configSource'),
-      value:
-        source.source === 'runtime_snapshot'
-          ? $t('business.message.configSourceRuntimeSnapshot')
-          : source.source || '-',
-    },
-    {
-      label: $t('business.message.configFile'),
-      value: source.configFile || '-',
-    },
-    {
-      label: $t('business.message.runtimeConfigFile'),
-      value: source.runtimeFile || '-',
-    },
-    {
-      label: $t('business.message.currentStatus'),
-      value: buildHotReloadStatusLabel(source.lastStatus),
-    },
-    {
-      label: $t('business.message.latestTriggerSource'),
-      value: buildHotReloadTriggerLabel(source.lastTriggerSource),
-    },
-    {
-      label: $t('business.message.latestReloadTime'),
-      value: source.lastReloadAt || '-',
-    },
-    {
-      label: $t('business.message.latestSuccessTime'),
-      value: source.lastSuccessAt || '-',
-    },
-    {
-      label: $t('business.message.restartRequired'),
-      value: source.restartRequired
-        ? $t('business.message.needRestartProcess')
-        : $t('business.message.noRestartRequired'),
-    },
-  ];
+  return buildConfigItemSourceRows(configItemResult.value?.source);
 });
 
 // configItemSections 保存后端按顶层配置块汇总的数量和敏感项统计。
@@ -307,6 +274,208 @@ const activeConfigYaml = computed(() =>
 // activeConfigYamlLines 将当前 YAML 文本拆成带高亮 token 的只读行数据。
 const activeConfigYamlLines = computed(() =>
   buildConfigYamlLines(activeConfigYaml.value),
+);
+
+// apiConfigItemOverviewRows 生成 API 配置项结果总览。
+const apiConfigItemOverviewRows = computed(() =>
+  buildConfigItemOverviewRows(apiConfigItemResult.value),
+);
+
+// apiConfigItemSourceRows 展示 API 热加载来源元信息。
+const apiConfigItemSourceRows = computed(() =>
+  buildConfigItemSourceRows(apiConfigItemResult.value?.source),
+);
+
+// apiConfigItemSections 保存 API 按顶层配置块汇总的数量和敏感项统计。
+const apiConfigItemSections = computed(
+  () => apiConfigItemResult.value?.sections || [],
+);
+
+// apiConfigSnapshotYaml 保存 API 完整运行态配置快照，字段值已由 API 后端脱敏。
+const apiConfigSnapshotYaml = computed(
+  () => apiConfigItemResult.value?.snapshotYaml || '',
+);
+
+// apiConfigRuntimeYaml 保存 API 外部运行期结构视图。
+const apiConfigRuntimeYaml = computed(
+  () => apiConfigItemResult.value?.runtimeYaml || '',
+);
+
+// activeAPIConfigYaml 返回 API 当前选中的 YAML 文本。
+const activeAPIConfigYaml = computed(() =>
+  apiConfigYamlViewMode.value === 'runtime'
+    ? apiConfigRuntimeYaml.value
+    : apiConfigSnapshotYaml.value,
+);
+
+// activeAPIConfigYamlLines 将 API YAML 文本拆成带高亮 token 的只读行数据。
+const activeAPIConfigYamlLines = computed(() =>
+  buildConfigYamlLines(activeAPIConfigYaml.value),
+);
+
+// canQueryActiveConfigItems 判断当前 Tab 是否可查看对应进程的运行态配置项。
+const canQueryActiveConfigItems = computed(() =>
+  activeReloadTab.value === 'api'
+    ? canQueryAPIRuntimeConfigReloadItems.value
+    : canQueryConfigItems.value,
+);
+
+// activeConfigItemsTitle 返回当前 Tab 的配置项面板标题。
+const activeConfigItemsTitle = computed(() =>
+  activeReloadTab.value === 'api'
+    ? `${$t('business.message.apiConfigHotReload')} / ${$t(
+        'business.message.configRuntimeItems',
+      )}`
+    : $t('business.message.configRuntimeItems'),
+);
+
+// activeConfigItemsGuide 返回当前 Tab 的配置项引导文案。
+const activeConfigItemsGuide = computed(() =>
+  activeReloadTab.value === 'api'
+    ? $t('business.message.apiConfigRuntimeItemsGuide')
+    : $t('business.message.configRuntimeItemsGuide'),
+);
+
+// activeConfigItemsLoading 读取当前 Tab 配置项加载状态。
+const activeConfigItemsLoading = computed(() =>
+  activeReloadTab.value === 'api'
+    ? apiConfigItemsLoading.value
+    : configItemsLoading.value,
+);
+
+// activeConfigItemsLoaded 读取当前 Tab 配置项是否已加载。
+const activeConfigItemsLoaded = computed(() =>
+  activeReloadTab.value === 'api'
+    ? apiConfigItemsLoaded.value
+    : configItemsLoaded.value,
+);
+
+// activeConfigItemKeyword 双向绑定当前 Tab 配置项关键字。
+const activeConfigItemKeyword = computed({
+  get: () =>
+    activeReloadTab.value === 'api'
+      ? apiConfigItemKeyword.value
+      : configItemKeyword.value,
+  set: (value: string) => {
+    if (activeReloadTab.value === 'api') {
+      apiConfigItemKeyword.value = value;
+      return;
+    }
+    configItemKeyword.value = value;
+  },
+});
+
+// activeConfigItemSensitiveOnly 双向绑定当前 Tab 是否只看敏感项。
+const activeConfigItemSensitiveOnly = computed({
+  get: () =>
+    activeReloadTab.value === 'api'
+      ? apiConfigItemSensitiveOnly.value
+      : configItemSensitiveOnly.value,
+  set: (value: boolean) => {
+    if (activeReloadTab.value === 'api') {
+      apiConfigItemSensitiveOnly.value = value;
+      return;
+    }
+    configItemSensitiveOnly.value = value;
+  },
+});
+
+// activeConfigItemViewMode 双向绑定当前 Tab 的配置项展示模式。
+const activeConfigItemViewMode = computed({
+  get: () =>
+    activeReloadTab.value === 'api'
+      ? apiConfigItemViewMode.value
+      : configItemViewMode.value,
+  set: (value: ConfigItemViewMode) => {
+    if (activeReloadTab.value === 'api') {
+      apiConfigItemViewMode.value = value;
+      return;
+    }
+    configItemViewMode.value = value;
+  },
+});
+
+// activeConfigYamlViewMode 双向绑定当前 Tab 的 YAML 视图模式。
+const activeConfigYamlViewMode = computed({
+  get: () =>
+    activeReloadTab.value === 'api'
+      ? apiConfigYamlViewMode.value
+      : configYamlViewMode.value,
+  set: (value: ConfigYamlViewMode) => {
+    if (activeReloadTab.value === 'api') {
+      apiConfigYamlViewMode.value = value;
+      return;
+    }
+    configYamlViewMode.value = value;
+  },
+});
+
+// activeConfigItemOverviewRows 返回当前 Tab 的配置项统计行。
+const activeConfigItemOverviewRows = computed(() =>
+  activeReloadTab.value === 'api'
+    ? apiConfigItemOverviewRows.value
+    : configItemOverviewRows.value,
+);
+
+// activeConfigItemSourceRows 返回当前 Tab 的配置来源行。
+const activeConfigItemSourceRows = computed(() =>
+  activeReloadTab.value === 'api'
+    ? apiConfigItemSourceRows.value
+    : configItemSourceRows.value,
+);
+
+// activeConfigItemSections 返回当前 Tab 的顶层配置段统计。
+const activeConfigItemSections = computed(() =>
+  activeReloadTab.value === 'api'
+    ? apiConfigItemSections.value
+    : configItemSections.value,
+);
+
+// activeRuntimeYaml 返回当前 Tab 的外部运行期 YAML 视图。
+const activeRuntimeYaml = computed(() =>
+  activeReloadTab.value === 'api'
+    ? apiConfigRuntimeYaml.value
+    : configRuntimeYaml.value,
+);
+
+// activeConfigYamlText 返回当前 Tab 已选中的 YAML 文本。
+const activeConfigYamlText = computed(() =>
+  activeReloadTab.value === 'api'
+    ? activeAPIConfigYaml.value
+    : activeConfigYaml.value,
+);
+
+// activeConfigYamlLineRows 返回当前 Tab 已选中的 YAML 行数据。
+const activeConfigYamlLineRows = computed(() =>
+  activeReloadTab.value === 'api'
+    ? activeAPIConfigYamlLines.value
+    : activeConfigYamlLines.value,
+);
+
+// activeConfigTableItems 返回当前 Tab 的配置项表格数据。
+const activeConfigTableItems = computed(() =>
+  activeReloadTab.value === 'api' ? apiConfigItems.value : configItems.value,
+);
+
+// activeConfigItemPage 返回当前 Tab 的配置项页码。
+const activeConfigItemPage = computed(() =>
+  activeReloadTab.value === 'api'
+    ? apiConfigItemPage.value
+    : configItemPage.value,
+);
+
+// activeConfigItemPageSize 返回当前 Tab 的配置项页大小。
+const activeConfigItemPageSize = computed(() =>
+  activeReloadTab.value === 'api'
+    ? apiConfigItemPageSize.value
+    : configItemPageSize.value,
+);
+
+// activeConfigItemTotal 返回当前 Tab 的配置项总数。
+const activeConfigItemTotal = computed(() =>
+  activeReloadTab.value === 'api'
+    ? apiConfigItemTotal.value
+    : configItemTotal.value,
 );
 
 // hotReloadSummaryRows 生成“热加载状态总览”区域所需字段。
@@ -480,6 +649,83 @@ const apiRuntimeDetailRows = computed(() => {
     },
   ];
 });
+
+// buildConfigItemOverviewRows 生成运行态配置项结果总览。
+function buildConfigItemOverviewRows(
+  result?: null | TaskApi.TaskConfigItemQueryResp,
+) {
+  if (!result) {
+    return [];
+  }
+  return [
+    {
+      label: $t('business.message.configMatchedItems'),
+      value: String(result.total || 0),
+      description: result.keyword || $t('business.message.all'),
+    },
+    {
+      label: $t('business.message.configTotalItems'),
+      value: String(result.totalItems || 0),
+      description: $t('business.message.configTotalItemsDesc'),
+    },
+    {
+      label: $t('business.message.configSensitiveItems'),
+      value: String(result.sensitiveTotal || 0),
+      description: $t('business.message.configSensitiveItemsDesc'),
+    },
+    {
+      label: $t('business.message.configSnapshotVersion'),
+      value: result.source?.configVersion || '-',
+      description: $t('business.message.configSnapshotVersionDesc'),
+    },
+  ];
+}
+
+// buildConfigItemSourceRows 生成运行态配置项来源元信息。
+function buildConfigItemSourceRows(source?: TaskApi.TaskConfigSourceMeta) {
+  if (!source) {
+    return [];
+  }
+  return [
+    {
+      label: $t('business.message.configSource'),
+      value:
+        source.source === 'runtime_snapshot'
+          ? $t('business.message.configSourceRuntimeSnapshot')
+          : source.source || '-',
+    },
+    {
+      label: $t('business.message.configFile'),
+      value: source.configFile || '-',
+    },
+    {
+      label: $t('business.message.runtimeConfigFile'),
+      value: source.runtimeFile || '-',
+    },
+    {
+      label: $t('business.message.currentStatus'),
+      value: buildHotReloadStatusLabel(source.lastStatus),
+    },
+    {
+      label: $t('business.message.latestTriggerSource'),
+      value: buildHotReloadTriggerLabel(source.lastTriggerSource),
+    },
+    {
+      label: $t('business.message.latestReloadTime'),
+      value: source.lastReloadAt || '-',
+    },
+    {
+      label: $t('business.message.latestSuccessTime'),
+      value: source.lastSuccessAt || '-',
+    },
+    {
+      label: $t('business.message.restartRequired'),
+      value: source.restartRequired
+        ? $t('business.message.needRestartProcess')
+        : $t('business.message.noRestartRequired'),
+    },
+  ];
+}
 
 // buildOverflowTooltipProps 返回统一的长文本悬浮展示配置。
 function buildOverflowTooltipProps(text: string): OverflowTooltipProps {
@@ -673,9 +919,10 @@ async function handleFetchConfigReloadStatus() {
     configReloadStatusText.value = safePrettyJson(responseData);
     message.success($t('business.message.configHotReloadStatusQueried'));
   } catch (error) {
+    const errorMessage = await resolveRequestErrorMessage(error);
     configReloadStatus.value = null;
     configReloadStatusText.value = $t('business.message.queryFailed', [
-      String(error),
+      errorMessage,
     ]);
   } finally {
     submitting.value = false;
@@ -694,9 +941,10 @@ async function handleRunConfigReload() {
     }
     message.success($t('business.message.configHotReloadExecuted'));
   } catch (error) {
+    const errorMessage = await resolveRequestErrorMessage(error);
     configReloadStatus.value = null;
     configReloadStatusText.value = $t('business.message.runFailed', [
-      String(error),
+      errorMessage,
     ]);
   } finally {
     submitting.value = false;
@@ -712,9 +960,10 @@ async function handleFetchAPIRuntimeConfigReloadStatus() {
     apiRuntimeStatusText.value = safePrettyJson(responseData);
     message.success($t('business.message.apiConfigHotReloadStatusQueried'));
   } catch (error) {
+    const errorMessage = await resolveRequestErrorMessage(error);
     apiRuntimeStatus.value = null;
     apiRuntimeStatusText.value = $t('business.message.queryFailed', [
-      String(error),
+      errorMessage,
     ]);
   } finally {
     apiRuntimeSubmitting.value = false;
@@ -732,14 +981,78 @@ async function handleRunAPIRuntimeConfigReload() {
     );
     apiRuntimeStatus.value = responseData;
     apiRuntimeStatusText.value = safePrettyJson(responseData);
+    if (
+      apiConfigItemsLoaded.value &&
+      canQueryAPIRuntimeConfigReloadItems.value
+    ) {
+      await handleFetchAPIConfigItems(false, false);
+    }
     message.success($t('business.message.apiConfigHotReloadExecuted'));
   } catch (error) {
+    const errorMessage = await resolveRequestErrorMessage(error);
     apiRuntimeStatus.value = null;
     apiRuntimeStatusText.value = $t('business.message.runFailed', [
-      String(error),
+      errorMessage,
     ]);
   } finally {
     apiRuntimeSubmitting.value = false;
+  }
+}
+
+// handleFetchAPIConfigItems 查询 API 当前运行态配置项。
+async function handleFetchAPIConfigItems(resetPage = true, showToast = true) {
+  if (!canQueryAPIRuntimeConfigReloadItems.value) {
+    return;
+  }
+  if (resetPage) {
+    apiConfigItemPage.value = 1;
+  }
+  apiConfigItemsLoading.value = true;
+  try {
+    const responseData = await fetchAPIRuntimeConfigReloadItems({
+      keyword: apiConfigItemKeyword.value.trim(),
+      page: apiConfigItemPage.value,
+      pageSize: apiConfigItemPageSize.value,
+      sensitiveOnly: apiConfigItemSensitiveOnly.value,
+    });
+    if (!responseData.connected || !responseData.items) {
+      apiConfigItemResult.value = null;
+      apiConfigItems.value = [];
+      apiConfigItemTotal.value = 0;
+      apiConfigItemsLoaded.value = true;
+      message.warning(responseData.message || '-');
+      return;
+    }
+    const firstLoad = !apiConfigItemsLoaded.value;
+    const itemsResult = responseData.items;
+    apiConfigItemResult.value = itemsResult;
+    apiConfigItems.value = itemsResult.items || [];
+    apiConfigItemTotal.value = Number(itemsResult.total || 0);
+    apiConfigItemPage.value = Number(itemsResult.page || 1);
+    apiConfigItemPageSize.value = Number(itemsResult.pageSize || 20);
+    apiConfigItemsLoaded.value = true;
+    if (firstLoad) {
+      apiConfigItemViewMode.value = 'yaml';
+      apiConfigYamlViewMode.value = itemsResult.runtimeYaml
+        ? 'runtime'
+        : 'snapshot';
+    } else if (
+      !itemsResult.runtimeYaml &&
+      apiConfigYamlViewMode.value === 'runtime'
+    ) {
+      apiConfigYamlViewMode.value = 'snapshot';
+    }
+    if (showToast) {
+      message.success($t('business.message.configItemsQueried'));
+    }
+  } catch (error) {
+    const errorMessage = await resolveRequestErrorMessage(error);
+    apiConfigItemResult.value = null;
+    apiConfigItems.value = [];
+    apiConfigItemTotal.value = 0;
+    message.error($t('business.message.queryFailed', [errorMessage]));
+  } finally {
+    apiConfigItemsLoading.value = false;
   }
 }
 
@@ -781,10 +1094,11 @@ async function handleFetchConfigItems(resetPage = true, showToast = true) {
       message.success($t('business.message.configItemsQueried'));
     }
   } catch (error) {
+    const errorMessage = await resolveRequestErrorMessage(error);
     configItemResult.value = null;
     configItems.value = [];
     configItemTotal.value = 0;
-    message.error($t('business.message.queryFailed', [String(error)]));
+    message.error($t('business.message.queryFailed', [errorMessage]));
   } finally {
     configItemsLoading.value = false;
   }
@@ -797,6 +1111,32 @@ function handleConfigItemTableChange(pagination: ConfigItemTablePagination) {
   void handleFetchConfigItems(false, false);
 }
 
+// handleAPIConfigItemTableChange 同步 API 配置项分页变化后重新查询。
+function handleAPIConfigItemTableChange(pagination: ConfigItemTablePagination) {
+  apiConfigItemPage.value = Number(pagination.current || 1);
+  apiConfigItemPageSize.value = Number(pagination.pageSize || 20);
+  void handleFetchAPIConfigItems(false, false);
+}
+
+// handleFetchActiveConfigItems 根据当前 Tab 查询对应进程的运行态配置项。
+function handleFetchActiveConfigItems(resetPage = true, showToast = true) {
+  if (activeReloadTab.value === 'api') {
+    return handleFetchAPIConfigItems(resetPage, showToast);
+  }
+  return handleFetchConfigItems(resetPage, showToast);
+}
+
+// handleActiveConfigItemTableChange 根据当前 Tab 同步配置项分页。
+function handleActiveConfigItemTableChange(
+  pagination: ConfigItemTablePagination,
+) {
+  if (activeReloadTab.value === 'api') {
+    handleAPIConfigItemTableChange(pagination);
+    return;
+  }
+  handleConfigItemTableChange(pagination);
+}
+
 // handleCopyConfigYaml 复制当前选中的脱敏 YAML，便于排障时保留可读快照。
 async function handleCopyConfigYaml() {
   await copyTextToClipboard(
@@ -804,6 +1144,23 @@ async function handleCopyConfigYaml() {
     $t('business.message.configYamlCopied'),
     $t('business.message.noConfigYamlToCopy'),
   );
+}
+
+// handleCopyAPIConfigYaml 复制 API 当前选中的脱敏 YAML。
+async function handleCopyAPIConfigYaml() {
+  await copyTextToClipboard(
+    activeAPIConfigYaml.value,
+    $t('business.message.configYamlCopied'),
+    $t('business.message.noConfigYamlToCopy'),
+  );
+}
+
+// handleCopyActiveConfigYaml 根据当前 Tab 复制对应进程的脱敏 YAML。
+function handleCopyActiveConfigYaml() {
+  if (activeReloadTab.value === 'api') {
+    return handleCopyAPIConfigYaml();
+  }
+  return handleCopyConfigYaml();
 }
 
 onMounted(() => {
@@ -818,7 +1175,7 @@ onMounted(() => {
 
 <template>
   <Page :title="$t('business.message.configHotReload')">
-    <div class="space-y-8">
+    <div class="space-y-2">
       <Alert
         v-if="!canManageConfigReload"
         :message="$t('business.message.noConfigHotReloadPermission')"
@@ -826,460 +1183,485 @@ onMounted(() => {
         show-icon
         type="warning"
       />
-      <Card
-        class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
-        :title="$t('business.message.configHotReload')"
-      >
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div
-            class="min-w-0 flex-1 text-sm leading-6 text-slate-500 dark:text-slate-300"
-          >
-            {{ $t('business.message.configHotReloadGuide') }}
-          </div>
-          <Space class="shrink-0" :size="8" wrap>
-            <VbenButton
-              v-access="
-                asActionPermission(
-                  OPS_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_STATUS,
-                )
-              "
-              :disabled="submitting"
-              @click="handleFetchConfigReloadStatus"
-            >
-              {{ $t('business.message.queryHotReloadStatus') }}
-            </VbenButton>
-            <VbenButton
-              v-access="
-                asActionPermission(
-                  OPS_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_RUN,
-                )
-              "
-              type="primary"
-              :disabled="submitting"
-              @click="handleRunConfigReload"
-            >
-              {{ $t('business.message.triggerHotReload') }}
-            </VbenButton>
-            <VbenButton
-              v-if="configReloadStatusText"
-              :disabled="submitting"
-              @click="showConfigReloadRaw = !showConfigReloadRaw"
-            >
-              {{
-                showConfigReloadRaw
-                  ? $t('business.message.closeRawReceipt')
-                  : $t('business.message.viewRawReceipt')
-              }}
-            </VbenButton>
-          </Space>
-        </div>
-        <div
-          v-if="hotReloadDetailRows.length > 0"
-          class="mt-4 overflow-hidden border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950/30"
+      <Tabs v-model:active-key="activeReloadTab" class="config-reload-tabs">
+        <Tabs.TabPane
+          key="admin"
+          :tab="$t('business.message.configHotReload')"
+        />
+        <Tabs.TabPane
+          key="api"
+          :tab="$t('business.message.apiConfigHotReload')"
+        />
+      </Tabs>
+      <div class="mt-3 grid gap-2">
+        <Card
+          v-if="activeReloadTab === 'admin'"
+          class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+          :title="$t('business.message.configHotReload')"
         >
-          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
+          <div class="flex flex-wrap items-start justify-between gap-3">
             <div
-              v-for="item in hotReloadDetailRows"
-              :key="item.label"
-              class="min-w-0 border-b border-slate-200 px-4 py-3 last:border-b-0 md:border-r md:[&:nth-child(2n)]:border-r-0 xl:[&:nth-child(2n)]:border-r xl:[&:nth-child(4n)]:border-r-0 dark:border-slate-700"
+              class="min-w-0 flex-1 text-sm leading-6 text-slate-500 dark:text-slate-300"
             >
-              <div class="truncate text-xs font-medium text-slate-400">
-                {{ item.label }}
-              </div>
-              <Tooltip
-                v-if="String(item.value || '').trim()"
-                v-bind="buildOverflowTooltipProps(String(item.value))"
-              >
-                <div
-                  class="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-slate-100"
-                  :title="String(item.value)"
-                >
-                  {{ item.value }}
-                </div>
-              </Tooltip>
-              <div
-                v-else
-                class="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-slate-100"
-              >
-                {{ item.value }}
-              </div>
-              <Tooltip v-bind="buildOverflowTooltipProps(item.description)">
-                <div class="mt-2 truncate text-xs text-slate-500">
-                  {{ item.description }}
-                </div>
-              </Tooltip>
+              {{ $t('business.message.configHotReloadGuide') }}
             </div>
-          </div>
-        </div>
-        <pre
-          v-if="showConfigReloadRaw && configReloadStatusText"
-          class="mt-4 overflow-auto rounded-2xl border border-amber-500/20 bg-slate-950 px-4 py-4 text-sm text-amber-100 shadow-inner"
-          v-text="configReloadStatusText"
-        ></pre>
-      </Card>
-
-      <Card
-        class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
-        :title="$t('business.message.apiConfigHotReload')"
-      >
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div
-            class="min-w-0 flex-1 text-sm leading-6 text-slate-500 dark:text-slate-300"
-          >
-            {{ $t('business.message.apiConfigHotReloadGuide') }}
-          </div>
-          <Space class="shrink-0" :size="8" wrap>
-            <VbenButton
-              v-access="
-                asActionPermission(
-                  OPS_ACTION_PERMISSION_CODES.API_RUNTIME_CONFIG_RELOAD_STATUS,
-                )
-              "
-              :disabled="apiRuntimeSubmitting"
-              @click="handleFetchAPIRuntimeConfigReloadStatus"
-            >
-              {{ $t('business.message.queryApiHotReloadStatus') }}
-            </VbenButton>
-            <VbenButton
-              v-access="
-                asActionPermission(
-                  OPS_ACTION_PERMISSION_CODES.API_RUNTIME_CONFIG_RELOAD_RUN,
-                )
-              "
-              type="primary"
-              :disabled="apiRuntimeSubmitting"
-              @click="handleRunAPIRuntimeConfigReload"
-            >
-              {{ $t('business.message.triggerApiHotReload') }}
-            </VbenButton>
-            <VbenButton
-              v-if="apiRuntimeStatusText"
-              :disabled="apiRuntimeSubmitting"
-              @click="showAPIRuntimeRaw = !showAPIRuntimeRaw"
-            >
-              {{
-                showAPIRuntimeRaw
-                  ? $t('business.message.closeRawReceipt')
-                  : $t('business.message.viewRawReceipt')
-              }}
-            </VbenButton>
-          </Space>
-        </div>
-        <div
-          v-if="apiRuntimeDetailRows.length > 0"
-          class="mt-4 overflow-hidden border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950/30"
-        >
-          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
-            <div
-              v-for="item in apiRuntimeDetailRows"
-              :key="item.label"
-              class="min-w-0 border-b border-slate-200 px-4 py-3 last:border-b-0 md:border-r md:[&:nth-child(2n)]:border-r-0 xl:[&:nth-child(2n)]:border-r xl:[&:nth-child(4n)]:border-r-0 dark:border-slate-700"
-            >
-              <div class="truncate text-xs font-medium text-slate-400">
-                {{ item.label }}
-              </div>
-              <Tooltip
-                v-if="String(item.value || '').trim()"
-                v-bind="buildOverflowTooltipProps(String(item.value))"
+            <Space class="shrink-0" :size="8" wrap>
+              <VbenButton
+                v-access="
+                  asActionPermission(
+                    OPS_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_STATUS,
+                  )
+                "
+                :disabled="submitting"
+                @click="handleFetchConfigReloadStatus"
               >
-                <div
-                  class="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-slate-100"
-                  :title="String(item.value)"
-                >
-                  {{ item.value }}
-                </div>
-              </Tooltip>
-              <div
-                v-else
-                class="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-slate-100"
-              >
-                {{ item.value }}
-              </div>
-              <Tooltip v-bind="buildOverflowTooltipProps(item.description)">
-                <div class="mt-2 truncate text-xs text-slate-500">
-                  {{ item.description }}
-                </div>
-              </Tooltip>
-            </div>
-          </div>
-        </div>
-        <pre
-          v-if="showAPIRuntimeRaw && apiRuntimeStatusText"
-          class="mt-4 overflow-auto rounded-2xl border border-amber-500/20 bg-slate-950 px-4 py-4 text-sm text-amber-100 shadow-inner"
-          v-text="apiRuntimeStatusText"
-        ></pre>
-      </Card>
-
-      <Card
-        v-if="canQueryConfigItems"
-        class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
-        :title="$t('business.message.configRuntimeItems')"
-      >
-        <div
-          class="config-query-panel flex flex-col gap-4 border border-slate-200 bg-slate-50/70 p-5 dark:border-slate-700 dark:bg-slate-950/30"
-        >
-          <div
-            class="grid gap-4 2xl:grid-cols-[minmax(420px,1fr)_auto] 2xl:items-center"
-          >
-            <Input
-              v-model:value="configItemKeyword"
-              allow-clear
-              class="config-query-input w-full"
-              :maxlength="128"
-              :placeholder="$t('business.message.configItemSearchPlaceholder')"
-              size="large"
-              @press-enter="() => handleFetchConfigItems(true)"
-            />
-            <div
-              class="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center 2xl:justify-end"
-            >
-              <Switch
-                v-model:checked="configItemSensitiveOnly"
-                class="config-query-switch"
-                :checked-children="$t('business.message.sensitiveOnly')"
-                :disabled="configItemsLoading"
-                :un-checked-children="$t('business.message.all')"
-                @change="() => handleFetchConfigItems(true, false)"
-              />
-              <Button
-                class="config-query-button"
-                :disabled="configItemsLoading"
-                :loading="configItemsLoading"
-                size="large"
+                {{ $t('business.message.queryHotReloadStatus') }}
+              </VbenButton>
+              <VbenButton
+                v-access="
+                  asActionPermission(
+                    OPS_ACTION_PERMISSION_CODES.TASK_CONFIG_RELOAD_RUN,
+                  )
+                "
                 type="primary"
-                @click="handleFetchConfigItems(true)"
+                :disabled="submitting"
+                @click="handleRunConfigReload"
               >
-                <template #icon>
-                  <SearchOutlined />
-                </template>
-                {{ $t('business.message.searchConfigItems') }}
-              </Button>
-            </div>
+                {{ $t('business.message.triggerHotReload') }}
+              </VbenButton>
+              <VbenButton
+                v-if="configReloadStatusText"
+                :disabled="submitting"
+                @click="showConfigReloadRaw = !showConfigReloadRaw"
+              >
+                {{
+                  showConfigReloadRaw
+                    ? $t('business.message.closeRawReceipt')
+                    : $t('business.message.viewRawReceipt')
+                }}
+              </VbenButton>
+            </Space>
           </div>
-
-          <Alert
-            v-if="!configItemsLoaded"
-            class="config-query-alert"
-            :message="$t('business.message.configRuntimeItemsGuide')"
-            show-icon
-            type="info"
-          />
-        </div>
-
-        <template v-if="configItemsLoaded">
           <div
-            class="mt-5 overflow-hidden border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950/30"
+            v-if="hotReloadDetailRows.length > 0"
+            class="mt-4 overflow-hidden border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950/30"
           >
             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
               <div
-                v-for="item in configItemOverviewRows"
+                v-for="item in hotReloadDetailRows"
                 :key="item.label"
                 class="min-w-0 border-b border-slate-200 px-4 py-3 last:border-b-0 md:border-r md:[&:nth-child(2n)]:border-r-0 xl:[&:nth-child(2n)]:border-r xl:[&:nth-child(4n)]:border-r-0 dark:border-slate-700"
               >
-                <div class="truncate text-xs font-medium text-slate-500">
+                <div class="truncate text-xs font-medium text-slate-400">
                   {{ item.label }}
                 </div>
-                <Tooltip v-bind="buildOverflowTooltipProps(String(item.value))">
+                <Tooltip
+                  v-if="String(item.value || '').trim()"
+                  v-bind="buildOverflowTooltipProps(String(item.value))"
+                >
                   <div
-                    class="mt-1 truncate text-base font-semibold text-slate-950 dark:text-slate-50"
+                    class="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-slate-100"
+                    :title="String(item.value)"
                   >
                     {{ item.value }}
                   </div>
                 </Tooltip>
+                <div
+                  v-else
+                  class="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-slate-100"
+                >
+                  {{ item.value }}
+                </div>
                 <Tooltip v-bind="buildOverflowTooltipProps(item.description)">
-                  <div class="mt-1 truncate text-xs text-slate-400">
+                  <div class="mt-2 truncate text-xs text-slate-500">
                     {{ item.description }}
                   </div>
                 </Tooltip>
               </div>
             </div>
           </div>
+          <pre
+            v-if="showConfigReloadRaw && configReloadStatusText"
+            class="mt-4 overflow-auto rounded-2xl border border-amber-500/20 bg-slate-950 px-4 py-4 text-sm text-amber-100 shadow-inner"
+            v-text="configReloadStatusText"
+          ></pre>
+        </Card>
 
-          <div
-            class="mt-5 overflow-hidden border border-slate-200 bg-slate-50/70 dark:border-slate-700 dark:bg-slate-950/30"
-          >
+        <Card
+          v-if="activeReloadTab === 'api'"
+          class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+          :title="$t('business.message.apiConfigHotReload')"
+        >
+          <div class="flex flex-wrap items-start justify-between gap-3">
             <div
-              class="border-b border-slate-200 px-4 py-3 text-xs font-medium text-slate-500 dark:border-slate-700"
+              class="min-w-0 flex-1 text-sm leading-6 text-slate-500 dark:text-slate-300"
             >
-              {{ $t('business.message.configSourceMeta') }}
+              {{ $t('business.message.apiConfigHotReloadGuide') }}
             </div>
+            <Space class="shrink-0" :size="8" wrap>
+              <VbenButton
+                v-access="
+                  asActionPermission(
+                    OPS_ACTION_PERMISSION_CODES.API_RUNTIME_CONFIG_RELOAD_STATUS,
+                  )
+                "
+                :disabled="apiRuntimeSubmitting"
+                @click="handleFetchAPIRuntimeConfigReloadStatus"
+              >
+                {{ $t('business.message.queryApiHotReloadStatus') }}
+              </VbenButton>
+              <VbenButton
+                v-access="
+                  asActionPermission(
+                    OPS_ACTION_PERMISSION_CODES.API_RUNTIME_CONFIG_RELOAD_RUN,
+                  )
+                "
+                type="primary"
+                :disabled="apiRuntimeSubmitting"
+                @click="handleRunAPIRuntimeConfigReload"
+              >
+                {{ $t('business.message.triggerApiHotReload') }}
+              </VbenButton>
+              <VbenButton
+                v-if="apiRuntimeStatusText"
+                :disabled="apiRuntimeSubmitting"
+                @click="showAPIRuntimeRaw = !showAPIRuntimeRaw"
+              >
+                {{
+                  showAPIRuntimeRaw
+                    ? $t('business.message.closeRawReceipt')
+                    : $t('business.message.viewRawReceipt')
+                }}
+              </VbenButton>
+            </Space>
+          </div>
+          <div
+            v-if="apiRuntimeDetailRows.length > 0"
+            class="mt-4 overflow-hidden border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950/30"
+          >
             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
               <div
-                v-for="item in configItemSourceRows"
+                v-for="item in apiRuntimeDetailRows"
                 :key="item.label"
                 class="min-w-0 border-b border-slate-200 px-4 py-3 last:border-b-0 md:border-r md:[&:nth-child(2n)]:border-r-0 xl:[&:nth-child(2n)]:border-r xl:[&:nth-child(4n)]:border-r-0 dark:border-slate-700"
               >
-                <div class="truncate text-xs text-slate-400">
+                <div class="truncate text-xs font-medium text-slate-400">
                   {{ item.label }}
                 </div>
-                <Tooltip v-bind="buildOverflowTooltipProps(String(item.value))">
+                <Tooltip
+                  v-if="String(item.value || '').trim()"
+                  v-bind="buildOverflowTooltipProps(String(item.value))"
+                >
                   <div
-                    class="mt-1 truncate text-xs font-medium text-slate-700 dark:text-slate-200"
+                    class="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-slate-100"
+                    :title="String(item.value)"
                   >
                     {{ item.value }}
+                  </div>
+                </Tooltip>
+                <div
+                  v-else
+                  class="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-slate-100"
+                >
+                  {{ item.value }}
+                </div>
+                <Tooltip v-bind="buildOverflowTooltipProps(item.description)">
+                  <div class="mt-2 truncate text-xs text-slate-500">
+                    {{ item.description }}
                   </div>
                 </Tooltip>
               </div>
             </div>
           </div>
+          <pre
+            v-if="showAPIRuntimeRaw && apiRuntimeStatusText"
+            class="mt-4 overflow-auto rounded-2xl border border-amber-500/20 bg-slate-950 px-4 py-4 text-sm text-amber-100 shadow-inner"
+            v-text="apiRuntimeStatusText"
+          ></pre>
+        </Card>
 
+        <Card
+          v-if="canQueryActiveConfigItems"
+          class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+          :title="activeConfigItemsTitle"
+        >
           <div
-            v-if="configItemSections.length > 0"
-            class="mt-5 border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950/30"
+            class="config-query-panel flex flex-col gap-4 border border-slate-200 bg-slate-50/70 p-5 dark:border-slate-700 dark:bg-slate-950/30"
           >
-            <div class="mb-2 text-xs font-medium text-slate-500">
-              {{ $t('business.message.configTopSections') }}
-            </div>
-            <div class="flex flex-wrap gap-2">
-              <Tag
-                v-for="section in configItemSections"
-                :key="section.name"
-                :color="section.sensitiveTotal > 0 ? 'warning' : 'default'"
-              >
-                {{ section.name }} · {{ section.total }} /
-                {{ section.sensitiveTotal }}
-              </Tag>
-            </div>
-          </div>
-
-          <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
-            <div class="flex min-w-0 flex-wrap items-center gap-2">
-              <Radio.Group
-                v-model:value="configItemViewMode"
-                button-style="solid"
-              >
-                <Radio.Button value="yaml">
-                  <FileTextOutlined />
-                  {{ $t('business.message.yamlView') }}
-                </Radio.Button>
-                <Radio.Button value="table">
-                  <TableOutlined />
-                  {{ $t('business.message.tableView') }}
-                </Radio.Button>
-              </Radio.Group>
-              <Radio.Group
-                v-if="configItemViewMode === 'yaml'"
-                v-model:value="configYamlViewMode"
-                button-style="solid"
-              >
-                <Radio.Button value="runtime" :disabled="!configRuntimeYaml">
-                  {{ $t('business.message.runtimeYamlView') }}
-                </Radio.Button>
-                <Radio.Button value="snapshot">
-                  {{ $t('business.message.snapshotYamlView') }}
-                </Radio.Button>
-              </Radio.Group>
-            </div>
-            <Button
-              v-if="configItemViewMode === 'yaml'"
-              class="shrink-0"
-              size="small"
-              :disabled="!activeConfigYaml"
-              @click="handleCopyConfigYaml"
+            <div
+              class="grid gap-4 2xl:grid-cols-[minmax(420px,1fr)_auto] 2xl:items-center"
             >
-              <template #icon>
-                <CopyOutlined />
-              </template>
-              {{ $t('business.message.copyConfigYaml') }}
-            </Button>
-          </div>
-
-          <div
-            v-if="configItemViewMode === 'yaml'"
-            :aria-label="$t('business.message.yamlView')"
-            class="config-yaml-view mt-4 max-h-[640px] overflow-auto border border-slate-200 bg-slate-950 font-mono text-[13px] leading-5 shadow-inner dark:border-slate-700"
-            role="region"
-          >
-            <div v-if="activeConfigYamlLines.length > 0" class="min-w-max py-3">
+              <Input
+                v-model:value="activeConfigItemKeyword"
+                allow-clear
+                class="config-query-input w-full"
+                :maxlength="128"
+                :placeholder="
+                  $t('business.message.configItemSearchPlaceholder')
+                "
+                size="large"
+                @press-enter="() => handleFetchActiveConfigItems(true)"
+              />
               <div
-                v-for="line in activeConfigYamlLines"
-                :key="line.no"
-                class="config-yaml-line grid min-w-max"
+                class="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center 2xl:justify-end"
               >
-                <span
-                  class="config-yaml-line-no sticky left-0 select-none border-r border-slate-800 bg-slate-950 px-3 text-right text-slate-500"
+                <Switch
+                  v-model:checked="activeConfigItemSensitiveOnly"
+                  class="config-query-switch"
+                  :checked-children="$t('business.message.sensitiveOnly')"
+                  :disabled="activeConfigItemsLoading"
+                  :un-checked-children="$t('business.message.all')"
+                  @change="() => handleFetchActiveConfigItems(true, false)"
+                />
+                <Button
+                  class="config-query-button"
+                  :disabled="activeConfigItemsLoading"
+                  :loading="activeConfigItemsLoading"
+                  size="large"
+                  type="primary"
+                  @click="handleFetchActiveConfigItems(true)"
                 >
-                  {{ line.no }}
-                </span>
-                <code class="whitespace-pre px-3">
-                  <span
-                    v-for="(token, tokenIndex) in line.tokens"
-                    :key="`${line.no}-${tokenIndex}`"
-                    :class="configYamlTokenClassMap[token.type]"
-                  >
-                    {{ token.text }}
-                  </span>
-                </code>
+                  <template #icon>
+                    <SearchOutlined />
+                  </template>
+                  {{ $t('business.message.searchConfigItems') }}
+                </Button>
               </div>
             </div>
-            <div v-else class="px-4 py-4 text-slate-400">-</div>
+
+            <Alert
+              v-if="!activeConfigItemsLoaded"
+              class="config-query-alert"
+              :message="activeConfigItemsGuide"
+              show-icon
+              type="info"
+            />
           </div>
 
-          <Table
-            v-else
-            class="mt-4"
-            :columns="configItemColumns"
-            :data-source="configItems"
-            :loading="configItemsLoading"
-            :pagination="{
-              current: configItemPage,
-              pageSize: configItemPageSize,
-              showSizeChanger: true,
-              total: configItemTotal,
-            }"
-            :scroll="{ x: 960 }"
-            row-key="path"
-            size="small"
-            @change="handleConfigItemTableChange"
-          >
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'path'">
-                <Tooltip
-                  v-bind="buildOverflowTooltipProps(String(record.path || '-'))"
+          <template v-if="activeConfigItemsLoaded">
+            <div
+              class="mt-5 overflow-hidden border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950/30"
+            >
+              <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
+                <div
+                  v-for="item in activeConfigItemOverviewRows"
+                  :key="item.label"
+                  class="min-w-0 border-b border-slate-200 px-4 py-3 last:border-b-0 md:border-r md:[&:nth-child(2n)]:border-r-0 xl:[&:nth-child(2n)]:border-r xl:[&:nth-child(4n)]:border-r-0 dark:border-slate-700"
                 >
-                  <span
-                    class="block max-w-full truncate font-mono text-xs text-slate-700 dark:text-slate-200"
+                  <div class="truncate text-xs font-medium text-slate-500">
+                    {{ item.label }}
+                  </div>
+                  <Tooltip
+                    v-bind="buildOverflowTooltipProps(String(item.value))"
                   >
-                    {{ record.path || '-' }}
-                  </span>
-                </Tooltip>
-              </template>
-              <template v-else-if="column.key === 'value'">
-                <Tooltip
-                  v-bind="
-                    buildOverflowTooltipProps(String(record.value || '-'))
-                  "
+                    <div
+                      class="mt-1 truncate text-base font-semibold text-slate-950 dark:text-slate-50"
+                    >
+                      {{ item.value }}
+                    </div>
+                  </Tooltip>
+                  <Tooltip v-bind="buildOverflowTooltipProps(item.description)">
+                    <div class="mt-1 truncate text-xs text-slate-400">
+                      {{ item.description }}
+                    </div>
+                  </Tooltip>
+                </div>
+              </div>
+            </div>
+
+            <div
+              class="mt-5 overflow-hidden border border-slate-200 bg-slate-50/70 dark:border-slate-700 dark:bg-slate-950/30"
+            >
+              <div
+                class="border-b border-slate-200 px-4 py-3 text-xs font-medium text-slate-500 dark:border-slate-700"
+              >
+                {{ $t('business.message.configSourceMeta') }}
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
+                <div
+                  v-for="item in activeConfigItemSourceRows"
+                  :key="item.label"
+                  class="min-w-0 border-b border-slate-200 px-4 py-3 last:border-b-0 md:border-r md:[&:nth-child(2n)]:border-r-0 xl:[&:nth-child(2n)]:border-r xl:[&:nth-child(4n)]:border-r-0 dark:border-slate-700"
+                >
+                  <div class="truncate text-xs text-slate-400">
+                    {{ item.label }}
+                  </div>
+                  <Tooltip
+                    v-bind="buildOverflowTooltipProps(String(item.value))"
+                  >
+                    <div
+                      class="mt-1 truncate text-xs font-medium text-slate-700 dark:text-slate-200"
+                    >
+                      {{ item.value }}
+                    </div>
+                  </Tooltip>
+                </div>
+              </div>
+            </div>
+
+            <div
+              v-if="activeConfigItemSections.length > 0"
+              class="mt-5 border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950/30"
+            >
+              <div class="mb-2 text-xs font-medium text-slate-500">
+                {{ $t('business.message.configTopSections') }}
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <Tag
+                  v-for="section in activeConfigItemSections"
+                  :key="section.name"
+                  :color="section.sensitiveTotal > 0 ? 'warning' : 'default'"
+                >
+                  {{ section.name }} · {{ section.total }} /
+                  {{ section.sensitiveTotal }}
+                </Tag>
+              </div>
+            </div>
+
+            <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
+              <div class="flex min-w-0 flex-wrap items-center gap-2">
+                <Radio.Group
+                  v-model:value="activeConfigItemViewMode"
+                  button-style="solid"
+                >
+                  <Radio.Button value="yaml">
+                    <FileTextOutlined />
+                    {{ $t('business.message.yamlView') }}
+                  </Radio.Button>
+                  <Radio.Button value="table">
+                    <TableOutlined />
+                    {{ $t('business.message.tableView') }}
+                  </Radio.Button>
+                </Radio.Group>
+                <Radio.Group
+                  v-if="activeConfigItemViewMode === 'yaml'"
+                  v-model:value="activeConfigYamlViewMode"
+                  button-style="solid"
+                >
+                  <Radio.Button value="runtime" :disabled="!activeRuntimeYaml">
+                    {{ $t('business.message.runtimeYamlView') }}
+                  </Radio.Button>
+                  <Radio.Button value="snapshot">
+                    {{ $t('business.message.snapshotYamlView') }}
+                  </Radio.Button>
+                </Radio.Group>
+              </div>
+              <Button
+                v-if="activeConfigItemViewMode === 'yaml'"
+                class="shrink-0"
+                size="small"
+                :disabled="!activeConfigYamlText"
+                @click="handleCopyActiveConfigYaml"
+              >
+                <template #icon>
+                  <CopyOutlined />
+                </template>
+                {{ $t('business.message.copyConfigYaml') }}
+              </Button>
+            </div>
+
+            <div
+              v-if="activeConfigItemViewMode === 'yaml'"
+              :aria-label="$t('business.message.yamlView')"
+              class="config-yaml-view mt-4 max-h-[640px] overflow-auto border border-slate-200 bg-slate-950 font-mono text-[13px] leading-5 shadow-inner dark:border-slate-700"
+              role="region"
+            >
+              <div
+                v-if="activeConfigYamlLineRows.length > 0"
+                class="min-w-max py-3"
+              >
+                <div
+                  v-for="line in activeConfigYamlLineRows"
+                  :key="line.no"
+                  class="config-yaml-line grid min-w-max"
                 >
                   <span
-                    class="block max-w-full truncate font-mono text-xs"
-                    :class="
-                      record.sensitive
-                        ? 'text-amber-700 dark:text-amber-300'
-                        : 'text-slate-700 dark:text-slate-200'
+                    class="config-yaml-line-no sticky left-0 select-none border-r border-slate-800 bg-slate-950 px-3 text-right text-slate-500"
+                  >
+                    {{ line.no }}
+                  </span>
+                  <code class="whitespace-pre px-3">
+                    <span
+                      v-for="(token, tokenIndex) in line.tokens"
+                      :key="`${line.no}-${tokenIndex}`"
+                      :class="configYamlTokenClassMap[token.type]"
+                    >
+                      {{ token.text }}
+                    </span>
+                  </code>
+                </div>
+              </div>
+              <div v-else class="px-4 py-4 text-slate-400">-</div>
+            </div>
+
+            <Table
+              v-else
+              class="mt-4"
+              :columns="configItemColumns"
+              :data-source="activeConfigTableItems"
+              :loading="activeConfigItemsLoading"
+              :pagination="{
+                current: activeConfigItemPage,
+                pageSize: activeConfigItemPageSize,
+                showSizeChanger: true,
+                total: activeConfigItemTotal,
+              }"
+              :scroll="{ x: 960 }"
+              row-key="path"
+              size="small"
+              @change="handleActiveConfigItemTableChange"
+            >
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.key === 'path'">
+                  <Tooltip
+                    v-bind="
+                      buildOverflowTooltipProps(String(record.path || '-'))
                     "
                   >
-                    {{ record.value || '-' }}
-                  </span>
-                </Tooltip>
+                    <span
+                      class="block max-w-full truncate font-mono text-xs text-slate-700 dark:text-slate-200"
+                    >
+                      {{ record.path || '-' }}
+                    </span>
+                  </Tooltip>
+                </template>
+                <template v-else-if="column.key === 'value'">
+                  <Tooltip
+                    v-bind="
+                      buildOverflowTooltipProps(String(record.value || '-'))
+                    "
+                  >
+                    <span
+                      class="block max-w-full truncate font-mono text-xs"
+                      :class="
+                        record.sensitive
+                          ? 'text-amber-700 dark:text-amber-300'
+                          : 'text-slate-700 dark:text-slate-200'
+                      "
+                    >
+                      {{ record.value || '-' }}
+                    </span>
+                  </Tooltip>
+                </template>
+                <template v-else-if="column.key === 'valueType'">
+                  <Tag color="processing">
+                    {{ record.valueType || '-' }}
+                  </Tag>
+                </template>
+                <template v-else-if="column.key === 'sensitive'">
+                  <Tag :color="record.sensitive ? 'warning' : 'default'">
+                    {{
+                      record.sensitive
+                        ? $t('business.message.masked')
+                        : $t('business.message.plain')
+                    }}
+                  </Tag>
+                </template>
               </template>
-              <template v-else-if="column.key === 'valueType'">
-                <Tag color="processing">
-                  {{ record.valueType || '-' }}
-                </Tag>
-              </template>
-              <template v-else-if="column.key === 'sensitive'">
-                <Tag :color="record.sensitive ? 'warning' : 'default'">
-                  {{
-                    record.sensitive
-                      ? $t('business.message.masked')
-                      : $t('business.message.plain')
-                  }}
-                </Tag>
-              </template>
-            </template>
-          </Table>
-        </template>
-      </Card>
+            </Table>
+          </template>
+        </Card>
+      </div>
     </div>
   </Page>
 </template>
@@ -1287,6 +1669,17 @@ onMounted(() => {
 <style scoped>
 .config-query-panel {
   border-radius: 8px;
+}
+
+.config-reload-tabs {
+  padding: 0 12px;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+}
+
+.config-reload-tabs :deep(.ant-tabs-nav) {
+  margin-bottom: 0;
 }
 
 .config-query-alert {

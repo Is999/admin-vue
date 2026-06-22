@@ -7,6 +7,12 @@ import { buildClampTextColumn } from '#/adapter/vxe-table';
 import { fetchAdminList } from '#/api/system';
 import { $t } from '#/locales';
 
+import {
+  countTagMeta,
+  messageLevelTagMap,
+  readStatusTagMap,
+} from '../table-tags';
+
 // MESSAGE_TYPE_OPTIONS 定义常用消息类型选项。
 export const MESSAGE_TYPE_OPTIONS = [
   { label: $t('business.message.messageTypeAdminLogin'), value: 'admin_login' },
@@ -53,6 +59,19 @@ export const PROCESSABLE_MESSAGE_TYPES = new Set([
 export function isProcessableMessageType(type: string) {
   return PROCESSABLE_MESSAGE_TYPES.has(String(type || '').trim());
 }
+
+// MESSAGE_TYPE_COLOR_MAP 区分消息来源类型，便于收件箱快速扫读。
+const MESSAGE_TYPE_COLOR_MAP: Record<string, string> = {
+  admin_login: 'blue',
+  leave_message: 'cyan',
+  member_offline: 'default',
+  member_online: 'success',
+  recharge_large: 'purple',
+  recharge_order_exception: 'warning',
+  withdraw_order_exception: 'error',
+  withdraw_risk_audit: 'orange',
+  work_handover: 'geekblue',
+};
 
 // MESSAGE_LEVEL_OPTIONS 定义消息等级选项。
 export const MESSAGE_LEVEL_OPTIONS = [
@@ -258,6 +277,39 @@ export function resolveMessageTypeLabel(type: string) {
   );
 }
 
+// messageTypeTagMap 返回消息类型标签样式。
+function messageTypeTagMap() {
+  return Object.fromEntries(
+    MESSAGE_TYPE_OPTIONS.map((item) => [
+      item.value,
+      {
+        color: MESSAGE_TYPE_COLOR_MAP[item.value] || 'default',
+        text: item.label,
+      },
+    ]),
+  );
+}
+
+// messageHandleTagMeta 根据消息是否可处理返回处理状态标签。
+function messageHandleTagMeta(
+  row: Pick<
+    AdminMessageApi.Item,
+    'handledByAdminName' | 'handledStatus' | 'type'
+  >,
+) {
+  if (!isProcessableMessageType(row.type)) {
+    return { color: 'default', text: '-' };
+  }
+  return Number(row.handledStatus || 0) === 1
+    ? {
+        color: 'success',
+        text: row.handledByAdminName
+          ? $t('business.message.messageHandledBy', [row.handledByAdminName])
+          : $t('business.message.messageHandled'),
+      }
+    : { color: 'warning', text: $t('business.message.messagePendingHandle') };
+}
+
 // useColumns 返回消息管理表格列配置。
 export function useColumns<T = AdminMessageApi.Item>(
   onActionClick: OnActionClickFn<T>,
@@ -265,17 +317,22 @@ export function useColumns<T = AdminMessageApi.Item>(
   return [
     { field: 'id', fixed: 'left', title: 'ID', width: 90 },
     {
+      align: 'center',
+      cellRender: {
+        attrs: { tagMap: messageTypeTagMap() },
+        name: 'CellTag',
+      },
       field: 'type',
-      formatter: ({ row }: { row: AdminMessageApi.Item }) =>
-        resolveMessageTypeLabel(row.type),
       minWidth: 150,
       title: $t('business.message.type'),
     },
     {
+      align: 'center',
+      cellRender: {
+        attrs: { tagMap: messageLevelTagMap() },
+        name: 'CellTag',
+      },
       field: 'level',
-      formatter: ({ row }: { row: AdminMessageApi.Item }) =>
-        MESSAGE_LEVEL_OPTIONS.find((item) => item.value === row.level)?.label ||
-        row.level,
       title: $t('business.message.messageLevel'),
       width: 90,
     },
@@ -291,27 +348,25 @@ export function useColumns<T = AdminMessageApi.Item>(
       },
     ),
     {
+      align: 'center',
+      cellRender: {
+        attrs: { tagMap: readStatusTagMap() },
+        name: 'CellTag',
+      },
       field: 'isRead',
-      formatter: ({ row }: { row: AdminMessageApi.Item }) =>
-        row.isRead
-          ? $t('business.message.read')
-          : $t('business.message.unread'),
       title: $t('business.message.read'),
       width: 90,
     },
     {
-      field: 'handledStatus',
-      formatter: ({ row }: { row: AdminMessageApi.Item }) => {
-        if (!isProcessableMessageType(row.type)) {
-          return '-';
-        }
-        if (Number(row.handledStatus || 0) === 1) {
-          return row.handledByAdminName
-            ? $t('business.message.messageHandledBy', [row.handledByAdminName])
-            : $t('business.message.messageHandled');
-        }
-        return $t('business.message.messagePendingHandle');
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ row }: { row: AdminMessageApi.Item }) =>
+            messageHandleTagMeta(row),
+        },
+        name: 'CellTag',
       },
+      field: 'handledStatus',
       minWidth: 140,
       title: $t('business.message.handleStatus'),
     },
@@ -377,49 +432,75 @@ export function useSentColumns<T = AdminMessageApi.SentItem>(
   return [
     { field: 'id', fixed: 'left', title: 'ID', width: 90 },
     {
+      align: 'center',
+      cellRender: {
+        attrs: { tagMap: messageTypeTagMap() },
+        name: 'CellTag',
+      },
       field: 'type',
-      formatter: ({ row }: { row: AdminMessageApi.SentItem }) =>
-        resolveMessageTypeLabel(row.type),
       minWidth: 150,
       title: $t('business.message.type'),
     },
     {
+      align: 'center',
+      cellRender: {
+        attrs: { tagMap: messageLevelTagMap() },
+        name: 'CellTag',
+      },
       field: 'level',
-      formatter: ({ row }: { row: AdminMessageApi.SentItem }) =>
-        MESSAGE_LEVEL_OPTIONS.find((item) => item.value === row.level)?.label ||
-        row.level,
       title: $t('business.message.messageLevel'),
       width: 90,
     },
     { field: 'title', minWidth: 200, title: $t('business.message.title') },
     {
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ value }: { value: unknown }) =>
+            countTagMeta(value, 'processing'),
+        },
+        name: 'CellTag',
+      },
       field: 'receiverTotal',
       title: $t('business.message.messageReceivers'),
       width: 90,
     },
     {
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ value }: { value: unknown }) =>
+            countTagMeta(value, 'success'),
+        },
+        name: 'CellTag',
+      },
       field: 'receiverReadTotal',
       title: $t('business.message.read'),
       width: 90,
     },
     {
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ value }: { value: unknown }) =>
+            countTagMeta(value, 'warning'),
+        },
+        name: 'CellTag',
+      },
       field: 'receiverUnreadTotal',
       title: $t('business.message.unread'),
       width: 90,
     },
     {
-      field: 'handledStatus',
-      formatter: ({ row }: { row: AdminMessageApi.SentItem }) => {
-        if (!isProcessableMessageType(row.type)) {
-          return '-';
-        }
-        if (Number(row.handledStatus || 0) === 1) {
-          return row.handledByAdminName
-            ? $t('business.message.messageHandledBy', [row.handledByAdminName])
-            : $t('business.message.messageHandled');
-        }
-        return $t('business.message.messagePendingHandle');
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ row }: { row: AdminMessageApi.SentItem }) =>
+            messageHandleTagMeta(row),
+        },
+        name: 'CellTag',
       },
+      field: 'handledStatus',
       minWidth: 140,
       title: $t('business.message.handleStatus'),
     },

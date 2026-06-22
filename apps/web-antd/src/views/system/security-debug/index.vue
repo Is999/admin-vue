@@ -1293,7 +1293,7 @@ function fillDecryptFromEncrypt() {
 
 <template>
   <Page auto-content-height>
-    <div class="grid gap-4">
+    <div class="grid gap-2">
       <Card size="small" :title="$t('business.message.securityFrontendConfig')">
         <Alert
           class="mb-4"
@@ -1411,7 +1411,7 @@ function fillDecryptFromEncrypt() {
         </div>
       </Card>
 
-      <div class="grid gap-4 xl:grid-cols-2">
+      <div class="grid gap-2 xl:grid-cols-2">
         <Card size="small" :title="$t('business.message.signVerifyDebug')">
           <div class="grid gap-3">
             <Input.TextArea

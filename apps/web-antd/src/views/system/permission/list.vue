@@ -316,12 +316,6 @@ function confirm(content: string, title: string) {
 </template>
 
 <style scoped>
-:deep(.system-tree-grid .vxe-table--header-wrapper .vxe-header--column) {
-  font-weight: 600;
-  color: #1f2937;
-  background: #fafafa;
-}
-
 :deep(.system-tree-grid .vxe-body--row) {
   height: 58px;
 }

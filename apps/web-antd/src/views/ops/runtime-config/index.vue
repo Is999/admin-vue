@@ -171,6 +171,41 @@ const overviewCards = computed(() => [
     description: rt('draftCountDesc'),
   },
 ]);
+const periodicPageStats = computed(() => {
+  const enabledCount = periodicRows.value.filter((item) => item.enabled).length;
+  const cronCount = periodicRows.value.filter((item) =>
+    String(item.cron || '').trim(),
+  ).length;
+  const intervalCount = periodicRows.value.filter(
+    (item) => Number(item.everySeconds || 0) > 0,
+  ).length;
+  return [
+    {
+      key: 'matched',
+      label: rt('matchedDrafts'),
+      value: String(periodicTotal.value || 0),
+      description: rt('matchedDraftsDesc'),
+    },
+    {
+      key: 'enabled',
+      label: rt('enabledDrafts'),
+      value: String(enabledCount),
+      description: rt('currentPageStatDesc'),
+    },
+    {
+      key: 'disabled',
+      label: rt('disabledDrafts'),
+      value: String(Math.max(periodicRows.value.length - enabledCount, 0)),
+      description: rt('currentPageStatDesc'),
+    },
+    {
+      key: 'schedule',
+      label: rt('scheduleMode'),
+      value: `${cronCount} / ${intervalCount}`,
+      description: rt('scheduleModeDesc'),
+    },
+  ];
+});
 const currentSnapshotText = computed(() =>
   safePrettyJson(overview.value?.currentSnapshot || {}),
 );
@@ -650,7 +685,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   <Page auto-content-height :title="rt('pageTitle')">
     <div class="runtime-config-page">
       <Alert
-        class="mb-4"
+        class="runtime-intro-alert"
         show-icon
         type="info"
         :message="rt('introTitle')"
@@ -677,9 +712,46 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 
       <Tabs v-model:active-key="activeTab" class="runtime-tabs">
         <Tabs.TabPane key="periodic" :tab="rt('periodicTab')">
-          <Card size="small">
-            <div class="runtime-toolbar">
-              <Space wrap>
+          <div class="runtime-periodic-page">
+            <div class="runtime-periodic-summary">
+              <div
+                v-for="item in periodicPageStats"
+                :key="item.key"
+                class="runtime-periodic-stat"
+              >
+                <div class="runtime-periodic-stat-label">{{ item.label }}</div>
+                <div class="runtime-periodic-stat-value">{{ item.value }}</div>
+                <div class="runtime-periodic-stat-desc">
+                  {{ item.description }}
+                </div>
+              </div>
+            </div>
+
+            <Card class="runtime-list-card runtime-periodic-card" size="small">
+              <div class="runtime-periodic-header">
+                <div class="runtime-periodic-title">
+                  <div class="runtime-periodic-heading">
+                    {{ rt('periodicWorkbenchTitle') }}
+                  </div>
+                  <div class="runtime-periodic-subtitle">
+                    {{ rt('periodicWorkbenchDesc') }}
+                  </div>
+                </div>
+                <VbenButton
+                  v-access="
+                    asActionPermission(
+                      OPS_ACTION_PERMISSION_CODES.RUNTIME_CONFIG_SAVE,
+                    )
+                  "
+                  type="primary"
+                  @click="openPeriodicModal()"
+                >
+                  <template #icon><PlusOutlined /></template>
+                  {{ rt('addPeriodic') }}
+                </VbenButton>
+              </div>
+
+              <div class="runtime-filter-panel">
                 <Input
                   v-model:value="periodicFilters.keyword"
                   allow-clear
@@ -699,91 +771,85 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   class="runtime-filter-select"
                   :options="enabledOptions"
                 />
-                <Button @click="resetPeriodicFilters">{{ rt('reset') }}</Button>
-                <Button type="primary" @click="loadPeriodicTasks">
-                  <template #icon><ReloadOutlined /></template>
-                  {{ rt('search') }}
-                </Button>
-              </Space>
-              <VbenButton
-                v-access="
-                  asActionPermission(
-                    OPS_ACTION_PERMISSION_CODES.RUNTIME_CONFIG_SAVE,
-                  )
-                "
-                type="primary"
-                @click="openPeriodicModal()"
+                <div class="runtime-filter-actions">
+                  <Button @click="resetPeriodicFilters">
+                    {{ rt('reset') }}
+                  </Button>
+                  <Button type="primary" @click="loadPeriodicTasks">
+                    <template #icon><ReloadOutlined /></template>
+                    {{ rt('search') }}
+                  </Button>
+                </div>
+              </div>
+
+              <Table
+                :columns="periodicColumns"
+                :data-source="periodicRows"
+                :loading="periodicLoading"
+                :pagination="{
+                  current: periodicPage,
+                  pageSize: periodicPageSize,
+                  pageSizeOptions,
+                  showSizeChanger: true,
+                  total: periodicTotal,
+                }"
+                row-key="id"
+                :scroll="{ x: 960 }"
+                size="small"
+                @change="handlePeriodicTableChange"
               >
-                <template #icon><PlusOutlined /></template>
-                {{ rt('addPeriodic') }}
-              </VbenButton>
-            </div>
-            <Table
-              :columns="periodicColumns"
-              :data-source="periodicRows"
-              :loading="periodicLoading"
-              :pagination="{
-                current: periodicPage,
-                pageSize: periodicPageSize,
-                pageSizeOptions,
-                showSizeChanger: true,
-                total: periodicTotal,
-              }"
-              row-key="id"
-              size="small"
-              @change="handlePeriodicTableChange"
-            >
-              <template #bodyCell="{ column, record }">
-                <template v-if="column.key === 'schedule'">
-                  <Tag v-if="record.cron" color="blue">cron</Tag>
-                  <Tag v-else color="green">every</Tag>
-                  {{ record.cron || `${record.everySeconds || 0}s` }}
+                <template #bodyCell="{ column, record }">
+                  <template v-if="column.key === 'schedule'">
+                    <Tag v-if="record.cron" color="blue">cron</Tag>
+                    <Tag v-else color="green">every</Tag>
+                    {{ record.cron || `${record.everySeconds || 0}s` }}
+                  </template>
+                  <template v-else-if="column.key === 'enabled'">
+                    <Tag :color="record.enabled ? 'success' : 'default'">
+                      {{ enabledText(record.enabled) }}
+                    </Tag>
+                  </template>
+                  <template v-else-if="column.key === 'action'">
+                    <Space>
+                      <Tooltip :title="rt('edit')">
+                        <Button
+                          v-access="
+                            asActionPermission(
+                              OPS_ACTION_PERMISSION_CODES.RUNTIME_CONFIG_SAVE,
+                            )
+                          "
+                          size="small"
+                          type="text"
+                          @click="openPeriodicModal(record)"
+                        >
+                          <EditOutlined />
+                        </Button>
+                      </Tooltip>
+                      <Tooltip :title="rt('delete')">
+                        <Button
+                          v-access="
+                            asActionPermission(
+                              OPS_ACTION_PERMISSION_CODES.RUNTIME_CONFIG_SAVE,
+                            )
+                          "
+                          danger
+                          size="small"
+                          type="text"
+                          @click="confirmDeletePeriodic(record)"
+                        >
+                          <DeleteOutlined />
+                        </Button>
+                      </Tooltip>
+                    </Space>
+                  </template>
                 </template>
-                <template v-else-if="column.key === 'enabled'">
-                  <Tag :color="record.enabled ? 'success' : 'default'">
-                    {{ enabledText(record.enabled) }}
-                  </Tag>
-                </template>
-                <template v-else-if="column.key === 'action'">
-                  <Space>
-                    <Tooltip :title="rt('edit')">
-                      <Button
-                        v-access="
-                          asActionPermission(
-                            OPS_ACTION_PERMISSION_CODES.RUNTIME_CONFIG_SAVE,
-                          )
-                        "
-                        size="small"
-                        type="text"
-                        @click="openPeriodicModal(record)"
-                      >
-                        <EditOutlined />
-                      </Button>
-                    </Tooltip>
-                    <Tooltip :title="rt('delete')">
-                      <Button
-                        v-access="
-                          asActionPermission(
-                            OPS_ACTION_PERMISSION_CODES.RUNTIME_CONFIG_SAVE,
-                          )
-                        "
-                        danger
-                        size="small"
-                        type="text"
-                        @click="confirmDeletePeriodic(record)"
-                      >
-                        <DeleteOutlined />
-                      </Button>
-                    </Tooltip>
-                  </Space>
-                </template>
-              </template>
-            </Table>
-          </Card>
+              </Table>
+            </Card>
+          </div>
         </Tabs.TabPane>
 
         <Tabs.TabPane key="archive" :tab="rt('archiveTab')">
-          <Card size="small">
+          <Card class="runtime-list-card" size="small">
             <div class="runtime-toolbar">
               <Space wrap>
                 <Input
@@ -836,6 +902,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 total: archiveTotal,
               }"
               row-key="id"
+              :scroll="{ x: 960 }"
               size="small"
               @change="handleArchiveTableChange"
             >
@@ -958,7 +1025,11 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 />
               </div>
             </Card>
-            <Card size="small" :title="rt('releaseHistory')">
+            <Card
+              class="runtime-list-card"
+              size="small"
+              :title="rt('releaseHistory')"
+            >
               <Table
                 :columns="releaseColumns"
                 :data-source="releaseRows"
@@ -971,6 +1042,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   total: releaseTotal,
                 }"
                 row-key="id"
+                :scroll="{ x: 920 }"
                 size="small"
                 @change="handleReleaseTableChange"
               >
@@ -1292,40 +1364,178 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 
 <style scoped>
 .runtime-config-page {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
   min-height: 100%;
+  color: var(--vben-text-color);
+}
+
+.runtime-intro-alert {
+  margin-bottom: 0;
 }
 
 .runtime-overview {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+.runtime-overview :deep(.ant-card) {
+  min-width: 0;
+}
+
+.runtime-overview :deep(.ant-card-body) {
+  min-height: auto;
+  padding: 12px;
 }
 
 .runtime-overview-label,
 .runtime-overview-desc {
   font-size: 12px;
-  color: rgb(100 116 139);
+  color: var(--vben-text-color-secondary);
 }
 
 .runtime-overview-value {
-  min-height: 32px;
-  margin: 6px 0;
-  font-size: 24px;
+  min-height: 26px;
+  margin: 4px 0;
+  font-size: 20px;
   font-weight: 600;
-  color: rgb(15 23 42);
+  color: var(--vben-text-color);
 }
 
 .runtime-tabs :deep(.ant-tabs-nav) {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
+}
+
+.runtime-tabs :deep(.ant-tabs-content-holder) {
+  min-width: 0;
 }
 
 .runtime-toolbar {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
+}
+
+.runtime-periodic-page {
+  display: grid;
+  gap: 8px;
+}
+
+.runtime-periodic-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.runtime-periodic-stat {
+  min-width: 0;
+  padding: 12px;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+}
+
+.runtime-periodic-stat-label,
+.runtime-periodic-stat-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--vben-text-color-secondary);
+  white-space: nowrap;
+}
+
+.runtime-periodic-stat-value {
+  margin: 4px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.25;
+  color: var(--vben-text-color);
+  white-space: nowrap;
+}
+
+.runtime-periodic-card :deep(.ant-card-body) {
+  display: grid;
+  gap: 12px;
+}
+
+.runtime-periodic-header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.runtime-periodic-title {
+  min-width: 0;
+}
+
+.runtime-periodic-heading {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--vben-text-color);
+}
+
+.runtime-periodic-subtitle {
+  max-width: 760px;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--vben-text-color-secondary);
+}
+
+.runtime-filter-panel {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) 140px auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  background: hsl(var(--accent) / 55%);
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+}
+
+.runtime-filter-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.runtime-list-card :deep(.ant-card-body) {
+  padding: 12px;
+}
+
+.runtime-list-card :deep(.ant-table) {
+  color: var(--vben-text-color);
+  background: transparent;
+}
+
+.runtime-list-card :deep(.ant-table-thead > tr > th) {
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  background: hsl(var(--accent));
+  border-bottom-color: hsl(var(--border));
+}
+
+.runtime-list-card :deep(.ant-table-thead > tr > th::before) {
+  background-color: hsl(var(--heavy));
+}
+
+.runtime-list-card :deep(.ant-table-tbody > tr > td) {
+  color: var(--vben-text-color);
+  border-bottom-color: hsl(var(--border));
+}
+
+.runtime-list-card :deep(.ant-empty-description) {
+  color: var(--vben-text-color-secondary);
 }
 
 .runtime-filter-input {
@@ -1340,7 +1550,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 .runtime-snapshot-layout {
   display: grid;
   grid-template-columns: minmax(320px, 0.6fr) minmax(0, 1.4fr);
-  gap: 12px;
+  gap: 8px;
 }
 
 .runtime-snapshot-layout {
@@ -1368,10 +1578,10 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   overflow: auto;
   font-size: 12px;
   line-height: 1.6;
-  color: rgb(30 41 59);
+  color: var(--vben-text-color);
   white-space: pre-wrap;
-  background: rgb(248 250 252);
-  border: 1px solid rgb(226 232 240);
+  background: var(--vben-background-soft);
+  border: 1px solid var(--vben-border-color);
   border-radius: 6px;
 }
 
@@ -1397,13 +1607,18 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   gap: 8px;
   align-items: center;
   font-size: 13px;
-  color: rgb(100 116 139);
+  color: var(--vben-text-color-secondary);
 }
 
 @media (max-width: 1200px) {
   .runtime-overview,
+  .runtime-periodic-summary,
   .runtime-release-layout,
   .runtime-snapshot-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .runtime-filter-panel {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1414,20 +1629,35 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 
 @media (max-width: 768px) {
   .runtime-overview,
+  .runtime-periodic-summary,
   .runtime-release-layout,
   .runtime-snapshot-layout,
   .runtime-form-grid {
     grid-template-columns: 1fr;
   }
 
+  .runtime-periodic-header,
   .runtime-toolbar {
     flex-direction: column;
     align-items: stretch;
   }
 
+  .runtime-filter-panel {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
   .runtime-filter-input,
   .runtime-filter-select {
     width: 100%;
+  }
+
+  .runtime-filter-actions {
+    justify-content: stretch;
+  }
+
+  .runtime-filter-actions :deep(.ant-btn) {
+    flex: 1;
   }
 }
 </style>

@@ -1,3 +1,5 @@
+import type { TaskApi } from '#/api/ops/task';
+
 import { $t } from '#/locales';
 
 // splitTextToItems 把逗号、换行分隔的文本转成字符串数组。
@@ -61,6 +63,60 @@ export function safePrettyJson(value: unknown) {
     return '';
   }
   return JSON.stringify(value, null, 2);
+}
+
+// formatDurationMs 把毫秒耗时格式化为运维页面通用短文本。
+export function formatDurationMs(value?: unknown) {
+  const ms = Number(value || 0);
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return '-';
+  }
+  if (ms < 1000) {
+    return `${Math.round(ms)}ms`;
+  }
+  if (ms < 60_000) {
+    return `${(ms / 1000).toFixed(ms >= 10_000 ? 0 : 1)}s`;
+  }
+  if (ms < 3_600_000) {
+    return `${(ms / 60_000).toFixed(ms >= 600_000 ? 0 : 1)}m`;
+  }
+  return `${(ms / 3_600_000).toFixed(ms >= 36_000_000 ? 0 : 1)}h`;
+}
+
+// formatTraceCount 统一格式化任务运行指标数量，避免大数字挤占页面空间。
+export function formatTraceCount(value?: unknown) {
+  const count = Number(value || 0);
+  if (!Number.isFinite(count) || count <= 0) {
+    return '0';
+  }
+  return Math.trunc(count).toLocaleString();
+}
+
+// formatTraceMetricValue 格式化处理量指标值，兼容数量和耗时文本。
+export function formatTraceMetricValue(value?: number | string) {
+  return typeof value === 'string' ? value : formatTraceCount(value);
+}
+
+// formatProgressPercent 展示后端返回的执行进度百分比。
+export function formatProgressPercent(
+  progress?: TaskApi.TaskExecutionProgress,
+) {
+  const value = Number(progress?.percent || 0);
+  if (!Number.isFinite(value) || value <= 0) {
+    return '0%';
+  }
+  return `${value.toFixed(value >= 10 || Number.isInteger(value) ? 0 : 1)}%`;
+}
+
+// getProgressPercentValue 返回进度条宽度百分比，兼容历史响应。
+export function getProgressPercentValue(
+  progress?: TaskApi.TaskExecutionProgress,
+) {
+  const value = Number(progress?.percent || 0);
+  if (!Number.isFinite(value) || value <= 0) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, value));
 }
 
 // getTaskQueueDescription 根据队列名返回中文说明，便于页面提示。

@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import type { OnActionClickParams } from '#/adapter/vxe-table';
-import type { SystemAPIUserApi } from '#/api/system';
+import type { UserApi } from '#/api/user';
 
 import { computed, defineComponent, h, reactive, ref } from 'vue';
 
@@ -22,17 +22,17 @@ import {
 
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
 import {
-  createAPIUser,
-  fetchAPIUserDetail,
-  fetchAPIUserList,
-  resetAPIUserPassword,
-  syncAPIUserRuntime,
-  updateAPIUser,
-  updateAPIUserStatus,
-} from '#/api/system';
+  createUser,
+  fetchUserDetail,
+  fetchUserList,
+  resetUserPassword,
+  syncUserRuntime,
+  updateUser,
+  updateUserStatus,
+} from '#/api/user';
 import {
   asActionPermission,
-  SYSTEM_ACTION_PERMISSION_CODES,
+  USER_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
@@ -41,25 +41,27 @@ import {
   generateRandomPassword,
 } from '#/utils/security/password';
 
-import { API_USER_STATUS_OPTIONS, useColumns, useGridFormSchema } from './data';
+import { USER_STATUS_OPTIONS, useColumns, useGridFormSchema } from './data';
 
-defineOptions({ name: 'SystemAPIUserListPage' });
+defineOptions({ name: 'UserListPage' });
 
-// MFA_SCENARIO_API_USER_MANAGE 表示前台用户管理二次校验场景。
-const MFA_SCENARIO_API_USER_MANAGE = 13;
-// API_USER_PASSWORD_MIN_LENGTH 表示后台设置前台用户密码的最小长度。
-const API_USER_PASSWORD_MIN_LENGTH = 8;
-// API_USER_PASSWORD_MAX_LENGTH 表示后台设置前台用户密码的最大长度。
-const API_USER_PASSWORD_MAX_LENGTH = 64;
+// MFA_SCENARIO_USER_MANAGE 表示用户管理二次校验场景。
+const MFA_SCENARIO_USER_MANAGE = 13;
+// USER_PASSWORD_MIN_LENGTH 表示后台设置用户密码的最小长度。
+const USER_PASSWORD_MIN_LENGTH = 8;
+// USER_PASSWORD_MAX_LENGTH 表示后台设置用户密码的最大长度。
+const USER_PASSWORD_MAX_LENGTH = 64;
+// USER_SHARD_NO_MOD 表示用户固定取模分片上限。
+const USER_SHARD_NO_MOD = 1000;
 
-// APIUserFormState 保存新增和编辑弹窗中的表单字段。
-interface APIUserFormState {
+// UserFormState 保存新增和编辑弹窗中的表单字段。
+interface UserFormState {
   avatar: string;
   email: string;
   nickname: string;
   password: string;
   phone: string;
-  status: SystemAPIUserApi.Status;
+  status: UserApi.Status;
   username: string;
 }
 
@@ -74,9 +76,9 @@ interface RuntimeSyncState {
   sessions: boolean;
 }
 
-// PasswordEditor 用于重置前台用户密码，并提供随机密码生成和复制能力。
+// PasswordEditor 用于重置用户密码，并提供随机密码生成和复制能力。
 const PasswordEditor = defineComponent({
-  name: 'APIUserPasswordEditor',
+  name: 'UserPasswordEditor',
   props: {
     onUpdatePassword: {
       required: true,
@@ -107,7 +109,7 @@ const PasswordEditor = defineComponent({
           autofocus: true,
           onChange: syncPassword,
           onInput: syncPassword,
-          placeholder: $t('business.message.apiUserPasswordPlaceholder'),
+          placeholder: $t('business.message.userPasswordPlaceholder'),
           value: props.passwordValue,
         }),
         h(Space, { wrap: true }, () => [
@@ -130,10 +132,10 @@ const editorOpen = ref(false);
 const editorMode = ref<'create' | 'edit'>('create');
 // editorSubmitting 避免用户重复提交新增或编辑请求。
 const editorSubmitting = ref(false);
-// currentUser 保存当前正在编辑或操作的前台用户。
-const currentUser = ref<null | SystemAPIUserApi.Item>(null);
+// currentUser 保存当前正在编辑或操作的用户。
+const currentUser = ref<null | UserApi.Item>(null);
 // editorForm 保存新增/编辑弹窗字段。
-const editorForm = reactive<APIUserFormState>({
+const editorForm = reactive<UserFormState>({
   avatar: '',
   email: '',
   nickname: '',
@@ -146,11 +148,11 @@ const editorForm = reactive<APIUserFormState>({
 // editorTitle 返回当前新增或编辑弹窗标题。
 const editorTitle = computed(() =>
   editorMode.value === 'create'
-    ? $t('business.message.addApiUser')
-    : $t('business.message.editApiUser'),
+    ? $t('business.message.addUser')
+    : $t('business.message.editUser'),
 );
 
-// Grid 使用 VbenVxeGrid 承载前台用户分页、筛选和行操作。
+// Grid 使用 VbenVxeGrid 承载用户分页、筛选和行操作。
 const [Grid, gridApi] = useVbenVxeGrid({
   formOptions: {
     commonConfig: {
@@ -166,9 +168,9 @@ const [Grid, gridApi] = useVbenVxeGrid({
     keepSource: true,
     proxyConfig: {
       ajax: {
-        // 查询前台用户列表，只传后端支持的索引筛选字段。
+        // 查询用户列表，只传后端支持的索引筛选字段。
         query: async ({ page }: { page: any }, formValues: any) => {
-          return await fetchAPIUserList({
+          return await fetchUserList({
             page: page.currentPage,
             pageSize: page.pageSize,
             ...normalizeListParams(formValues),
@@ -196,17 +198,19 @@ const [Grid, gridApi] = useVbenVxeGrid({
 // normalizeListParams 清洗列表查询参数，避免空字符串落到后端条件中。
 function normalizeListParams(values: Record<string, any> = {}) {
   const id = Number(values.id || 0);
+  const shardNo = Number(values.shardNo);
   const status =
     values.status === 0 || values.status === 1
-      ? (values.status as SystemAPIUserApi.Status)
+      ? (values.status as UserApi.Status)
       : undefined;
   return {
     email: String(values.email || '').trim() || undefined,
     id: id > 0 ? id : undefined,
     phone: String(values.phone || '').trim() || undefined,
+    shardNo: shardNo >= 0 && shardNo < USER_SHARD_NO_MOD ? shardNo : undefined,
     status,
     username: String(values.username || '').trim() || undefined,
-  } satisfies SystemAPIUserApi.ListParams;
+  } satisfies UserApi.ListParams;
 }
 
 // resetEditorForm 重置新增/编辑表单。
@@ -220,8 +224,8 @@ function resetEditorForm() {
   editorForm.username = '';
 }
 
-// fillEditorForm 使用现有前台用户资料填充编辑表单。
-function fillEditorForm(row: SystemAPIUserApi.Item) {
+// fillEditorForm 使用现有用户资料填充编辑表单。
+function fillEditorForm(row: UserApi.Item) {
   editorForm.avatar = row.avatar || '';
   editorForm.email = row.email || '';
   editorForm.nickname = row.nickname || '';
@@ -231,32 +235,32 @@ function fillEditorForm(row: SystemAPIUserApi.Item) {
   editorForm.username = row.username || '';
 }
 
-// validateAPIUserPassword 校验后台录入的前台用户密码。
-function validateAPIUserPassword(password: string) {
+// validateUserPassword 校验后台录入的用户密码。
+function validateUserPassword(password: string) {
   const value = String(password || '').trim();
   if (!value) {
     return $t('business.message.passwordRequired');
   }
   if (
-    value.length < API_USER_PASSWORD_MIN_LENGTH ||
-    value.length > API_USER_PASSWORD_MAX_LENGTH
+    value.length < USER_PASSWORD_MIN_LENGTH ||
+    value.length > USER_PASSWORD_MAX_LENGTH
   ) {
-    return $t('business.message.apiUserPasswordLengthHelp');
+    return $t('business.message.userPasswordLengthHelp');
   }
   if (/[\u4E00-\u9FFF]/.test(value)) {
-    return $t('business.message.apiUserPasswordNoChinese');
+    return $t('business.message.userPasswordNoChinese');
   }
   return '';
 }
 
-// validateEditorForm 校验新增和编辑前台用户表单。
+// validateEditorForm 校验新增和编辑用户表单。
 function validateEditorForm() {
   if (editorMode.value === 'create') {
     const username = editorForm.username.trim();
     if (username.length < 3 || username.length > 32) {
-      return $t('business.message.apiUsernameLengthHelp');
+      return $t('business.message.usernameLengthHelp');
     }
-    const passwordError = validateAPIUserPassword(editorForm.password);
+    const passwordError = validateUserPassword(editorForm.password);
     if (passwordError) {
       return passwordError;
     }
@@ -264,7 +268,7 @@ function validateEditorForm() {
   return '';
 }
 
-// buildCreatePayload 构造新增前台用户请求。
+// buildCreatePayload 构造新增用户请求。
 function buildCreatePayload(ticket?: Parameters<typeof ticketPayload>[0]) {
   return {
     avatar: editorForm.avatar.trim(),
@@ -275,10 +279,10 @@ function buildCreatePayload(ticket?: Parameters<typeof ticketPayload>[0]) {
     status: editorForm.status,
     username: editorForm.username.trim(),
     ...ticketPayload(ticket),
-  } satisfies SystemAPIUserApi.SaveParams;
+  } satisfies UserApi.SaveParams;
 }
 
-// buildUpdatePayload 构造编辑前台用户请求。
+// buildUpdatePayload 构造编辑用户请求。
 function buildUpdatePayload(ticket?: Parameters<typeof ticketPayload>[0]) {
   return {
     avatar: editorForm.avatar.trim(),
@@ -286,11 +290,11 @@ function buildUpdatePayload(ticket?: Parameters<typeof ticketPayload>[0]) {
     nickname: editorForm.nickname.trim(),
     phone: editorForm.phone.trim(),
     ...ticketPayload(ticket),
-  } satisfies SystemAPIUserApi.SaveParams;
+  } satisfies UserApi.SaveParams;
 }
 
 // showRuntimeSyncResult 展示 API 运行态同步结果。
-function showRuntimeSyncResult(sync?: SystemAPIUserApi.RuntimeSyncResp) {
+function showRuntimeSyncResult(sync?: UserApi.RuntimeSyncResp) {
   if (!sync) {
     return;
   }
@@ -301,13 +305,13 @@ function showRuntimeSyncResult(sync?: SystemAPIUserApi.RuntimeSyncResp) {
   message.warning(sync.message || $t('business.message.apiRuntimeSyncSkipped'));
 }
 
-// refreshGrid 刷新前台用户列表。
+// refreshGrid 刷新用户列表。
 function refreshGrid() {
   gridApi.query();
 }
 
 // onActionClick 统一处理行操作。
-function onActionClick(e: OnActionClickParams<SystemAPIUserApi.Item>) {
+function onActionClick(e: OnActionClickParams<UserApi.Item>) {
   switch (e.code) {
     case 'edit': {
       void onEdit(e.row);
@@ -324,7 +328,7 @@ function onActionClick(e: OnActionClickParams<SystemAPIUserApi.Item>) {
   }
 }
 
-// onCreate 打开新增前台用户弹窗。
+// onCreate 打开新增用户弹窗。
 function onCreate() {
   currentUser.value = null;
   editorMode.value = 'create';
@@ -332,15 +336,15 @@ function onCreate() {
   editorOpen.value = true;
 }
 
-// onEdit 打开编辑前台用户弹窗。
-async function onEdit(row: SystemAPIUserApi.Item) {
+// onEdit 打开编辑用户弹窗。
+async function onEdit(row: UserApi.Item) {
   currentUser.value = row;
   editorMode.value = 'edit';
   resetEditorForm();
   editorOpen.value = true;
   editorSubmitting.value = true;
   try {
-    const detail = await fetchAPIUserDetail(row.id);
+    const detail = await fetchUserDetail(row.id);
     currentUser.value = detail;
     fillEditorForm(detail);
   } finally {
@@ -348,7 +352,7 @@ async function onEdit(row: SystemAPIUserApi.Item) {
   }
 }
 
-// submitEditor 提交新增或编辑前台用户。
+// submitEditor 提交新增或编辑用户。
 async function submitEditor() {
   const formError = validateEditorForm();
   if (formError) {
@@ -358,19 +362,19 @@ async function submitEditor() {
   editorSubmitting.value = true;
   try {
     const result = await submitWithMfaRetry(
-      MFA_SCENARIO_API_USER_MANAGE,
+      MFA_SCENARIO_USER_MANAGE,
       (ticket) =>
         editorMode.value === 'create'
-          ? createAPIUser(buildCreatePayload(ticket))
-          : updateAPIUser(currentUser.value!.id, buildUpdatePayload(ticket)),
+          ? createUser(buildCreatePayload(ticket))
+          : updateUser(currentUser.value!.id, buildUpdatePayload(ticket)),
       editorMode.value === 'create'
-        ? $t('business.message.addApiUserMfaTitle')
-        : $t('business.message.editApiUserMfaTitle'),
+        ? $t('business.message.addUserMfaTitle')
+        : $t('business.message.editUserMfaTitle'),
     );
     message.success(
       editorMode.value === 'create'
-        ? $t('business.message.apiUserCreated')
-        : $t('business.message.apiUserUpdated'),
+        ? $t('business.message.userCreated')
+        : $t('business.message.userUpdated'),
     );
     showRuntimeSyncResult(result.sync);
     editorOpen.value = false;
@@ -380,40 +384,40 @@ async function submitEditor() {
   }
 }
 
-// onStatusChange 修改前台用户启用状态。
-async function onStatusChange(newStatus: number, row: SystemAPIUserApi.Item) {
+// onStatusChange 修改用户启用状态。
+async function onStatusChange(newStatus: number, row: UserApi.Item) {
   const statusText: Record<number, string> = {
     0: $t('business.message.disable'),
     1: $t('business.message.enable'),
   };
   try {
     await confirm(
-      $t('business.message.confirmSwitchApiUserStatus', [
+      $t('business.message.confirmSwitchUserStatus', [
         row.username,
         statusText[newStatus],
       ]),
-      $t('business.message.switchApiUserStatus'),
+      $t('business.message.switchUserStatus'),
     );
     const result = await submitWithMfaRetry(
-      MFA_SCENARIO_API_USER_MANAGE,
+      MFA_SCENARIO_USER_MANAGE,
       (ticket) =>
-        updateAPIUserStatus(
+        updateUserStatus(
           row.id,
-          newStatus as SystemAPIUserApi.Status,
+          newStatus as UserApi.Status,
           ticketPayload(ticket),
         ),
-      $t('business.message.switchApiUserStatusMfaTitle'),
+      $t('business.message.switchUserStatusMfaTitle'),
     );
     showRuntimeSyncResult(result.sync);
-    message.success($t('business.message.apiUserStatusUpdated'));
+    message.success($t('business.message.userStatusUpdated'));
     return true;
   } catch {
     return false;
   }
 }
 
-// onResetPassword 重置前台用户密码，并通知 API 失效登录态。
-function onResetPassword(row: SystemAPIUserApi.Item) {
+// onResetPassword 重置用户密码，并通知 API 失效登录态。
+function onResetPassword(row: UserApi.Item) {
   const passwordState = reactive<PasswordEditorState>({
     value: generateRandomPassword(),
   });
@@ -426,27 +430,26 @@ function onResetPassword(row: SystemAPIUserApi.Item) {
     }),
     onOk: async () => {
       const password = String(passwordState.value || '').trim();
-      const passwordError = validateAPIUserPassword(password);
+      const passwordError = validateUserPassword(password);
       if (passwordError) {
         message.error(passwordError);
         throw new Error(passwordError);
       }
       const result = await submitWithMfaRetry(
-        MFA_SCENARIO_API_USER_MANAGE,
-        (ticket) =>
-          resetAPIUserPassword(row.id, password, ticketPayload(ticket)),
-        $t('business.message.resetApiUserPasswordMfaTitle'),
+        MFA_SCENARIO_USER_MANAGE,
+        (ticket) => resetUserPassword(row.id, password, ticketPayload(ticket)),
+        $t('business.message.resetUserPasswordMfaTitle'),
       );
       showRuntimeSyncResult(result.sync);
-      message.success($t('business.message.apiUserPasswordReset'));
+      message.success($t('business.message.userPasswordReset'));
       refreshGrid();
     },
-    title: $t('business.message.resetApiUserPassword'),
+    title: $t('business.message.resetUserPassword'),
   });
 }
 
-// onSyncRuntime 手动同步前台用户 API 运行态缓存或登录态。
-function onSyncRuntime(row: SystemAPIUserApi.Item) {
+// onSyncRuntime 手动同步用户 API 运行态缓存或登录态。
+function onSyncRuntime(row: UserApi.Item) {
   const syncState = reactive<RuntimeSyncState>({
     profile: true,
     sessions: false,
@@ -454,7 +457,7 @@ function onSyncRuntime(row: SystemAPIUserApi.Item) {
   Modal.confirm({
     content: h('div', { class: 'space-y-3' }, [
       h(Alert, {
-        message: $t('business.message.apiUserRuntimeSyncAlert'),
+        message: $t('business.message.userRuntimeSyncAlert'),
         showIcon: true,
         type: 'info',
       }),
@@ -483,9 +486,9 @@ function onSyncRuntime(row: SystemAPIUserApi.Item) {
     ]),
     onOk: async () => {
       const result = await submitWithMfaRetry(
-        MFA_SCENARIO_API_USER_MANAGE,
+        MFA_SCENARIO_USER_MANAGE,
         (ticket) =>
-          syncAPIUserRuntime(row.id, {
+          syncUserRuntime(row.id, {
             profile: syncState.profile,
             sessions: syncState.sessions,
             ...ticketPayload(ticket),
@@ -517,16 +520,14 @@ function confirm(content: string, title: string) {
 
 <template>
   <Page auto-content-height>
-    <Grid :table-title="$t('business.message.apiUserManagement')">
+    <Grid :table-title="$t('admin.route.userList')">
       <template #toolbar-tools>
         <VbenButton
-          v-access="
-            asActionPermission(SYSTEM_ACTION_PERMISSION_CODES.API_USER_ADD)
-          "
+          v-access="asActionPermission(USER_ACTION_PERMISSION_CODES.USER_ADD)"
           type="primary"
           @click="onCreate"
         >
-          <Plus class="size-5" /> {{ $t('business.message.addApiUser') }}
+          <Plus class="size-5" /> {{ $t('business.message.addUser') }}
         </VbenButton>
       </template>
     </Grid>
@@ -541,20 +542,20 @@ function confirm(content: string, title: string) {
     >
       <Alert
         class="mb-4"
-        :message="$t('business.message.apiUserDirectManageAlert')"
+        :message="$t('business.message.userDirectManageAlert')"
         show-icon
         type="info"
       />
       <Form :model="editorForm" layout="vertical">
         <div class="grid grid-cols-1 gap-x-4 md:grid-cols-2">
           <Form.Item
-            :label="$t('business.message.apiUsername')"
+            :label="$t('business.message.username')"
             :required="editorMode === 'create'"
           >
             <Input
               v-model:value="editorForm.username"
               :disabled="editorMode === 'edit'"
-              :placeholder="$t('business.message.apiUsernamePlaceholder')"
+              :placeholder="$t('business.message.usernamePlaceholder')"
             />
           </Form.Item>
           <Form.Item
@@ -564,7 +565,7 @@ function confirm(content: string, title: string) {
           >
             <Input.Password
               v-model:value="editorForm.password"
-              :placeholder="$t('business.message.apiUserPasswordPlaceholder')"
+              :placeholder="$t('business.message.userPasswordPlaceholder')"
             />
           </Form.Item>
           <Form.Item :label="$t('business.message.nickname')">
@@ -577,7 +578,7 @@ function confirm(content: string, title: string) {
             <Select
               v-model:value="editorForm.status"
               :disabled="editorMode === 'edit'"
-              :options="API_USER_STATUS_OPTIONS"
+              :options="USER_STATUS_OPTIONS"
             />
           </Form.Item>
           <Form.Item :label="$t('business.message.email')">
@@ -603,7 +604,7 @@ function confirm(content: string, title: string) {
           </Form.Item>
           <Form.Item
             class="md:col-span-2"
-            :label="$t('business.message.apiUserRuntimeSync')"
+            :label="$t('business.message.userRuntimeSync')"
           >
             <Switch
               :checked="true"
@@ -612,7 +613,7 @@ function confirm(content: string, title: string) {
               :un-checked-children="$t('business.message.disabled')"
             />
             <span class="ml-2 text-xs text-[var(--ant-color-text-secondary)]">
-              {{ $t('business.message.apiUserRuntimeSyncDesc') }}
+              {{ $t('business.message.userRuntimeSyncDesc') }}
             </span>
           </Form.Item>
         </div>

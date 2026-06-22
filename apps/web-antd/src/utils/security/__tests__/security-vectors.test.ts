@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildSignString, encodeCipherHeader } from '../signature';
+import {
+  buildSignString,
+  encodeCipherHeader,
+  resolvePolicyForAlias,
+  resolveRouteSecurityRule,
+} from '../signature';
 import securityVectors from './testdata/security-vectors.json';
 
 interface SecurityVectorFile {
@@ -68,4 +73,20 @@ describe('security vectors', () => {
       }
     },
   );
+
+  it('keeps admin role assignment array out of request sign policy', () => {
+    expect(resolvePolicyForAlias('admin.role.update').requestSign).toEqual([
+      'twoStepKey',
+      'twoStepValue',
+    ]);
+  });
+
+  it('maps API config reload items route without implicit request signing', () => {
+    const rule = resolveRouteSecurityRule(
+      'GET',
+      '/api-runtime/config-reload/items',
+    );
+    expect(rule?.alias).toBe('api_runtime.config_reload.items');
+    expect(resolvePolicyForAlias(rule?.alias).requestSign || []).toEqual([]);
+  });
 });

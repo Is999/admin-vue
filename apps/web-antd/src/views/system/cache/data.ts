@@ -8,31 +8,13 @@ import {
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 
-// cacheCategoryTextMap 定义缓存分类中文文案。
-const cacheCategoryTextMap: Record<string, string> = {
-  auth: $t('business.message.cacheCategoryAuth'),
-  config: $t('business.message.cacheCategoryConfig'),
-  secret: $t('business.message.cacheCategorySecret'),
-  session: $t('business.message.cacheCategorySession'),
-  system: $t('business.message.cacheCategorySystem'),
-};
-
-// refreshScopeTextMap 定义缓存刷新粒度中文文案。
-const refreshScopeTextMap: Record<string, string> = {
-  all: $t('business.message.refreshScopeAll'),
-  prefix: $t('business.message.refreshScopePrefix'),
-  single: $t('business.message.refreshScopeSingle'),
-};
-
-// formatCacheCategory 把缓存分类编码格式化成中文展示。
-function formatCacheCategory(value?: string) {
-  return cacheCategoryTextMap[value || ''] || value || '-';
-}
-
-// formatRefreshScope 把缓存刷新粒度格式化成中文展示。
-function formatRefreshScope(value?: string) {
-  return refreshScopeTextMap[value || ''] || value || '-';
-}
+import {
+  cacheCategoryTagMap,
+  redisTypeTagMap,
+  refreshScopeTagMap,
+  supportTagMap,
+  yesNoTagMap,
+} from '../table-tags';
 
 // useColumns 返回缓存目标表格列配置。
 export function useColumns<T = SystemCacheApi.Item>(
@@ -57,18 +39,34 @@ export function useColumns<T = SystemCacheApi.Item>(
       title: $t('business.message.cacheTitle'),
     }),
     {
+      align: 'center',
+      cellRender: {
+        attrs: { tagMap: cacheCategoryTagMap() },
+        name: 'CellTag',
+      },
       field: 'category',
       minWidth: 100,
       title: $t('business.message.cacheCategory'),
-      formatter: ({ cellValue }: any) => formatCacheCategory(cellValue),
     },
-    { field: 'type', title: $t('business.message.redisType'), width: 120 },
     {
+      align: 'center',
+      cellRender: {
+        attrs: { tagMap: redisTypeTagMap() },
+        name: 'CellTag',
+      },
+      field: 'type',
+      title: $t('business.message.redisType'),
+      width: 120,
+    },
+    {
+      align: 'center',
+      cellRender: {
+        attrs: { tagMap: yesNoTagMap() },
+        name: 'CellTag',
+      },
       field: 'isTemplate',
       title: $t('business.message.templateKey'),
       width: 100,
-      formatter: ({ cellValue }: any) =>
-        cellValue ? $t('business.message.yes') : $t('business.message.no'),
     },
     buildClampTextColumn({
       field: 'exampleKey',
@@ -76,19 +74,24 @@ export function useColumns<T = SystemCacheApi.Item>(
       title: $t('business.message.exampleKey'),
     }),
     {
+      align: 'center',
+      cellRender: {
+        attrs: { tagMap: supportTagMap() },
+        name: 'CellTag',
+      },
       field: 'autoRebuild',
       title: $t('business.message.autoRebuild'),
       width: 110,
-      formatter: ({ cellValue }: any) =>
-        cellValue
-          ? $t('business.message.supported')
-          : $t('business.message.unsupported'),
     },
     {
+      align: 'center',
+      cellRender: {
+        attrs: { tagMap: refreshScopeTagMap() },
+        name: 'CellTag',
+      },
       field: 'refreshScope',
       title: $t('business.message.refreshScope'),
       width: 110,
-      formatter: ({ cellValue }: any) => formatRefreshScope(cellValue),
     },
     buildClampTextColumn({
       field: 'remark',

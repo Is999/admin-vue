@@ -7,7 +7,7 @@ import { useRoute, useRouter } from 'vue-router';
 
 import { Page, VbenButton } from '@vben/common-ui';
 
-import { CopyOutlined } from '@ant-design/icons-vue';
+import { CopyOutlined, QuestionCircleOutlined } from '@ant-design/icons-vue';
 import {
   Alert,
   Button,
@@ -15,11 +15,10 @@ import {
   Input,
   message,
   Modal,
-  Space,
   Tag,
+  Tooltip,
 } from 'ant-design-vue';
 
-import { useVbenForm } from '#/adapter/form';
 import { getTaskWorkflowStatus } from '#/api/ops/task';
 import {
   asActionPermission,
@@ -28,22 +27,14 @@ import {
 import { $t } from '#/locales';
 import { copyTextToClipboard } from '#/utils/security/password';
 
-import { safePrettyJson } from '../shared';
-import { useWorkflowQuerySchema } from '../task-console/data';
-
-// ================= 表单配置 =================
-// 工作流状态查询表单，支持从任务列表携带 workflowId 自动回填。
-const [WorkflowQueryForm, workflowQueryFormApi] = useVbenForm({
-  commonConfig: {
-    colon: true,
-    componentProps: { class: 'w-full' },
-    labelClass: 'w-2/6',
-  },
-  layout: 'horizontal',
-  schema: useWorkflowQuerySchema(),
-  showDefaultActions: false,
-  wrapperClass: 'grid grid-cols-1 gap-y-4',
-});
+import {
+  formatDurationMs,
+  formatProgressPercent,
+  formatTraceCount,
+  formatTraceMetricValue,
+  getProgressPercentValue,
+  safePrettyJson,
+} from '../shared';
 
 // ================= 页面状态 =================
 // WORKFLOW_STATUS_AUTO_REFRESH_INTERVAL_MS 表示工作流状态自动刷新间隔；10 秒能兼顾页面新鲜度和管理端查询压力。
@@ -77,6 +68,10 @@ const workflowTraceDetailsModalRows = ref<TaskApi.TaskExecutionTraceDetail[]>(
 );
 // workflowQuerySource 记录 workflowId 的来源页面，帮助用户确认链路上下文。
 const workflowQuerySource = ref('');
+// workflowIdInput 保存当前查询输入框中的工作流实例 ID。
+const workflowIdInput = ref('');
+// workflowIdInvalid 标记 workflowId 空值校验状态。
+const workflowIdInvalid = ref(false);
 // autoQueriedWorkflowId 防止同一个路由 workflowId 被 watch 重复自动查询。
 const autoQueriedWorkflowId = ref('');
 // showWorkflowStatusRaw 控制原始 JSON 回执是否展开。
@@ -127,56 +122,6 @@ type WorkflowStatusQueryOptions = {
   // showSuccessMessage 表示是否弹出成功提示；自动刷新不提示，避免刷屏。
   showSuccessMessage?: boolean;
 };
-
-// formatDurationMs 把毫秒耗时格式化为节点列表中的短文本。
-function formatDurationMs(ms?: number) {
-  const value = Number(ms || 0);
-  if (!Number.isFinite(value) || value <= 0) {
-    return '-';
-  }
-  if (value < 1000) {
-    return `${Math.round(value)}ms`;
-  }
-  if (value < 60_000) {
-    return `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}s`;
-  }
-  if (value < 3_600_000) {
-    return `${(value / 60_000).toFixed(value >= 600_000 ? 0 : 1)}m`;
-  }
-  return `${(value / 3_600_000).toFixed(value >= 36_000_000 ? 0 : 1)}h`;
-}
-
-// formatTraceCount 统一格式化处理量，避免大数字在工作流页难以扫描。
-function formatTraceCount(value?: number) {
-  const current = Number(value || 0);
-  if (!Number.isFinite(current)) {
-    return '0';
-  }
-  return Math.trunc(current).toLocaleString();
-}
-
-// formatTraceMetricValue 格式化处理量指标值，兼容数量和耗时文本。
-function formatTraceMetricValue(value?: number | string) {
-  return typeof value === 'string' ? value : formatTraceCount(value);
-}
-
-// formatProgressPercent 展示后端返回的执行进度百分比。
-function formatProgressPercent(progress?: TaskApi.TaskExecutionProgress) {
-  const value = Number(progress?.percent || 0);
-  if (!Number.isFinite(value) || value <= 0) {
-    return '0%';
-  }
-  return `${value.toFixed(value >= 10 || Number.isInteger(value) ? 0 : 1)}%`;
-}
-
-// getProgressPercentValue 返回进度条宽度百分比，兼容历史响应。
-function getProgressPercentValue(progress?: TaskApi.TaskExecutionProgress) {
-  const value = Number(progress?.percent || 0);
-  if (!Number.isFinite(value) || value <= 0) {
-    return 0;
-  }
-  return Math.max(0, Math.min(100, value));
-}
 
 // formatProgressStatus 展示进度状态，优先复用工作流节点状态文案。
 function formatProgressStatus(status?: string) {
@@ -888,32 +833,31 @@ const workflowOperationGuide = computed(() => {
   };
 });
 
-// applyRouteQueryToWorkflowForm 把路由里的 workflowId 回填到查询表单。
-async function applyRouteQueryToWorkflowForm() {
+// applyRouteQueryToWorkflowInput 把路由里的 workflowId 回填到查询输入框。
+async function applyRouteQueryToWorkflowInput() {
   const routeWorkflowId = normalizeRouteQueryValue(route.query.workflowId);
   workflowQuerySource.value = normalizeRouteQueryValue(route.query.source);
   if (!routeWorkflowId) {
     return '';
   }
-  await workflowQueryFormApi.setFieldValue(
-    'workflowId',
-    routeWorkflowId,
-    false,
-  );
+  workflowIdInput.value = routeWorkflowId;
+  workflowIdInvalid.value = false;
   return routeWorkflowId;
 }
 
 // handleQueryWorkflowStatus 查询工作流实例状态。
 async function handleQueryWorkflowStatus() {
-  const { valid } = await workflowQueryFormApi.validate();
-  if (!valid) {
+  const workflowId = workflowIdInput.value.trim();
+  if (!workflowId) {
+    workflowIdInvalid.value = true;
+    message.warning($t('business.message.workflowIdPlaceholder'));
     return;
   }
+  workflowIdInvalid.value = false;
   stopWorkflowStatusAutoRefresh();
   submitting.value = true;
   try {
-    const values = await workflowQueryFormApi.getValues<Record<string, any>>();
-    await requestWorkflowStatus(String(values.workflowId || '').trim(), {
+    await requestWorkflowStatus(workflowId, {
       clearOnError: true,
       errorPrefix: $t('business.message.queryFailedShort'),
       showSuccessMessage: true,
@@ -1110,7 +1054,7 @@ async function handleCopyWorkflowStatusReceipt() {
 
 onMounted(() => {
   void (async () => {
-    const routeWorkflowId = await applyRouteQueryToWorkflowForm();
+    const routeWorkflowId = await applyRouteQueryToWorkflowInput();
     if (routeWorkflowId && autoQueriedWorkflowId.value !== routeWorkflowId) {
       autoQueriedWorkflowId.value = routeWorkflowId;
       await handleQueryWorkflowStatus();
@@ -1125,7 +1069,7 @@ onBeforeUnmount(() => {
 watch(
   () => route.fullPath,
   async () => {
-    const routeWorkflowId = await applyRouteQueryToWorkflowForm();
+    const routeWorkflowId = await applyRouteQueryToWorkflowInput();
     if (!routeWorkflowId) {
       stopWorkflowStatusAutoRefresh();
       return;
@@ -1142,26 +1086,45 @@ watch(
 <template>
   <div class="task-workflow-status-page">
     <Page :title="$t('business.message.workflowStatus')">
-      <div class="space-y-4">
-        <Alert
-          v-if="workflowQuerySource"
-          :message="
-            $t('business.message.workflowIdFromSource', [workflowQuerySource])
-          "
-          show-icon
-          type="info"
-        />
+      <div class="space-y-2">
         <Card
           class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
           :title="$t('business.message.queryWorkflowInstanceStatus')"
         >
-          <div class="mb-4 flex justify-end gap-2">
+          <div class="workflow-query-row">
+            <label class="workflow-query-label" for="workflow-status-id">
+              <span class="workflow-query-required">*</span>
+              {{ $t('business.message.workflowInstanceId') }}:
+            </label>
+            <span class="workflow-query-source-cell">
+              <Tooltip
+                v-if="workflowQuerySource"
+                :title="
+                  $t('business.message.workflowIdFromSource', [
+                    workflowQuerySource,
+                  ])
+                "
+              >
+                <QuestionCircleOutlined class="workflow-query-source-icon" />
+              </Tooltip>
+            </span>
+            <Input
+              id="workflow-status-id"
+              v-model:value="workflowIdInput"
+              allow-clear
+              class="workflow-query-input"
+              :placeholder="$t('business.message.workflowIdPlaceholder')"
+              :status="workflowIdInvalid ? 'error' : undefined"
+              @change="workflowIdInvalid = false"
+              @press-enter="handleQueryWorkflowStatus"
+            />
             <VbenButton
               v-access="
                 asActionPermission(
                   OPS_ACTION_PERMISSION_CODES.TASK_WORKFLOW_STATUS,
                 )
               "
+              class="workflow-query-action"
               type="primary"
               :disabled="submitting"
               @click="handleQueryWorkflowStatus"
@@ -1173,17 +1136,32 @@ watch(
               }}
             </VbenButton>
           </div>
-          <WorkflowQueryForm />
           <template v-if="workflowStatus">
             <Alert
               v-if="workflowOperationGuide"
-              class="mt-4"
-              :description="workflowOperationGuide.description"
-              :message="workflowOperationGuide.message"
+              class="workflow-status-notice"
               show-icon
               :type="workflowOperationGuide.type"
-            />
-            <Space class="mt-4" :size="8" wrap>
+            >
+              <template #message>
+                {{ workflowOperationGuide.message }}
+              </template>
+              <template #description>
+                <div class="workflow-status-notice__body">
+                  <div>{{ workflowOperationGuide.description }}</div>
+                  <div
+                    v-if="workflowStatus.errorMessage"
+                    class="workflow-status-notice__reason"
+                  >
+                    <span class="workflow-status-notice__label">
+                      {{ $t('business.message.currentWorkflowFailureReason') }}
+                    </span>
+                    <span>{{ workflowErrorText }}</span>
+                  </div>
+                </div>
+              </template>
+            </Alert>
+            <div class="workflow-status-actions">
               <Button
                 size="small"
                 type="primary"
@@ -1211,18 +1189,7 @@ watch(
                 </template>
                 {{ $t('business.message.copyReceipt') }}
               </Button>
-            </Space>
-            <Alert
-              class="mt-4"
-              :description="workflowErrorText"
-              :message="
-                workflowStatus.errorMessage
-                  ? $t('business.message.currentWorkflowFailureReason')
-                  : $t('business.message.noWorkflowFailure')
-              "
-              show-icon
-              :type="workflowStatus.errorMessage ? 'error' : 'success'"
-            />
+            </div>
             <pre
               v-if="showWorkflowStatusRaw && workflowStatusResultText"
               class="mt-4 max-h-[360px] overflow-auto rounded-2xl border border-violet-500/20 bg-slate-950 px-4 py-4 text-sm text-violet-100 shadow-inner"
@@ -1250,12 +1217,10 @@ watch(
             >
               <div class="workflow-progress-panel__header">
                 <div>
-                  <div class="text-base font-semibold">
+                  <div class="workflow-panel-title">
                     {{ $t('business.message.workflowExecutionProgressTitle') }}
                   </div>
-                  <div
-                    class="mt-1 text-xs text-[var(--vben-text-color-secondary)]"
-                  >
+                  <div class="workflow-panel-desc">
                     {{ $t('business.message.workflowExecutionProgressDesc') }}
                   </div>
                 </div>
@@ -1293,12 +1258,10 @@ watch(
             <section class="workflow-topology-card mt-4">
               <div class="workflow-topology-card__header">
                 <div>
-                  <div class="text-base font-semibold">
+                  <div class="workflow-panel-title">
                     {{ $t('business.message.workflowTopologyTitle') }}
                   </div>
-                  <div
-                    class="mt-1 text-xs text-[var(--vben-text-color-secondary)]"
-                  >
+                  <div class="workflow-panel-desc">
                     {{ $t('business.message.workflowTopologyDesc') }}
                   </div>
                 </div>
@@ -1553,10 +1516,7 @@ watch(
                     </div>
                   </section>
                 </div>
-                <div
-                  v-else
-                  class="px-4 py-8 text-center text-sm text-[var(--vben-text-color-secondary)]"
-                >
+                <div v-else class="workflow-panel-empty">
                   {{ $t('business.message.noNodeDetails') }}
                 </div>
               </div>
@@ -1594,12 +1554,10 @@ watch(
             >
               <div class="workflow-trace-panel__header">
                 <div>
-                  <div class="text-base font-semibold">
+                  <div class="workflow-panel-title">
                     {{ $t('business.message.workflowExecutionTraceTitle') }}
                   </div>
-                  <div
-                    class="mt-1 text-xs text-[var(--vben-text-color-secondary)]"
-                  >
+                  <div class="workflow-panel-desc">
                     {{ $t('business.message.workflowExecutionTraceDesc') }}
                   </div>
                 </div>
@@ -1853,12 +1811,183 @@ watch(
 </template>
 
 <style scoped>
+.task-workflow-status-page {
+  --workflow-text-color: var(--vben-text-color, hsl(var(--foreground)));
+  --workflow-muted-color: var(
+    --vben-text-color-secondary,
+    hsl(var(--foreground) / 72%)
+  );
+  --workflow-subtle-color: var(
+    --ant-color-text-tertiary,
+    hsl(var(--foreground) / 54%)
+  );
+  --workflow-soft-surface: var(
+    --vben-background-soft,
+    hsl(var(--accent) / 72%)
+  );
+  --workflow-page-surface: var(--vben-background-color, hsl(var(--background)));
+  --workflow-border-color: var(--vben-border-color, hsl(var(--border)));
+  --workflow-primary-color: hsl(var(--primary, 212 100% 45%));
+  --workflow-info-color: var(--ant-color-info, #0ea5e9);
+  --workflow-success-color: var(--ant-color-success, #16a34a);
+  --workflow-warning-color: var(--ant-color-warning, #d97706);
+  --workflow-danger-color: var(--ant-color-error, #dc2626);
+  --workflow-primary-soft: color-mix(
+    in srgb,
+    var(--workflow-primary-color) 12%,
+    var(--workflow-page-surface)
+  );
+  --workflow-primary-border: color-mix(
+    in srgb,
+    var(--workflow-primary-color) 42%,
+    var(--workflow-border-color)
+  );
+  --workflow-info-soft: color-mix(
+    in srgb,
+    var(--workflow-info-color) 12%,
+    var(--workflow-page-surface)
+  );
+  --workflow-info-border: color-mix(
+    in srgb,
+    var(--workflow-info-color) 42%,
+    var(--workflow-border-color)
+  );
+  --workflow-success-soft: color-mix(
+    in srgb,
+    var(--workflow-success-color) 12%,
+    var(--workflow-page-surface)
+  );
+  --workflow-success-border: color-mix(
+    in srgb,
+    var(--workflow-success-color) 42%,
+    var(--workflow-border-color)
+  );
+  --workflow-warning-soft: color-mix(
+    in srgb,
+    var(--workflow-warning-color) 12%,
+    var(--workflow-page-surface)
+  );
+  --workflow-warning-border: color-mix(
+    in srgb,
+    var(--workflow-warning-color) 42%,
+    var(--workflow-border-color)
+  );
+  --workflow-danger-soft: color-mix(
+    in srgb,
+    var(--workflow-danger-color) 12%,
+    var(--workflow-page-surface)
+  );
+  --workflow-danger-border: color-mix(
+    in srgb,
+    var(--workflow-danger-color) 42%,
+    var(--workflow-border-color)
+  );
+}
+
+.workflow-query-row {
+  display: grid;
+  grid-template-columns: max-content 24px minmax(320px, 860px) max-content;
+  gap: 10px 12px;
+  align-items: end;
+  justify-content: flex-start;
+}
+
+.workflow-query-label {
+  align-self: center;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 42px;
+  color: var(--workflow-text-color);
+  white-space: nowrap;
+}
+
+.workflow-query-required {
+  margin-right: 4px;
+  color: var(--workflow-danger-color);
+}
+
+.workflow-query-source-cell {
+  display: inline-flex;
+  align-self: center;
+  justify-content: center;
+  width: 24px;
+}
+
+.workflow-query-source-icon {
+  font-size: 16px;
+  color: var(--workflow-muted-color);
+  cursor: help;
+  transition: color 0.2s ease;
+}
+
+.workflow-query-source-icon:hover {
+  color: var(--workflow-primary-color);
+}
+
+.workflow-query-action {
+  align-self: end;
+  height: 42px;
+}
+
+:deep(.workflow-query-input.ant-input),
+:deep(.workflow-query-input.ant-input-affix-wrapper) {
+  height: 42px;
+}
+
+.workflow-status-notice {
+  margin-top: 16px;
+}
+
+.workflow-status-notice__body {
+  display: grid;
+  gap: 8px;
+}
+
+.workflow-status-notice__reason {
+  display: grid;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--workflow-border-color);
+}
+
+.workflow-status-notice__label {
+  font-weight: 700;
+}
+
+.workflow-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+}
+
 .workflow-progress-panel {
   overflow: hidden;
-  color: #0f172a;
-  background: rgb(255 255 255 / 96%);
-  border: 1px solid rgb(226 232 240 / 90%);
+  color: var(--workflow-text-color);
+  background: var(--workflow-page-surface);
+  border: 1px solid var(--workflow-border-color);
   border-radius: 8px;
+}
+
+.workflow-panel-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--workflow-text-color);
+}
+
+.workflow-panel-desc {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--workflow-muted-color);
+}
+
+.workflow-panel-empty {
+  padding: 32px 16px;
+  font-size: 14px;
+  color: var(--workflow-muted-color);
+  text-align: center;
 }
 
 .workflow-progress-panel__header {
@@ -1868,7 +1997,7 @@ watch(
   align-items: center;
   justify-content: space-between;
   padding: 16px;
-  border-bottom: 1px solid rgb(226 232 240 / 90%);
+  border-bottom: 1px solid var(--workflow-border-color);
 }
 
 .workflow-progress-bar-wrap {
@@ -1878,22 +2007,26 @@ watch(
 .workflow-progress-bar {
   height: 10px;
   overflow: hidden;
-  background: rgb(148 163 184 / 20%);
+  background: hsl(var(--border) / 70%);
   border-radius: 999px;
 }
 
 .workflow-progress-bar__inner {
   height: 100%;
-  background: linear-gradient(90deg, #2563eb, #059669);
+  background: linear-gradient(
+    90deg,
+    var(--workflow-primary-color),
+    var(--workflow-success-color)
+  );
   border-radius: inherit;
   transition: width 180ms ease;
 }
 
 .workflow-trace-panel {
   overflow: hidden;
-  color: #0f172a;
-  background: rgb(255 255 255 / 96%);
-  border: 1px solid rgb(226 232 240 / 90%);
+  color: var(--workflow-text-color);
+  background: var(--workflow-page-surface);
+  border: 1px solid var(--workflow-border-color);
   border-radius: 8px;
 }
 
@@ -1904,7 +2037,7 @@ watch(
   align-items: center;
   justify-content: space-between;
   padding: 16px;
-  border-bottom: 1px solid rgb(226 232 240 / 90%);
+  border-bottom: 1px solid var(--workflow-border-color);
 }
 
 .workflow-trace-filter {
@@ -1938,12 +2071,8 @@ watch(
   min-width: 0;
   padding: 10px 12px;
   overflow: hidden;
-  background: linear-gradient(
-    180deg,
-    rgb(255 255 255 / 96%),
-    rgb(248 250 252 / 92%)
-  );
-  border: 1px solid rgb(226 232 240 / 92%);
+  background: var(--workflow-soft-surface);
+  border: 1px solid var(--workflow-border-color);
   border-radius: 8px;
 }
 
@@ -1952,63 +2081,68 @@ watch(
   inset: 0 auto 0 0;
   width: 3px;
   content: '';
-  background: rgb(100 116 139 / 72%);
+  background: var(--workflow-subtle-color);
 }
 
 .workflow-trace-metric--primary {
-  color: #1d4ed8;
-  border-color: rgb(147 197 253 / 58%);
+  color: var(--workflow-primary-color);
+  background: var(--workflow-primary-soft);
+  border-color: var(--workflow-primary-border);
 }
 
 .workflow-trace-metric--info {
-  color: #0e7490;
-  border-color: rgb(103 232 249 / 48%);
+  color: var(--workflow-info-color);
+  background: var(--workflow-info-soft);
+  border-color: var(--workflow-info-border);
 }
 
 .workflow-trace-metric--success {
-  color: #047857;
-  border-color: rgb(110 231 183 / 50%);
+  color: var(--workflow-success-color);
+  background: var(--workflow-success-soft);
+  border-color: var(--workflow-success-border);
 }
 
 .workflow-trace-metric--warning {
-  color: #b45309;
-  border-color: rgb(252 211 77 / 54%);
+  color: var(--workflow-warning-color);
+  background: var(--workflow-warning-soft);
+  border-color: var(--workflow-warning-border);
 }
 
 .workflow-trace-metric--danger {
-  color: #be123c;
-  border-color: rgb(253 164 175 / 58%);
+  color: var(--workflow-danger-color);
+  background: var(--workflow-danger-soft);
+  border-color: var(--workflow-danger-border);
 }
 
 .workflow-trace-metric--neutral {
-  color: #334155;
+  color: var(--workflow-text-color);
 }
 
 .workflow-trace-metric--primary::before {
-  background: #2563eb;
+  background: var(--workflow-primary-color);
 }
 
 .workflow-trace-metric--info::before {
-  background: #0891b2;
+  background: var(--workflow-info-color);
 }
 
 .workflow-trace-metric--success::before {
-  background: #10b981;
+  background: var(--workflow-success-color);
 }
 
 .workflow-trace-metric--warning::before {
-  background: #f59e0b;
+  background: var(--workflow-warning-color);
 }
 
 .workflow-trace-metric--danger::before {
-  background: #e11d48;
+  background: var(--workflow-danger-color);
 }
 
 .workflow-trace-metric__label {
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 12px;
-  color: #64748b;
+  color: var(--workflow-muted-color);
   white-space: nowrap;
 }
 
@@ -2027,6 +2161,7 @@ watch(
   margin-bottom: 8px;
   font-size: 13px;
   font-weight: 800;
+  color: var(--workflow-text-color);
 }
 
 .workflow-trace-empty {
@@ -2034,17 +2169,17 @@ watch(
   margin: 0 16px 16px;
   font-size: 13px;
   font-weight: 700;
-  color: #64748b;
+  color: var(--workflow-muted-color);
   text-align: center;
-  background: rgb(248 250 252 / 86%);
-  border: 1px dashed rgb(203 213 225 / 92%);
+  background: var(--workflow-soft-surface);
+  border: 1px dashed var(--workflow-border-color);
   border-radius: 8px;
 }
 
 .workflow-trace-table {
   min-width: 760px;
   overflow: hidden;
-  border: 1px solid rgb(226 232 240 / 92%);
+  border: 1px solid var(--workflow-border-color);
   border-radius: 8px;
 }
 
@@ -2057,7 +2192,8 @@ watch(
   align-items: center;
   padding: 10px 12px;
   font-size: 12px;
-  border-top: 1px solid rgb(226 232 240 / 72%);
+  color: var(--workflow-text-color);
+  border-top: 1px solid var(--workflow-border-color);
 }
 
 .workflow-trace-row:first-child {
@@ -2066,8 +2202,8 @@ watch(
 
 .workflow-trace-row--head {
   font-weight: 800;
-  color: #334155;
-  background: rgb(248 250 252 / 92%);
+  color: var(--workflow-text-color);
+  background: var(--workflow-soft-surface);
 }
 
 .workflow-trace-table--shards .workflow-trace-row {
@@ -2092,23 +2228,23 @@ watch(
 }
 
 .workflow-trace-number.is-primary {
-  color: #1d4ed8;
+  color: var(--workflow-primary-color);
 }
 
 .workflow-trace-number.is-info {
-  color: #0e7490;
+  color: var(--workflow-info-color);
 }
 
 .workflow-trace-number.is-success {
-  color: #047857;
+  color: var(--workflow-success-color);
 }
 
 .workflow-trace-number.is-warning {
-  color: #b45309;
+  color: var(--workflow-warning-color);
 }
 
 .workflow-trace-number.is-neutral {
-  color: #475569;
+  color: var(--workflow-text-color);
 }
 
 .workflow-trace-action,
@@ -2130,41 +2266,41 @@ watch(
 
 .workflow-trace-action--read,
 .workflow-trace-status--running {
-  color: #0369a1;
-  background: rgb(224 242 254 / 76%);
-  border-color: rgb(125 211 252 / 68%);
+  color: var(--workflow-info-color);
+  background: var(--workflow-info-soft);
+  border-color: var(--workflow-info-border);
 }
 
 .workflow-trace-action--insert,
 .workflow-trace-action--update,
 .workflow-trace-action--upsert,
 .workflow-trace-status--success {
-  color: #047857;
-  background: rgb(209 250 229 / 72%);
-  border-color: rgb(110 231 183 / 68%);
+  color: var(--workflow-success-color);
+  background: var(--workflow-success-soft);
+  border-color: var(--workflow-success-border);
 }
 
 .workflow-trace-action--delete,
 .workflow-trace-action--skip,
 .workflow-trace-status--pending,
 .workflow-trace-status--skipped {
-  color: #b45309;
-  background: rgb(254 243 199 / 72%);
-  border-color: rgb(252 211 77 / 70%);
+  color: var(--workflow-warning-color);
+  background: var(--workflow-warning-soft);
+  border-color: var(--workflow-warning-border);
 }
 
 .workflow-trace-action--error,
 .workflow-trace-status--failed {
-  color: #be123c;
-  background: rgb(255 228 230 / 78%);
-  border-color: rgb(253 164 175 / 72%);
+  color: var(--workflow-danger-color);
+  background: var(--workflow-danger-soft);
+  border-color: var(--workflow-danger-border);
 }
 
 .workflow-trace-action--custom,
 .workflow-trace-status--default {
-  color: #334155;
-  background: rgb(241 245 249 / 82%);
-  border-color: rgb(203 213 225 / 82%);
+  color: var(--workflow-text-color);
+  background: var(--workflow-soft-surface);
+  border-color: var(--workflow-border-color);
 }
 
 .workflow-trace-details {
@@ -2196,7 +2332,7 @@ watch(
 .workflow-trace-detail-modal__meta {
   margin-bottom: 10px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--workflow-muted-color);
 }
 
 .workflow-trace-detail-modal__scroll {
@@ -2206,7 +2342,7 @@ watch(
 .workflow-trace-detail-modal__table {
   min-width: 720px;
   overflow: hidden;
-  border: 1px solid rgb(226 232 240 / 92%);
+  border: 1px solid var(--workflow-border-color);
   border-radius: 8px;
 }
 
@@ -2219,7 +2355,8 @@ watch(
   align-items: start;
   padding: 10px 12px;
   font-size: 12px;
-  border-top: 1px solid rgb(226 232 240 / 72%);
+  color: var(--workflow-text-color);
+  border-top: 1px solid var(--workflow-border-color);
 }
 
 .workflow-trace-detail-modal__row:first-child {
@@ -2228,206 +2365,54 @@ watch(
 
 .workflow-trace-detail-modal__row--head {
   font-weight: 800;
-  color: #334155;
-  background: rgb(248 250 252 / 92%);
+  color: var(--workflow-text-color);
+  background: var(--workflow-soft-surface);
 }
 
 .workflow-trace-detail-modal__object {
   overflow-wrap: anywhere;
 }
 
-:global(.dark) .workflow-trace-panel {
-  color: #e2e8f0;
-  background: rgb(15 23 42 / 78%);
-  border-color: rgb(51 65 85 / 82%);
-}
-
-:global(.dark) .workflow-progress-panel {
-  color: #e2e8f0;
-  background: rgb(15 23 42 / 78%);
-  border-color: rgb(51 65 85 / 82%);
-}
-
-:global(.dark) .workflow-progress-panel__header {
-  border-color: rgb(51 65 85 / 76%);
-}
-
-:global(.dark) .workflow-trace-panel__header,
-:global(.dark) .workflow-trace-row {
-  border-color: rgb(51 65 85 / 76%);
-}
-
-:global(.dark) .workflow-trace-metric,
-:global(.dark) .workflow-trace-row--head {
-  color: #e2e8f0;
-  background: rgb(30 41 59 / 76%);
-  border-color: rgb(51 65 85 / 78%);
-}
-
-:global(.dark) .workflow-trace-metric__label {
-  color: #94a3b8;
-}
-
-:global(.dark) .workflow-trace-metric--primary {
-  color: #93c5fd;
-  background: rgb(15 23 42 / 72%);
-  border-color: rgb(96 165 250 / 34%);
-}
-
-:global(.dark) .workflow-trace-metric--info {
-  color: #67e8f9;
-  background: rgb(15 23 42 / 72%);
-  border-color: rgb(34 211 238 / 34%);
-}
-
-:global(.dark) .workflow-trace-metric--success {
-  color: #6ee7b7;
-  background: rgb(15 23 42 / 72%);
-  border-color: rgb(52 211 153 / 34%);
-}
-
-:global(.dark) .workflow-trace-metric--warning {
-  color: #fcd34d;
-  background: rgb(15 23 42 / 72%);
-  border-color: rgb(245 158 11 / 34%);
-}
-
-:global(.dark) .workflow-trace-metric--danger {
-  color: #fda4af;
-  background: rgb(15 23 42 / 72%);
-  border-color: rgb(244 63 94 / 34%);
-}
-
-:global(.dark) .workflow-trace-table {
-  border-color: rgb(51 65 85 / 82%);
-}
-
-:global(.dark) .workflow-trace-number.is-primary {
-  color: #93c5fd;
-}
-
-:global(.dark) .workflow-trace-number.is-info {
-  color: #67e8f9;
-}
-
-:global(.dark) .workflow-trace-number.is-success {
-  color: #6ee7b7;
-}
-
-:global(.dark) .workflow-trace-number.is-warning {
-  color: #fcd34d;
-}
-
-:global(.dark) .workflow-trace-number.is-neutral {
-  color: #cbd5e1;
-}
-
-:global(.dark) .workflow-trace-action--read,
-:global(.dark) .workflow-trace-status--running {
-  color: #7dd3fc;
-  background: rgb(12 74 110 / 40%);
-  border-color: rgb(56 189 248 / 38%);
-}
-
-:global(.dark) .workflow-trace-action--insert,
-:global(.dark) .workflow-trace-action--update,
-:global(.dark) .workflow-trace-action--upsert,
-:global(.dark) .workflow-trace-status--success {
-  color: #6ee7b7;
-  background: rgb(6 78 59 / 38%);
-  border-color: rgb(52 211 153 / 38%);
-}
-
-:global(.dark) .workflow-trace-action--delete,
-:global(.dark) .workflow-trace-action--skip,
-:global(.dark) .workflow-trace-status--pending,
-:global(.dark) .workflow-trace-status--skipped {
-  color: #fcd34d;
-  background: rgb(120 53 15 / 38%);
-  border-color: rgb(245 158 11 / 38%);
-}
-
-:global(.dark) .workflow-trace-action--error,
-:global(.dark) .workflow-trace-status--failed {
-  color: #fda4af;
-  background: rgb(136 19 55 / 38%);
-  border-color: rgb(244 63 94 / 38%);
-}
-
-:global(.dark) .workflow-trace-action--custom,
-:global(.dark) .workflow-trace-status--default {
-  color: #cbd5e1;
-  background: rgb(51 65 85 / 64%);
-  border-color: rgb(71 85 105 / 76%);
-}
-
-:global(.dark) .workflow-trace-detail-modal__meta {
-  color: #94a3b8;
-}
-
-:global(.dark) .workflow-trace-detail-modal__table {
-  border-color: rgb(51 65 85 / 82%);
-}
-
-:global(.dark) .workflow-trace-detail-modal__row {
-  border-color: rgb(51 65 85 / 76%);
-}
-
-:global(.dark) .workflow-trace-detail-modal__row--head {
-  color: #e2e8f0;
-  background: rgb(30 41 59 / 76%);
-}
-
 .workflow-topology-card {
-  --workflow-text-color: #0f172a;
-  --workflow-muted-color: #64748b;
-  --workflow-panel-bg: linear-gradient(180deg, rgb(248 250 252 / 96%), #fff);
-  --workflow-panel-border: rgb(226 232 240 / 90%);
-  --workflow-panel-shadow: 0 12px 30px rgb(15 23 42 / 7%);
-  --workflow-header-bg: linear-gradient(
-    180deg,
-    rgb(255 255 255 / 88%),
-    transparent
-  );
-  --workflow-header-border: rgb(226 232 240 / 86%);
-  --workflow-canvas-bg: rgb(248 250 252 / 72%);
-  --workflow-grid-x: rgb(226 232 240 / 52%);
-  --workflow-grid-y: rgb(226 232 240 / 42%);
+  --workflow-panel-bg: var(--workflow-page-surface);
+  --workflow-panel-border: var(--workflow-border-color);
+  --workflow-panel-shadow: 0 12px 28px rgb(15 23 42 / 7%);
+  --workflow-header-bg: var(--workflow-soft-surface);
+  --workflow-header-border: var(--workflow-border-color);
+  --workflow-canvas-bg: hsl(var(--background-deep, var(--background)));
+  --workflow-grid-x: hsl(var(--border) / 70%);
+  --workflow-grid-y: hsl(var(--border) / 48%);
   --workflow-flow-line: linear-gradient(
     90deg,
-    rgb(59 130 246 / 34%),
-    rgb(20 184 166 / 42%)
+    color-mix(in srgb, var(--workflow-primary-color) 42%, transparent),
+    color-mix(in srgb, var(--workflow-success-color) 34%, transparent)
   );
-  --workflow-arrow-bg: rgb(248 250 252);
-  --workflow-arrow-border: rgb(37 99 235 / 62%);
-  --workflow-stage-bg: rgb(255 255 255 / 92%);
-  --workflow-stage-border: rgb(203 213 225 / 88%);
-  --workflow-stage-shadow: 0 10px 24px rgb(15 23 42 / 6%);
-  --workflow-stage-badge-color: #1d4ed8;
-  --workflow-stage-badge-bg: linear-gradient(
-    180deg,
-    rgb(239 246 255),
-    rgb(219 234 254)
-  );
-  --workflow-stage-badge-border: rgb(147 197 253 / 86%);
-  --workflow-node-bg: rgb(255 255 255 / 96%);
-  --workflow-node-border: rgb(203 213 225 / 82%);
-  --workflow-node-shadow: 0 14px 30px rgb(15 23 42 / 8%);
-  --workflow-node-metric-bg: rgb(248 250 252 / 86%);
-  --workflow-node-metric-border: rgb(226 232 240 / 92%);
-  --workflow-node-separator: rgb(226 232 240 / 82%);
-  --workflow-chip-color: #1d4ed8;
-  --workflow-chip-bg: rgb(219 234 254 / 82%);
-  --workflow-chip-border: rgb(147 197 253 / 72%);
+  --workflow-arrow-bg: var(--workflow-page-surface);
+  --workflow-arrow-border: var(--workflow-primary-border);
+  --workflow-stage-bg: var(--workflow-page-surface);
+  --workflow-stage-border: var(--workflow-border-color);
+  --workflow-stage-shadow: 0 10px 22px rgb(15 23 42 / 7%);
+  --workflow-stage-badge-color: var(--workflow-primary-color);
+  --workflow-stage-badge-bg: var(--workflow-primary-soft);
+  --workflow-stage-badge-border: var(--workflow-primary-border);
+  --workflow-node-bg: var(--workflow-page-surface);
+  --workflow-node-border: var(--workflow-border-color);
+  --workflow-node-shadow: 0 14px 28px rgb(15 23 42 / 8%);
+  --workflow-node-metric-bg: var(--workflow-soft-surface);
+  --workflow-node-metric-border: var(--workflow-border-color);
+  --workflow-node-separator: var(--workflow-border-color);
+  --workflow-chip-color: var(--workflow-primary-color);
+  --workflow-chip-bg: var(--workflow-primary-soft);
+  --workflow-chip-border: var(--workflow-primary-border);
   --workflow-chip-expected-color: #7e22ce;
-  --workflow-chip-expected-bg: rgb(243 232 255 / 84%);
-  --workflow-chip-expected-border: rgb(216 180 254 / 72%);
-  --workflow-progress-bg: rgb(148 163 184 / 20%);
-  --workflow-status-default: #2563eb;
-  --workflow-status-default-ring: rgb(37 99 235 / 14%);
-  --workflow-status-success: #16a34a;
+  --workflow-chip-expected-bg: rgb(243 232 255 / 86%);
+  --workflow-chip-expected-border: rgb(216 180 254 / 76%);
+  --workflow-progress-bg: hsl(var(--border) / 70%);
+  --workflow-status-default: var(--workflow-primary-color);
+  --workflow-status-default-ring: hsl(var(--primary, 212 100% 45%) / 16%);
+  --workflow-status-success: #059669;
   --workflow-status-success-ring: rgb(22 163 74 / 16%);
-  --workflow-status-failed: #e11d48;
+  --workflow-status-failed: #dc2626;
   --workflow-status-failed-ring: rgb(225 29 72 / 16%);
   --workflow-status-running: #0284c7;
   --workflow-status-running-ring: rgb(2 132 199 / 16%);
@@ -2470,7 +2455,7 @@ watch(
 .workflow-topology-controls--tail {
   flex-basis: auto;
   padding: 12px 16px;
-  background: rgb(248 250 252 / 86%);
+  background: var(--workflow-soft-surface);
   border-top: 1px solid var(--workflow-header-border);
 }
 
@@ -2482,32 +2467,32 @@ watch(
 .workflow-trace-filter :deep(.ant-btn) {
   height: 30px;
   padding: 0 12px;
-  color: #334155;
-  background: #fff;
-  border-color: #cbd5e1;
+  color: var(--workflow-text-color);
+  background: var(--workflow-page-surface);
+  border-color: var(--workflow-border-color);
   box-shadow: none;
 }
 
 .workflow-topology-controls :deep(.ant-btn:not(:disabled):hover),
 .workflow-trace-filter :deep(.ant-btn:not(:disabled):hover) {
-  color: #1d4ed8;
-  background: #eff6ff;
-  border-color: #93c5fd;
+  color: var(--workflow-primary-color);
+  background: var(--workflow-primary-soft);
+  border-color: var(--workflow-primary-border);
 }
 
 .workflow-topology-controls :deep(.ant-btn:disabled),
 .workflow-trace-filter :deep(.ant-btn:disabled) {
-  color: #94a3b8;
-  background: #f8fafc;
-  border-color: #e2e8f0;
+  color: var(--workflow-subtle-color);
+  background: var(--workflow-soft-surface);
+  border-color: var(--workflow-border-color);
 }
 
 .workflow-topology-controls :deep(.ant-input-affix-wrapper),
 .workflow-trace-filter :deep(.ant-input-affix-wrapper) {
   height: 30px;
-  color: #0f172a;
-  background: #fff;
-  border-color: #cbd5e1;
+  color: var(--workflow-text-color);
+  background: var(--workflow-page-surface);
+  border-color: var(--workflow-border-color);
   box-shadow: none;
 }
 
@@ -2517,19 +2502,19 @@ watch(
 .workflow-trace-filter :deep(.ant-input-affix-wrapper-focused),
 .workflow-trace-filter :deep(.ant-input-affix-wrapper:focus),
 .workflow-trace-filter :deep(.ant-input-affix-wrapper:hover) {
-  border-color: #60a5fa;
-  box-shadow: 0 0 0 2px rgb(96 165 250 / 14%);
+  border-color: var(--workflow-primary-color);
+  box-shadow: 0 0 0 2px hsl(var(--primary, 212 100% 45%) / 14%);
 }
 
 .workflow-topology-controls :deep(.ant-input),
 .workflow-trace-filter :deep(.ant-input) {
-  color: #0f172a;
+  color: var(--workflow-text-color);
   background: transparent;
 }
 
 .workflow-topology-controls :deep(.ant-input::placeholder),
 .workflow-trace-filter :deep(.ant-input::placeholder) {
-  color: #94a3b8;
+  color: var(--workflow-subtle-color);
 }
 
 .workflow-topology-collapsed {
@@ -2911,8 +2896,6 @@ watch(
 
 :global(.dark) .workflow-topology-card,
 :global(html.dark) .workflow-topology-card {
-  --workflow-text-color: #e5e7eb;
-  --workflow-muted-color: #94a3b8;
   --workflow-panel-bg: linear-gradient(
     180deg,
     rgb(15 23 42 / 92%),
@@ -2931,36 +2914,36 @@ watch(
   --workflow-grid-y: rgb(30 41 59 / 54%);
   --workflow-flow-line: linear-gradient(
     90deg,
-    rgb(96 165 250 / 42%),
+    hsl(var(--primary, 212 100% 64%) / 42%),
     rgb(45 212 191 / 36%)
   );
   --workflow-arrow-bg: rgb(2 6 23);
-  --workflow-arrow-border: rgb(96 165 250 / 72%);
+  --workflow-arrow-border: hsl(var(--primary, 212 100% 64%) / 72%);
   --workflow-stage-bg: rgb(15 23 42 / 92%);
   --workflow-stage-border: rgb(51 65 85 / 96%);
   --workflow-stage-shadow: 0 14px 28px rgb(0 0 0 / 18%);
-  --workflow-stage-badge-color: #bfdbfe;
+  --workflow-stage-badge-color: var(--workflow-primary-color);
   --workflow-stage-badge-bg: linear-gradient(
     180deg,
-    rgb(30 64 175 / 54%),
+    hsl(var(--primary, 212 100% 64%) / 34%),
     rgb(15 23 42)
   );
-  --workflow-stage-badge-border: rgb(59 130 246 / 70%);
+  --workflow-stage-badge-border: var(--workflow-primary-border);
   --workflow-node-bg: rgb(15 23 42 / 96%);
   --workflow-node-border: rgb(51 65 85 / 94%);
   --workflow-node-shadow: 0 18px 34px rgb(0 0 0 / 22%);
   --workflow-node-metric-bg: rgb(2 6 23 / 52%);
   --workflow-node-metric-border: rgb(51 65 85 / 84%);
   --workflow-node-separator: rgb(51 65 85 / 82%);
-  --workflow-chip-color: #bfdbfe;
-  --workflow-chip-bg: rgb(30 64 175 / 32%);
-  --workflow-chip-border: rgb(59 130 246 / 54%);
+  --workflow-chip-color: var(--workflow-primary-color);
+  --workflow-chip-bg: var(--workflow-primary-soft);
+  --workflow-chip-border: var(--workflow-primary-border);
   --workflow-chip-expected-color: #e9d5ff;
   --workflow-chip-expected-bg: rgb(88 28 135 / 32%);
   --workflow-chip-expected-border: rgb(168 85 247 / 50%);
   --workflow-progress-bg: rgb(51 65 85 / 70%);
-  --workflow-status-default: #60a5fa;
-  --workflow-status-default-ring: rgb(96 165 250 / 18%);
+  --workflow-status-default: var(--workflow-primary-color);
+  --workflow-status-default-ring: hsl(var(--primary, 212 100% 64%) / 18%);
   --workflow-status-success: #4ade80;
   --workflow-status-success-ring: rgb(74 222 128 / 18%);
   --workflow-status-failed: #fb7185;
@@ -2977,6 +2960,20 @@ watch(
 }
 
 @media (max-width: 768px) {
+  .workflow-query-row {
+    grid-template-columns: max-content 24px;
+  }
+
+  .workflow-query-action {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  :deep(.workflow-query-input.ant-input),
+  :deep(.workflow-query-input.ant-input-affix-wrapper) {
+    grid-column: 1 / -1;
+  }
+
   .workflow-trace-filter {
     justify-content: flex-start;
   }
