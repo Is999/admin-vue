@@ -19,6 +19,7 @@ async function initSetupVbenForm() {
         Checkbox: 'checked',
         Radio: 'checked',
         Switch: 'checked',
+        Tiptap: 'modelValue',
         Upload: 'fileList',
       },
     },

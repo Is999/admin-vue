@@ -199,6 +199,7 @@ function buildMfaCodeInputBlock(
   errorMessage: string,
   onSecureChange: (value: string) => void,
   onSubmit?: () => void,
+  renderActions?: () => any,
 ) {
   return h('div', { class: 'space-y-3' }, [
     h(Alert, {
@@ -214,21 +215,66 @@ function buildMfaCodeInputBlock(
           type: 'error',
         })
       : null,
-    h(Input, {
-      autofocus: true,
-      class: 'mfa-check-input',
-      maxlength: 6,
-      onChange: (event: Event) => {
-        onSecureChange((event.target as HTMLInputElement).value);
+    h(
+      'div',
+      {
+        class:
+          'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-start',
+        style: { marginTop: '8px' },
       },
-      onPressEnter: () => {
-        onSubmit?.();
+      [
+        h(Input, {
+          autofocus: true,
+          class: 'mfa-check-input h-10 min-w-0 sm:max-w-[560px] sm:flex-1',
+          maxlength: 6,
+          onChange: (event: Event) => {
+            onSecureChange((event.target as HTMLInputElement).value);
+          },
+          onPressEnter: () => {
+            onSubmit?.();
+          },
+          placeholder: $t('business.message.mfaCodePlaceholder'),
+          size: 'large',
+          value: secure,
+          'data-mfa-check-input': 'true',
+        }),
+        renderActions?.() ?? null,
+      ],
+    ),
+  ]);
+}
+
+// buildMfaDialogActions 渲染输入框后的确认与取消按钮。
+function buildMfaDialogActions(options: {
+  cancelText: string;
+  disabled?: boolean;
+  loading?: boolean;
+  okText: string;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  return h('div', { class: 'flex flex-none flex-row items-center gap-3' }, [
+    h(
+      Button,
+      {
+        class: 'h-10 min-w-[96px]',
+        loading: options.loading,
+        onClick: options.onSubmit,
+        size: 'large',
+        type: 'primary',
       },
-      placeholder: $t('business.message.mfaCodePlaceholder'),
-      size: 'large',
-      value: secure,
-      'data-mfa-check-input': 'true',
-    }),
+      { default: () => options.okText },
+    ),
+    h(
+      Button,
+      {
+        class: 'h-10 min-w-[96px]',
+        disabled: options.disabled,
+        onClick: options.onCancel,
+        size: 'large',
+      },
+      { default: () => options.cancelText },
+    ),
   ]);
 }
 
@@ -358,6 +404,7 @@ function buildMfaVerificationContent(
   onSubmit?: () => void,
   onRefresh?: () => void,
   refreshLoading = false,
+  renderActions?: () => any,
 ) {
   const info = extractMfaManualInfo(buildMfaUrl);
   if (!buildMfaUrl) {
@@ -401,21 +448,32 @@ function buildMfaVerificationContent(
           ),
         ],
       ),
-      h(Input, {
-        autofocus: true,
-        class: 'mfa-check-input',
-        maxlength: 6,
-        onChange: (event: Event) => {
-          onSecureChange((event.target as HTMLInputElement).value);
+      h(
+        'div',
+        {
+          class:
+            'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-start',
+          style: { marginTop: '8px' },
         },
-        onPressEnter: () => {
-          onSubmit?.();
-        },
-        placeholder: $t('business.message.mfaCodePlaceholder'),
-        size: 'large',
-        value: secure,
-        'data-mfa-check-input': 'true',
-      }),
+        [
+          h(Input, {
+            autofocus: true,
+            class: 'mfa-check-input h-10 min-w-0 sm:max-w-[420px] sm:flex-1',
+            maxlength: 6,
+            onChange: (event: Event) => {
+              onSecureChange((event.target as HTMLInputElement).value);
+            },
+            onPressEnter: () => {
+              onSubmit?.();
+            },
+            placeholder: $t('business.message.mfaCodePlaceholder'),
+            size: 'large',
+            value: secure,
+            'data-mfa-check-input': 'true',
+          }),
+          renderActions?.() ?? null,
+        ],
+      ),
     ]);
   }
   return h('div', { class: 'space-y-5' }, [
@@ -446,7 +504,7 @@ function buildMfaVerificationContent(
         ),
       ],
     ),
-    h('div', { class: 'grid gap-3 xl:grid-cols-[260px_minmax(0,1fr)]' }, [
+    h('div', { class: 'grid gap-3 xl:grid-cols-[284px_minmax(0,1fr)]' }, [
       h(
         'div',
         {
@@ -459,12 +517,14 @@ function buildMfaVerificationContent(
             { class: 'text-sm font-medium text-foreground/80' },
             $t('business.message.mfaBindingQrArea'),
           ),
-          h('div', { class: 'flex justify-center' }, [
+          h('div', { class: 'flex justify-center rounded-lg bg-white p-0.5' }, [
             h(QRCode, {
               bgColor: '#ffffff',
+              bordered: false,
+              class: '!h-[220px] !w-[220px] !border-0 !p-0',
               color: '#000000',
               key: buildMfaUrl,
-              size: 168,
+              size: 246,
               value: buildMfaUrl,
             }),
           ]),
@@ -555,6 +615,7 @@ function buildMfaVerificationContent(
               errorMessage,
               onSecureChange,
               onSubmit,
+              renderActions,
             ),
           ],
         ),
@@ -745,53 +806,20 @@ export function createMfaOverlayDialog<Result = unknown>(
                                 }
                               : undefined,
                             refreshLoading,
-                          ),
-                        ],
-                      ),
-                      h(
-                        'div',
-                        {
-                          class:
-                            'border-t border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/40 px-6 py-4 sm:px-8',
-                        },
-                        [
-                          h(
-                            'div',
-                            {
-                              class:
-                                'flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end',
-                            },
-                            [
-                              h(
-                                Button,
-                                {
-                                  disabled: submitting,
-                                  onClick: () => {
-                                    destroyOverlay();
-                                    rejectDialog?.(
-                                      new Error(cancelErrorMessage),
-                                    );
-                                  },
-                                  size: 'large',
+                            () =>
+                              buildMfaDialogActions({
+                                cancelText: $t('business.message.mfaCancel'),
+                                disabled: submitting,
+                                loading: submitting,
+                                okText,
+                                onCancel: () => {
+                                  destroyOverlay();
+                                  rejectDialog?.(new Error(cancelErrorMessage));
                                 },
-                                {
-                                  default: () =>
-                                    $t('business.message.mfaCancel'),
+                                onSubmit: () => {
+                                  void submitCheck();
                                 },
-                              ),
-                              h(
-                                Button,
-                                {
-                                  loading: submitting,
-                                  onClick: () => {
-                                    void submitCheck();
-                                  },
-                                  size: 'large',
-                                  type: 'primary',
-                                },
-                                { default: () => okText },
-                              ),
-                            ],
+                              }),
                           ),
                         ],
                       ),

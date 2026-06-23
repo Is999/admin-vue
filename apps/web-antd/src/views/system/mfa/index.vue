@@ -380,10 +380,12 @@ function confirmForceDisableMfa() {
                   </div>
                   <div class="mfa-qr-board">
                     <QRCode
+                      class="mfa-qr-code"
+                      :bordered="false"
                       bg-color="#ffffff"
                       color="#000000"
                       :key="profileMfaUrl"
-                      :size="176"
+                      :size="202"
                       :value="profileMfaUrl"
                     />
                   </div>
@@ -437,6 +439,7 @@ function confirmForceDisableMfa() {
                   class="mfa-code-input"
                   :maxlength="6"
                   :placeholder="$t('business.message.mfaCodePlaceholder')"
+                  size="large"
                   @press-enter="
                     profileMfaStatus === 1 ? onDisableMfa() : onEnableMfa()
                   "
@@ -530,19 +533,20 @@ function confirmForceDisableMfa() {
 
 .mfa-bind-layout {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 192px minmax(0, 1fr);
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .mfa-qr-column {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .mfa-qr-panel {
-  width: 220px;
+  width: 192px;
   max-width: 100%;
 }
 
@@ -550,7 +554,7 @@ function confirmForceDisableMfa() {
   overflow: hidden;
   background: rgb(127 127 127 / 6%);
   border: 1px solid var(--vben-border-color);
-  border-radius: 14px;
+  border-radius: 10px;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%);
 }
 
@@ -559,7 +563,7 @@ function confirmForceDisableMfa() {
   gap: 10px;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px;
+  padding: 8px 10px;
   background: rgb(59 130 246 / 8%);
 }
 
@@ -576,12 +580,20 @@ function confirmForceDisableMfa() {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 10px 12px 12px;
-  background: linear-gradient(180deg, rgb(255 255 255), rgb(248 250 252));
+  padding: 4px 8px 8px;
+  background: #fff;
+}
+
+.mfa-qr-board :deep(.ant-qrcode) {
+  width: 176px !important;
+  height: 176px !important;
+  padding: 0;
+  background: #fff;
+  border: 0;
 }
 
 .mfa-qr-account {
-  max-width: 132px;
+  max-width: 92px;
   padding: 2px 8px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -597,6 +609,7 @@ function confirmForceDisableMfa() {
 
 .mfa-qr-refresh {
   width: 100%;
+  margin-top: auto;
 }
 
 .mfa-bind-detail {
@@ -604,6 +617,7 @@ function confirmForceDisableMfa() {
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+  height: 100%;
 }
 
 .mfa-bind-steps {
@@ -627,6 +641,10 @@ function confirmForceDisableMfa() {
   padding: 2px 0;
 }
 
+.mfa-verify-row {
+  margin-top: auto;
+}
+
 .mfa-secret-input {
   flex: 1 1 320px;
   min-width: 260px;
@@ -634,6 +652,13 @@ function confirmForceDisableMfa() {
 
 .mfa-code-input {
   width: 220px;
+}
+
+.mfa-secret-row :deep(.ant-input),
+.mfa-secret-row :deep(button),
+.mfa-verify-row :deep(.ant-input),
+.mfa-verify-row :deep(button) {
+  height: 40px;
 }
 
 .mfa-guide-app-link {
@@ -663,7 +688,7 @@ function confirmForceDisableMfa() {
   }
 
   .mfa-qr-column {
-    max-width: 220px;
+    max-width: 192px;
   }
 }
 

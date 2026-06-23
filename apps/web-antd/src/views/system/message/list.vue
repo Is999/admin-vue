@@ -6,12 +6,10 @@ import type { AdminMessageApi } from '#/api/message';
 import { computed, h, ref, watch } from 'vue';
 
 import { Page, VbenButton } from '@vben/common-ui';
+import { VbenTiptapPreview } from '@vben/plugins/tiptap';
 
 import {
   Alert,
-  Card,
-  Descriptions,
-  DescriptionsItem,
   Input,
   message,
   Modal,
@@ -36,6 +34,11 @@ import {
 import { $t } from '#/locales';
 
 import {
+  messageContentText,
+  normalizeMessageContentForSubmit,
+  sanitizeMessageContentHtml,
+} from './content';
+import {
   isProcessableMessageType,
   MESSAGE_LEVEL_OPTIONS,
   resolveMessageTypeLabel,
@@ -54,6 +57,9 @@ const sendModalOpen = ref(false);
 // sending 表示当前是否正在提交发送请求。
 const sending = ref(false);
 const sendModalOffsetLeft = ref(0);
+const sendModalWidth = ref(1040);
+// receiversModalWidth 控制收件人已读明细弹框宽度，避免少列数据在宽屏下铺满页面。
+const receiversModalWidth = ref(760);
 
 const sendModalSafeAreaStyle = computed(() => {
   if (!sendModalOffsetLeft.value) {
@@ -67,16 +73,15 @@ const sendModalSafeAreaStyle = computed(() => {
 
 function measureSidebarWidth() {
   const sidebar = document.querySelector(
-    'aside.bg-sidebar, aside.bg-sidebar-deep',
+    'aside[class*="bg-sidebar"], aside[class*="bg-sidebar-deep"], aside',
   ) as HTMLElement | null;
-  if (!sidebar) {
-    sendModalOffsetLeft.value = 0;
-    return;
-  }
-  sendModalOffsetLeft.value = Math.max(
-    0,
-    Math.round(sidebar.getBoundingClientRect().width),
-  );
+  const sidebarWidth = sidebar
+    ? Math.max(0, Math.round(sidebar.getBoundingClientRect().width))
+    : 0;
+  const availableWidth = Math.max(720, window.innerWidth - sidebarWidth - 96);
+  sendModalOffsetLeft.value = sidebarWidth;
+  sendModalWidth.value = Math.min(1040, availableWidth);
+  receiversModalWidth.value = Math.min(760, availableWidth);
 }
 
 watch(
@@ -226,6 +231,121 @@ function parsePayloadText(text = '') {
   }
 }
 
+// renderMessageContent 以受控富文本展示消息正文，历史纯文本会自动按换行展示。
+function renderMessageContent(content = '') {
+  const html =
+    sanitizeMessageContentHtml(content) ||
+    sanitizeMessageContentHtml($t('business.message.emptyMessageContent'));
+  return h('section', { class: 'message-detail-section' }, [
+    h('div', { class: 'message-detail-section__header' }, [
+      h('span', { class: 'message-detail-section__title' }, [
+        $t('business.message.content'),
+      ]),
+    ]),
+    h('div', { class: 'message-detail-section__body' }, [
+      h(VbenTiptapPreview, {
+        class: 'message-detail-rich message-content-rich',
+        content: html,
+        minHeight: 0,
+      }),
+    ]),
+  ]);
+}
+
+// renderMessageData 单独展示扩展数据，避免与消息正文混在一起。
+function renderMessageData(data = '') {
+  if (!data) {
+    return null;
+  }
+  return h('section', { class: 'message-detail-section' }, [
+    h('div', { class: 'message-detail-section__header' }, [
+      h('span', { class: 'message-detail-section__title' }, [
+        $t('business.message.messageExtraData'),
+      ]),
+    ]),
+    h('div', { class: 'message-detail-section__body' }, [
+      h(
+        'pre',
+        {
+          class:
+            'max-h-[360px] overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 text-xs dark:bg-gray-900',
+        },
+        parsePayloadText(data),
+      ),
+    ]),
+  ]);
+}
+
+function renderMessageLink(link = '') {
+  if (!link) {
+    return '-';
+  }
+  return h('span', { class: 'break-all', title: link }, link);
+}
+
+function resolveHandleText(
+  row: Pick<
+    AdminMessageApi.Item,
+    'handledByAdminName' | 'handledStatus' | 'type'
+  >,
+) {
+  if (!isProcessableMessageType(row.type)) {
+    return '-';
+  }
+  if (Number(row.handledStatus || 0) !== 1) {
+    return $t('business.message.messagePendingHandle');
+  }
+  return row.handledByAdminName
+    ? $t('business.message.messageHandledBy', [row.handledByAdminName])
+    : $t('business.message.messageHandled');
+}
+
+function renderDetailMetaItem(label: string, value: any) {
+  return h('div', { class: 'message-detail-meta-item' }, [
+    h('div', { class: 'message-detail-meta-label' }, label),
+    h('div', { class: 'message-detail-meta-value' }, value || '-'),
+  ]);
+}
+
+function renderDetailMetaGrid(items: Array<{ label: string; value: any }>) {
+  return h(
+    'div',
+    { class: 'message-detail-meta-grid' },
+    items.map((item) => renderDetailMetaItem(item.label, item.value)),
+  );
+}
+
+function renderDetailOverview(options: {
+  createdAt?: string;
+  level: AdminMessageApi.Level;
+  sender?: string;
+  subtitle?: string;
+  title: string;
+  type: string;
+}) {
+  return h('div', { class: 'message-detail-overview' }, [
+    h('div', { class: 'message-detail-overview__main' }, [
+      h('div', { class: 'message-detail-overview__eyebrow' }, [
+        resolveMessageTypeLabel(options.type),
+      ]),
+      h('div', { class: 'message-detail-overview__title' }, options.title),
+      h('div', { class: 'message-detail-overview__subtitle' }, [
+        [options.sender, options.createdAt, options.subtitle]
+          .filter(Boolean)
+          .join(' / ') || '-',
+      ]),
+    ]),
+    h('div', { class: 'message-detail-overview__tags' }, [
+      h(Tag, { color: resolveLevelColor(options.level) }, () =>
+        resolveLevelText(options.level),
+      ),
+      h(Tag, { color: 'processing' }, () =>
+        resolveMessageTypeLabel(options.type),
+      ),
+    ]),
+  ]);
+}
+
 // resolveLevelText 把消息等级转换为中文。
 function resolveLevelText(level: number) {
   return (
@@ -250,102 +370,45 @@ function onViewDetail(row: AdminMessageApi.Item) {
   const processable = isProcessableMessageType(row.type);
   const handled = Number(row.handledStatus || 0) === 1;
   Modal.info({
-    content: h('div', { class: 'space-y-4' }, [
+    content: h('div', { class: 'message-detail-shell' }, [
       h(Alert, {
+        class: 'message-detail-alert',
         message: row.isRead
           ? $t('business.message.messageAlreadyReadStatus')
           : $t('business.message.messageUnreadStatus'),
         showIcon: true,
         type: row.isRead ? 'info' : 'warning',
       }),
-      h(
-        Descriptions,
+      renderDetailOverview({
+        createdAt: row.createdAt,
+        level: row.level,
+        sender: row.senderAdminName,
+        subtitle: row.isRead
+          ? $t('business.message.read')
+          : $t('business.message.unread'),
+        title: row.title || $t('business.message.messageTitleWithId', [row.id]),
+        type: row.type,
+      }),
+      renderDetailMetaGrid([
+        { label: $t('business.message.sender'), value: row.senderAdminName },
+        { label: $t('business.message.createdAt'), value: row.createdAt },
+        { label: $t('business.message.readAt'), value: row.readAt },
         {
-          bordered: true,
-          column: 1,
-          size: 'small',
+          label: $t('business.message.handleStatus'),
+          value: resolveHandleText(row),
         },
+        { label: $t('business.message.handledAt'), value: row.handledAt },
         {
-          default: () => [
-            h(
-              DescriptionsItem,
-              { label: $t('business.message.messageType') },
-              () => resolveMessageTypeLabel(row.type),
-            ),
-            h(
-              DescriptionsItem,
-              { label: $t('business.message.messageLevel') },
-              () =>
-                h(Tag, { color: resolveLevelColor(row.level) }, () =>
-                  resolveLevelText(row.level),
-                ),
-            ),
-            h(
-              DescriptionsItem,
-              { label: $t('business.message.handleStatus') },
-              () => {
-                if (!processable) {
-                  return '-';
-                }
-                if (handled) {
-                  return row.handledByAdminName
-                    ? $t('business.message.messageHandledBy', [
-                        row.handledByAdminName,
-                      ])
-                    : $t('business.message.messageHandled');
-                }
-                return $t('business.message.messagePendingHandle');
-              },
-            ),
-            h(
-              DescriptionsItem,
-              { label: $t('business.message.handledAt') },
-              () => row.handledAt || '-',
-            ),
-            h(
-              DescriptionsItem,
-              { label: $t('business.message.sender') },
-              () => row.senderAdminName || '-',
-            ),
-            h(
-              DescriptionsItem,
-              { label: $t('business.message.createdAt') },
-              () => row.createdAt || '-',
-            ),
-            h(
-              DescriptionsItem,
-              { label: $t('business.message.readAt') },
-              () => row.readAt || '-',
-            ),
-            h(
-              DescriptionsItem,
-              { label: $t('business.message.messageLink') },
-              () => row.link || '-',
-            ),
-          ],
+          label: $t('business.message.messageLink'),
+          value: renderMessageLink(row.link),
         },
-      ),
-      h(
-        'pre',
-        {
-          class:
-            'max-h-[360px] overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 text-xs dark:bg-gray-900',
-        },
-        parsePayloadText(row.content),
-      ),
-      row.data
-        ? h(
-            'pre',
-            {
-              class:
-                'max-h-[360px] overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 text-xs dark:bg-gray-900',
-            },
-            parsePayloadText(row.data),
-          )
-        : null,
+      ]),
+      renderMessageContent(row.content),
+      renderMessageData(row.data),
     ]),
     title: row.title || $t('business.message.messageDetailTitle', [row.id]),
-    width: 820,
+    width: 860,
+    wrapClassName: 'message-detail-modal',
     okText:
       processable && !handled
         ? $t('business.message.markHandled')
@@ -372,97 +435,45 @@ function onViewDetail(row: AdminMessageApi.Item) {
 }
 
 function onViewSentDetail(row: AdminMessageApi.SentItem) {
-  const processable = isProcessableMessageType(row.type);
-  const handled = Number(row.handledStatus || 0) === 1;
   Modal.info({
-    content: h('div', { class: 'space-y-4' }, [
-      h(
-        Descriptions,
+    content: h('div', { class: 'message-detail-shell' }, [
+      renderDetailOverview({
+        createdAt: row.createdAt,
+        level: row.level,
+        sender: row.senderAdminName,
+        subtitle: $t('business.message.receiverReadStats', [
+          row.receiverReadTotal,
+          row.receiverTotal,
+        ]),
+        title: row.title || $t('business.message.messageTitleWithId', [row.id]),
+        type: row.type,
+      }),
+      renderDetailMetaGrid([
         {
-          bordered: true,
-          column: 1,
-          size: 'small',
+          label: $t('business.message.receiverStats'),
+          value: $t('business.message.receiverReadStats', [
+            row.receiverReadTotal,
+            row.receiverTotal,
+          ]),
         },
+        { label: $t('business.message.sender'), value: row.senderAdminName },
+        { label: $t('business.message.createdAt'), value: row.createdAt },
         {
-          default: () => [
-            h(
-              DescriptionsItem,
-              { label: $t('business.message.messageType') },
-              () => resolveMessageTypeLabel(row.type),
-            ),
-            h(
-              DescriptionsItem,
-              { label: $t('business.message.messageLevel') },
-              () =>
-                h(Tag, { color: resolveLevelColor(row.level) }, () =>
-                  resolveLevelText(row.level),
-                ),
-            ),
-            h(
-              DescriptionsItem,
-              { label: $t('business.message.receiverStats') },
-              () =>
-                $t('business.message.receiverReadStats', [
-                  row.receiverReadTotal,
-                  row.receiverTotal,
-                ]),
-            ),
-            h(
-              DescriptionsItem,
-              { label: $t('business.message.handleStatus') },
-              () => {
-                if (!processable) {
-                  return '-';
-                }
-                if (handled) {
-                  return row.handledByAdminName
-                    ? $t('business.message.messageHandledBy', [
-                        row.handledByAdminName,
-                      ])
-                    : $t('business.message.messageHandled');
-                }
-                return $t('business.message.messagePendingHandle');
-              },
-            ),
-            h(
-              DescriptionsItem,
-              { label: $t('business.message.handledAt') },
-              () => row.handledAt || '-',
-            ),
-            h(
-              DescriptionsItem,
-              { label: $t('business.message.createdAt') },
-              () => row.createdAt || '-',
-            ),
-            h(
-              DescriptionsItem,
-              { label: $t('business.message.messageLink') },
-              () => row.link || '-',
-            ),
-          ],
+          label: $t('business.message.handleStatus'),
+          value: resolveHandleText(row),
         },
-      ),
-      h(
-        'pre',
+        { label: $t('business.message.handledAt'), value: row.handledAt },
         {
-          class:
-            'max-h-[360px] overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 text-xs dark:bg-gray-900',
+          label: $t('business.message.messageLink'),
+          value: renderMessageLink(row.link),
         },
-        parsePayloadText(row.content),
-      ),
-      row.data
-        ? h(
-            'pre',
-            {
-              class:
-                'max-h-[360px] overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 text-xs dark:bg-gray-900',
-            },
-            parsePayloadText(row.data),
-          )
-        : null,
+      ]),
+      renderMessageContent(row.content),
+      renderMessageData(row.data),
     ]),
     title: row.title || $t('business.message.sentMessageDetailTitle', [row.id]),
-    width: 820,
+    width: 860,
+    wrapClassName: 'message-detail-modal',
   });
 }
 
@@ -643,7 +654,12 @@ async function onSendConfirm() {
       return;
     }
     const values = await sendFormApi.getValues<AdminMessageApi.SendReq>();
-    await sendAdminMessage(values);
+    const content = normalizeMessageContentForSubmit(values.content);
+    if (!messageContentText(content)) {
+      message.error($t('business.message.messageContentRequired'));
+      return;
+    }
+    await sendAdminMessage({ ...values, content });
     message.success($t('business.message.sendSucceeded'));
     sendModalOpen.value = false;
     await gridApi.reload();
@@ -717,56 +733,47 @@ function onClearRead() {
       :mask-style="sendModalSafeAreaStyle"
       :mask-closable="false"
       :wrap-style="sendModalSafeAreaStyle"
-      width="980"
+      :width="sendModalWidth"
       :title="$t('business.message.sendMessage')"
       @cancel="() => (sendModalOpen = false)"
       @ok="onSendConfirm"
     >
-      <div class="grid grid-cols-12 gap-4">
-        <div class="col-span-12 lg:col-span-8">
-          <Alert
-            class="mb-3"
-            :description="$t('business.message.sendMessageDesc')"
-            :message="$t('business.message.sendMessageGuide')"
-            show-icon
-            type="info"
-          />
-          <div class="rounded-md bg-gray-50 p-4 dark:bg-gray-900/40">
-            <SendForm />
+      <div class="send-message-editor">
+        <div class="send-message-guide">
+          <div class="send-message-guide__summary">
+            <span class="send-message-guide__icon">i</span>
+            <div class="send-message-guide__copy">
+              <span class="send-message-guide__title">
+                {{ $t('business.message.sendMessageGuide') }}
+              </span>
+              <span class="send-message-guide__desc">
+                {{ $t('business.message.sendMessageDesc') }}
+              </span>
+            </div>
+          </div>
+          <div
+            class="send-message-guide__meta"
+            :title="$t('business.message.messageSpecDesc')"
+          >
+            <span class="send-message-guide__level-label">
+              {{ $t('business.message.messageLevel') }}
+            </span>
+            <Tag color="processing">
+              {{ $t('business.message.messageLevelInfo') }}
+            </Tag>
+            <Tag color="warning">
+              {{ $t('business.message.messageLevelWarning') }}
+            </Tag>
+            <Tag color="error">
+              {{ $t('business.message.messageLevelError') }}
+            </Tag>
+            <span class="send-message-guide__extra">
+              {{ $t('business.message.messageExtraDataSuggestion') }}
+            </span>
           </div>
         </div>
-        <div class="col-span-12 lg:col-span-4">
-          <Card :bordered="false" class="h-full">
-            <div class="space-y-3">
-              <Alert
-                :description="$t('business.message.messageSpecDesc')"
-                :message="$t('business.message.specSuggestion')"
-                show-icon
-                type="warning"
-              />
-              <div
-                class="rounded-md bg-gray-50 p-3 text-sm leading-6 dark:bg-gray-900/40"
-              >
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="text-gray-500">
-                    {{ $t('business.message.messageLevel') }}：
-                  </span>
-                  <Tag color="processing">
-                    {{ $t('business.message.messageLevelInfo') }}
-                  </Tag>
-                  <Tag color="warning">
-                    {{ $t('business.message.messageLevelWarning') }}
-                  </Tag>
-                  <Tag color="error">
-                    {{ $t('business.message.messageLevelError') }}
-                  </Tag>
-                </div>
-                <div class="mt-2 text-gray-500">
-                  {{ $t('business.message.messageExtraDataSuggestion') }}
-                </div>
-              </div>
-            </div>
-          </Card>
+        <div class="send-message-form">
+          <SendForm />
         </div>
       </div>
     </Modal>
@@ -779,7 +786,7 @@ function onClearRead() {
       :mask-style="sendModalSafeAreaStyle"
       :wrap-style="sendModalSafeAreaStyle"
       :title="$t('business.message.receiverReadDetails')"
-      width="920"
+      :width="receiversModalWidth"
     >
       <div class="space-y-3">
         <div class="rounded-md bg-gray-50 p-4 dark:bg-gray-900/40">
@@ -849,11 +856,12 @@ function onClearRead() {
         </div>
 
         <Table
+          class="message-receivers-table"
           :columns="receiversColumns"
           :data-source="receiversFilteredRows"
           :loading="receiversLoading"
           :pagination="false"
-          :scroll="{ y: 420 }"
+          :scroll="{ y: 360 }"
           row-key="receiverAdminId"
           size="small"
         />
@@ -861,3 +869,432 @@ function onClearRead() {
     </Modal>
   </Page>
 </template>
+
+<style scoped>
+.send-message-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.send-message-guide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 10px 12px;
+  background: hsl(var(--accent) / 38%);
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+}
+
+.send-message-guide__summary,
+.send-message-guide__meta {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.send-message-guide__summary {
+  flex: 1 1 520px;
+}
+
+.send-message-guide__meta {
+  flex: 1 1 420px;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.send-message-guide__icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  color: hsl(var(--primary));
+  border: 1px solid hsl(var(--primary) / 48%);
+  border-radius: 999px;
+}
+
+.send-message-guide__copy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.send-message-guide__title {
+  flex: none;
+  font-size: 13px;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+}
+
+.send-message-guide__desc,
+.send-message-guide__extra {
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--vben-text-color-secondary);
+  white-space: normal;
+}
+
+.send-message-guide__extra {
+  flex: 1 1 260px;
+  max-width: none;
+}
+
+.send-message-guide__level-label {
+  flex: none;
+  font-size: 12px;
+  color: var(--vben-text-color-secondary);
+}
+
+.send-message-form {
+  padding: 12px 14px;
+  background: hsl(var(--accent) / 30%);
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+}
+
+.send-message-form :deep(.ant-form-item) {
+  margin-bottom: 0;
+}
+
+:global(.message-content-cell) {
+  min-width: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+:global(.message-content-cell__summary) {
+  display: -webkit-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-line-clamp: 2;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: hsl(var(--foreground));
+  overflow-wrap: anywhere;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+}
+
+:global(.message-content-cell--empty) {
+  color: var(--vben-text-color-secondary);
+}
+
+:global(.message-rich-popover) {
+  max-width: min(560px, calc(100vw - 48px));
+}
+
+:global(.message-rich-popover .ant-popover-inner) {
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+}
+
+:global(.message-rich-popover .ant-popover-inner-content) {
+  padding: 0;
+}
+
+:global(.message-rich-popover__content) {
+  box-sizing: border-box;
+  width: min(540px, calc(100vw - 72px));
+  max-height: 360px;
+  padding: 12px;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.7;
+  color: hsl(var(--foreground));
+}
+
+:global(.message-detail-modal .ant-modal-body) {
+  padding-top: 12px;
+}
+
+:global(.message-detail-modal .message-detail-shell) {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+:global(.message-detail-modal .message-detail-alert) {
+  border-radius: 8px;
+}
+
+:global(.message-detail-modal .message-detail-overview) {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 14px;
+  background: hsl(var(--accent) / 34%);
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+}
+
+:global(.message-detail-modal .message-detail-overview__main) {
+  min-width: 0;
+}
+
+:global(.message-detail-modal .message-detail-overview__eyebrow) {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: hsl(var(--primary));
+}
+
+:global(.message-detail-modal .message-detail-overview__title) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: hsl(var(--foreground));
+  white-space: nowrap;
+}
+
+:global(.message-detail-modal .message-detail-overview__subtitle) {
+  margin-top: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--vben-text-color-secondary);
+  white-space: nowrap;
+}
+
+:global(.message-detail-modal .message-detail-overview__tags) {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  max-width: 240px;
+}
+
+:global(.message-detail-modal .message-detail-meta-grid) {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+:global(.message-detail-modal .message-detail-meta-item) {
+  min-width: 0;
+  padding: 10px 12px;
+  background: hsl(var(--accent) / 24%);
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+}
+
+:global(.message-detail-modal .message-detail-meta-label) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--vben-text-color-secondary);
+  white-space: nowrap;
+}
+
+:global(.message-detail-modal .message-detail-meta-value) {
+  margin-top: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: hsl(var(--foreground));
+  white-space: nowrap;
+}
+
+:global(.message-detail-modal .message-detail-section) {
+  overflow: hidden;
+  background: hsl(var(--accent) / 18%);
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+}
+
+:global(.message-detail-modal .message-detail-section__header) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+:global(.message-detail-modal .message-detail-section__title) {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: hsl(var(--foreground));
+}
+
+:global(.message-detail-modal .message-detail-section__body) {
+  padding: 12px;
+}
+
+:global(.message-detail-modal .message-detail-rich) {
+  max-height: 420px;
+  padding: 0;
+  overflow: auto;
+  font-size: 14px;
+  line-height: 1.75;
+  color: hsl(var(--foreground));
+}
+
+:global(.message-detail-modal .message-content-rich h1),
+:global(.message-detail-modal .message-content-rich h2),
+:global(.message-detail-modal .message-content-rich h3),
+:global(.message-detail-modal .message-content-rich h4),
+:global(.message-rich-popover__content h1),
+:global(.message-rich-popover__content h2),
+:global(.message-rich-popover__content h3),
+:global(.message-rich-popover__content h4) {
+  margin: 0.35em 0;
+  font-weight: 700;
+}
+
+:global(.message-detail-modal .message-content-rich p),
+:global(.message-rich-popover__content p) {
+  margin: 0 0 0.65em;
+}
+
+:global(.message-detail-modal .message-content-rich p:last-child),
+:global(.message-rich-popover__content p:last-child) {
+  margin-bottom: 0;
+}
+
+:global(.message-detail-modal .message-content-rich ul),
+:global(.message-detail-modal .message-content-rich ol),
+:global(.message-rich-popover__content ul),
+:global(.message-rich-popover__content ol) {
+  padding-left: 1.5em;
+  margin: 0.35em 0;
+}
+
+:global(.message-detail-modal .message-content-rich blockquote),
+:global(.message-rich-popover__content blockquote) {
+  padding-left: 0.75em;
+  margin: 0.5em 0;
+  color: var(--vben-text-color-secondary);
+  border-left: 3px solid hsl(var(--border));
+}
+
+:global(.message-detail-modal .message-content-rich code),
+:global(.message-rich-popover__content code) {
+  padding: 0.1em 0.35em;
+  background: hsl(var(--accent));
+  border-radius: 4px;
+}
+
+:global(.message-detail-modal .message-content-rich pre),
+:global(.message-rich-popover__content pre) {
+  padding: 0.75em;
+  overflow: auto;
+  background: hsl(var(--accent));
+  border-radius: 6px;
+}
+
+:global(.message-detail-modal .message-content-rich a),
+:global(.message-rich-popover__content a) {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+}
+
+:global(.message-detail-modal .message-content-rich img),
+:global(.message-rich-popover__content img) {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+:global(.message-detail-modal .message-content-rich hr),
+:global(.message-rich-popover__content hr) {
+  margin: 0.75em 0;
+  border: 0;
+  border-top: 1px solid hsl(var(--border));
+}
+
+.message-receivers-table :deep(.ant-table) {
+  color: var(--vben-text-color);
+  background: transparent;
+}
+
+.message-receivers-table :deep(.ant-table-container) {
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+}
+
+.message-receivers-table :deep(.ant-table-thead > tr > th) {
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  background: hsl(var(--accent));
+  border-bottom-color: hsl(var(--border));
+}
+
+.message-receivers-table :deep(.ant-table-thead > tr > th::before) {
+  background-color: hsl(var(--heavy));
+}
+
+.message-receivers-table :deep(.ant-table-tbody > tr > td) {
+  color: var(--vben-text-color);
+  border-bottom-color: hsl(var(--border));
+}
+
+.message-receivers-table :deep(.ant-table-tbody > tr:hover > td) {
+  background: hsl(var(--accent) / 58%);
+}
+
+.message-receivers-table :deep(.ant-empty-description) {
+  color: var(--vben-text-color-secondary);
+}
+
+@media (max-width: 1024px) {
+  .send-message-guide {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .send-message-guide__meta {
+    justify-content: flex-start;
+  }
+
+  .send-message-guide__copy {
+    flex-direction: column;
+    gap: 2px;
+    align-items: flex-start;
+  }
+
+  .send-message-guide__desc,
+  .send-message-guide__extra {
+    max-width: none;
+    white-space: normal;
+  }
+
+  :global(.message-detail-modal .message-detail-meta-grid) {
+    grid-template-columns: 1fr;
+  }
+
+  :global(.message-detail-modal .message-detail-overview) {
+    flex-direction: column;
+  }
+
+  :global(.message-detail-modal .message-detail-overview__title),
+  :global(.message-detail-modal .message-detail-overview__subtitle) {
+    white-space: normal;
+  }
+}
+</style>

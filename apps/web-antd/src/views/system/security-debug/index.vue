@@ -26,7 +26,7 @@ import {
   asActionPermission,
   SYSTEM_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
-import { $t, $te } from '#/locales';
+import { $t } from '#/locales';
 import { createTraceId } from '#/utils/request/trace';
 import {
   aesCbcDecrypt,
@@ -42,6 +42,8 @@ import {
   resolvePolicyForAlias,
   resolveRouteSecurityRule,
 } from '#/utils/security/signature';
+
+import { resolveBackendMessage } from '../shared';
 
 type DebugFlowMode = 'request' | 'response';
 type DebugSignatureType = 'A' | 'M' | 'R';
@@ -79,17 +81,6 @@ const pasteSegmentIndex = ref(0);
 // busy 保存当前执行状态。
 const busy = ref(false);
 
-// resolveBackendMessage 优先翻译后端返回的多语言 key，否则使用本地兜底文案。
-function resolveBackendMessage(
-  message: string | undefined,
-  fallbackKey: string,
-) {
-  const text = String(message || '').trim();
-  if (!text) {
-    return $t(fallbackKey);
-  }
-  return $te(text) ? $t(text) : text;
-}
 // signResult 保存签名结果。
 const signResult = ref<null | SystemSecurityDebugApi.SignResult>(null);
 // verifyResult 保存验签结果。
@@ -1293,121 +1284,129 @@ function fillDecryptFromEncrypt() {
 
 <template>
   <Page auto-content-height>
-    <div class="grid gap-2">
+    <div class="security-debug-page-stack">
       <Card size="small" :title="$t('business.message.securityFrontendConfig')">
-        <Alert
-          class="mb-4"
-          :message="$t('business.message.securityFrontendConfigDesc')"
-          show-icon
-          type="info"
-        />
-        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <div
-            v-for="item in frontendSecurityConfigItems"
-            :key="item.envName"
-            class="border-[var(--vben-border-color)]/80 rounded border px-3 py-2"
-          >
-            <div class="mb-1 flex items-center justify-between gap-2">
-              <span class="text-sm font-medium text-[var(--vben-text-color)]">
-                {{ item.label }}
-              </span>
-              <Tag :color="item.configured ? 'success' : 'warning'">
-                {{
-                  item.configured
-                    ? $t('business.message.ready')
-                    : $t('business.message.notConfigured')
-                }}
-              </Tag>
-            </div>
-            <div class="text-xs text-[var(--vben-text-color-secondary)]">
-              {{ item.envName }}
-            </div>
-            <div class="mt-1 text-sm text-[var(--vben-text-color)]">
-              {{ item.value }}
+        <div class="security-debug-section">
+          <Alert
+            :message="$t('business.message.securityFrontendConfigDesc')"
+            show-icon
+            type="info"
+          />
+          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div
+              v-for="item in frontendSecurityConfigItems"
+              :key="item.envName"
+              class="border-[var(--vben-border-color)]/80 rounded border px-3 py-2"
+            >
+              <div class="mb-1 flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-[var(--vben-text-color)]">
+                  {{ item.label }}
+                </span>
+                <Tag :color="item.configured ? 'success' : 'warning'">
+                  {{
+                    item.configured
+                      ? $t('business.message.ready')
+                      : $t('business.message.notConfigured')
+                  }}
+                </Tag>
+              </div>
+              <div class="text-xs text-[var(--vben-text-color-secondary)]">
+                {{ item.envName }}
+              </div>
+              <div class="mt-1 text-sm text-[var(--vben-text-color)]">
+                {{ item.value }}
+              </div>
             </div>
           </div>
         </div>
       </Card>
 
       <Card size="small" :title="$t('business.message.securityPasteParse')">
-        <Alert
-          class="mb-4"
-          :message="$t('business.message.securityPasteParseDesc')"
-          show-icon
-          type="info"
-        />
-        <div class="grid gap-3">
-          <Input.TextArea
-            v-model:value="rawPasteText"
-            :auto-size="{ minRows: 6, maxRows: 12 }"
-            :placeholder="$t('business.message.securityPastePlaceholder')"
+        <div class="security-debug-section">
+          <Alert
+            :message="$t('business.message.securityPasteParseDesc')"
+            show-icon
+            type="info"
           />
-          <Select
-            v-if="pasteSegments.length > 1"
-            v-model:value="pasteSegmentIndex"
-            :options="pasteSegmentOptions"
-            :placeholder="$t('business.message.securitySegmentPlaceholder')"
-          />
-          <Space wrap>
-            <VbenButton :disabled="busy" type="primary" @click="parseAsRequest">
-              {{ $t('business.message.parseAsRequest') }}
-            </VbenButton>
-            <VbenButton :disabled="busy" @click="parseAsResponse">
-              {{ $t('business.message.parseAsResponse') }}
-            </VbenButton>
-            <VbenButton :disabled="busy" @click="handleDecryptToPayload">
-              {{ $t('business.message.decryptFillPlain') }}
-            </VbenButton>
-            <VbenButton :disabled="busy" @click="handleDecryptAndVerify">
-              {{ $t('business.message.decryptAndVerify') }}
-            </VbenButton>
-            <VbenButton :disabled="busy" @click="clearInputs">
-              {{ $t('business.message.clearAll') }}
-            </VbenButton>
-          </Space>
+          <div class="grid gap-3">
+            <Input.TextArea
+              v-model:value="rawPasteText"
+              :auto-size="{ minRows: 6, maxRows: 12 }"
+              :placeholder="$t('business.message.securityPastePlaceholder')"
+            />
+            <Select
+              v-if="pasteSegments.length > 1"
+              v-model:value="pasteSegmentIndex"
+              :options="pasteSegmentOptions"
+              :placeholder="$t('business.message.securitySegmentPlaceholder')"
+            />
+            <Space wrap>
+              <VbenButton
+                :disabled="busy"
+                type="primary"
+                @click="parseAsRequest"
+              >
+                {{ $t('business.message.parseAsRequest') }}
+              </VbenButton>
+              <VbenButton :disabled="busy" @click="parseAsResponse">
+                {{ $t('business.message.parseAsResponse') }}
+              </VbenButton>
+              <VbenButton :disabled="busy" @click="handleDecryptToPayload">
+                {{ $t('business.message.decryptFillPlain') }}
+              </VbenButton>
+              <VbenButton :disabled="busy" @click="handleDecryptAndVerify">
+                {{ $t('business.message.decryptAndVerify') }}
+              </VbenButton>
+              <VbenButton :disabled="busy" @click="clearInputs">
+                {{ $t('business.message.clearAll') }}
+              </VbenButton>
+            </Space>
+          </div>
         </div>
       </Card>
 
       <Card size="small" :title="$t('business.message.debugParams')">
-        <Alert class="mb-4" :message="flowSummaryText" show-icon type="info" />
-        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <Select
-            v-model:value="flowMode"
-            :options="flowOptions"
-            :placeholder="$t('business.message.selectDebugDirection')"
-          />
-          <Input
-            v-model:value="appId"
-            :placeholder="$t('business.message.enterAppId')"
-          />
-          <Input
-            v-model:value="traceId"
-            :placeholder="$t('business.message.optionalTraceId')"
-          />
-          <Input
-            v-model:value="signatureTimestamp"
-            :placeholder="$t('business.message.optionalTimestamp')"
-          />
-          <Select
-            v-model:value="signatureType"
-            :options="signatureOptions"
-            :placeholder="$t('business.message.selectSignatureType')"
-          />
-          <Select
-            v-model:value="cryptoType"
-            :options="cryptoOptions"
-            :placeholder="$t('business.message.selectCryptoType')"
-          />
-        </div>
-        <div class="mt-3 grid gap-3 md:grid-cols-2">
-          <Input
-            v-model:value="signFieldsText"
-            :placeholder="$t('business.message.signFieldsPlaceholder')"
-          />
-          <Input
-            v-model:value="cipherFieldsText"
-            :placeholder="$t('business.message.cipherFieldsPlaceholder')"
-          />
+        <div class="security-debug-section">
+          <Alert :message="flowSummaryText" show-icon type="info" />
+          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <Select
+              v-model:value="flowMode"
+              :options="flowOptions"
+              :placeholder="$t('business.message.selectDebugDirection')"
+            />
+            <Input
+              v-model:value="appId"
+              :placeholder="$t('business.message.enterAppId')"
+            />
+            <Input
+              v-model:value="traceId"
+              :placeholder="$t('business.message.optionalTraceId')"
+            />
+            <Input
+              v-model:value="signatureTimestamp"
+              :placeholder="$t('business.message.optionalTimestamp')"
+            />
+            <Select
+              v-model:value="signatureType"
+              :options="signatureOptions"
+              :placeholder="$t('business.message.selectSignatureType')"
+            />
+            <Select
+              v-model:value="cryptoType"
+              :options="cryptoOptions"
+              :placeholder="$t('business.message.selectCryptoType')"
+            />
+          </div>
+          <div class="grid gap-3 md:grid-cols-2">
+            <Input
+              v-model:value="signFieldsText"
+              :placeholder="$t('business.message.signFieldsPlaceholder')"
+            />
+            <Input
+              v-model:value="cipherFieldsText"
+              :placeholder="$t('business.message.cipherFieldsPlaceholder')"
+            />
+          </div>
         </div>
       </Card>
 
@@ -1516,3 +1515,15 @@ function fillDecryptFromEncrypt() {
     </div>
   </Page>
 </template>
+
+<style scoped>
+.security-debug-page-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.security-debug-section {
+  display: grid;
+  gap: 14px;
+}
+</style>

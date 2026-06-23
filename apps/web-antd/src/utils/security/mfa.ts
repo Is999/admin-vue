@@ -385,8 +385,9 @@ function buildMfaCodeInputBlock(
   errorMessage: string,
   onSecureChange: (value: string) => void,
   onSubmit?: () => void,
+  renderActions?: () => any,
 ) {
-  return h('div', { class: 'space-y-3' }, [
+  return h('div', { class: 'space-y-4' }, [
     h(Alert, {
       description: $t('business.message.mfaBindContinueAlertDesc'),
       message: $t('business.message.mfaBindContinueAlertTitle'),
@@ -400,28 +401,73 @@ function buildMfaCodeInputBlock(
           type: 'error',
         })
       : null,
-    h(Input, {
-      autofocus: true,
-      class: 'mfa-check-input',
-      maxlength: 6,
-      onChange: (event: Event) => {
-        onSecureChange((event.target as HTMLInputElement).value);
+    h(
+      'div',
+      {
+        class:
+          'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-start',
+        style: { marginTop: '8px' },
       },
-      onPressEnter: () => {
-        onSubmit?.();
+      [
+        h(Input, {
+          autofocus: true,
+          class: 'mfa-check-input h-10 min-w-0 sm:max-w-[560px] sm:flex-1',
+          maxlength: 6,
+          onChange: (event: Event) => {
+            onSecureChange((event.target as HTMLInputElement).value);
+          },
+          onPressEnter: () => {
+            onSubmit?.();
+          },
+          placeholder: $t('business.message.mfaCodePlaceholder'),
+          size: 'large',
+          value: secure,
+          'data-mfa-check-input': 'true',
+        }),
+        renderActions?.() ?? null,
+      ],
+    ),
+  ]);
+}
+
+// buildMfaDialogActions 渲染输入框后的确认与取消按钮。
+function buildMfaDialogActions(options: {
+  cancelText: string;
+  disabled?: boolean;
+  loading?: boolean;
+  okText: string;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  return h('div', { class: 'flex flex-none flex-row items-center gap-3' }, [
+    h(
+      Button,
+      {
+        class: 'h-10 min-w-[96px]',
+        loading: options.loading,
+        onClick: options.onSubmit,
+        size: 'large',
+        type: 'primary',
       },
-      placeholder: $t('business.message.mfaCodePlaceholder'),
-      size: 'large',
-      value: secure,
-      'data-mfa-check-input': 'true',
-    }),
+      { default: () => options.okText },
+    ),
+    h(
+      Button,
+      {
+        class: 'h-10 min-w-[96px]',
+        disabled: options.disabled,
+        onClick: options.onCancel,
+        size: 'large',
+      },
+      { default: () => options.cancelText },
+    ),
   ]);
 }
 
 // buildMfaGuideSummary 渲染紧凑版 MFA 绑定说明，避免全屏遮罩里重复滚动过长。
 function buildMfaGuideSummary() {
-  return h('div', { class: 'space-y-3' }, [
-    h('div', { class: 'flex items-center justify-between gap-3' }, [
+  return h('div', { class: 'space-y-2' }, [
+    h('div', { class: 'flex items-center justify-between gap-2' }, [
       h(
         'div',
         { class: 'text-sm font-medium text-foreground' },
@@ -435,13 +481,13 @@ function buildMfaGuideSummary() {
     ]),
     h(
       'div',
-      { class: 'grid gap-3 md:grid-cols-3' },
+      { class: 'grid gap-2 md:grid-cols-3' },
       getMfaGuideSteps().map((step, index) =>
         h(
           'div',
           {
             class:
-              'rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/45 p-3',
+              'rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/45 p-2',
           },
           [
             h('div', { class: 'flex items-center gap-2' }, [
@@ -476,12 +522,12 @@ function buildMfaBindingMeta(
   info: MFAManualInfo,
   options: MFACheckDialogOptions,
 ) {
-  return h('div', { class: 'grid gap-3 sm:grid-cols-2' }, [
+  return h('div', { class: 'grid gap-2 sm:grid-cols-2' }, [
     h(
       'div',
       {
         class:
-          'rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/45 p-3',
+          'rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/45 p-2.5',
       },
       [
         h(
@@ -491,7 +537,7 @@ function buildMfaBindingMeta(
         ),
         h(
           'div',
-          { class: 'mt-2 text-sm leading-6 text-foreground' },
+          { class: 'mt-1.5 text-sm leading-5 text-foreground' },
           getMfaAuthenticatorApps().join('、'),
         ),
       ],
@@ -500,7 +546,7 @@ function buildMfaBindingMeta(
       'div',
       {
         class:
-          'rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/45 p-3',
+          'rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/45 p-2.5',
       },
       [
         h(
@@ -510,7 +556,7 @@ function buildMfaBindingMeta(
         ),
         h(
           'div',
-          { class: 'mt-2 text-sm leading-6 text-foreground' },
+          { class: 'mt-1.5 text-sm leading-5 text-foreground' },
           mfaBindingLabel(
             info,
             options.accountName || $t('business.message.mfaCurrentAccount'),
@@ -531,6 +577,7 @@ function buildMfaVerificationContent(
   onSubmit?: () => void,
   onRefresh?: () => void,
   refreshLoading = false,
+  renderActions?: () => any,
 ) {
   const info = extractMfaManualInfo(buildMfaUrl);
   if (!buildMfaUrl) {
@@ -574,29 +621,40 @@ function buildMfaVerificationContent(
           ),
         ],
       ),
-      h(Input, {
-        autofocus: true,
-        class: 'mfa-check-input',
-        maxlength: 6,
-        onChange: (event: Event) => {
-          onSecureChange((event.target as HTMLInputElement).value);
+      h(
+        'div',
+        {
+          class:
+            'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-start',
+          style: { marginTop: '8px' },
         },
-        onPressEnter: () => {
-          onSubmit?.();
-        },
-        placeholder: $t('business.message.mfaCodePlaceholder'),
-        size: 'large',
-        value: secure,
-        'data-mfa-check-input': 'true',
-      }),
+        [
+          h(Input, {
+            autofocus: true,
+            class: 'mfa-check-input h-10 min-w-0 sm:max-w-[420px] sm:flex-1',
+            maxlength: 6,
+            onChange: (event: Event) => {
+              onSecureChange((event.target as HTMLInputElement).value);
+            },
+            onPressEnter: () => {
+              onSubmit?.();
+            },
+            placeholder: $t('business.message.mfaCodePlaceholder'),
+            size: 'large',
+            value: secure,
+            'data-mfa-check-input': 'true',
+          }),
+          renderActions?.() ?? null,
+        ],
+      ),
     ]);
   }
-  return h('div', { class: 'space-y-5' }, [
+  return h('div', { class: 'space-y-2' }, [
     h(
       'div',
       {
         class:
-          'rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/60 px-5 py-4',
+          'rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/60 px-3 py-2.5',
       },
       [
         h(
@@ -609,22 +667,22 @@ function buildMfaVerificationContent(
         ),
         h(
           'div',
-          { class: 'mt-2 text-xl font-semibold text-foreground' },
+          { class: 'mt-1.5 text-lg font-semibold text-foreground' },
           options.headerMessage || $t('business.message.mfaBindingInfoTitle'),
         ),
         h(
           'div',
-          { class: 'mt-2 text-sm leading-6 text-foreground/65' },
+          { class: 'mt-1.5 text-sm leading-5 text-foreground/65' },
           options.headerDescription || getMfaMicrosoftScanTip(),
         ),
       ],
     ),
-    h('div', { class: 'grid gap-3 xl:grid-cols-[260px_minmax(0,1fr)]' }, [
+    h('div', { class: 'grid gap-2 xl:grid-cols-[268px_minmax(0,1fr)]' }, [
       h(
         'div',
         {
           class:
-            'space-y-3 rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/50 p-4',
+            'space-y-2 rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/50 p-2.5',
         },
         [
           h(
@@ -632,12 +690,14 @@ function buildMfaVerificationContent(
             { class: 'text-sm font-medium text-foreground/80' },
             $t('business.message.mfaBindingQrArea'),
           ),
-          h('div', { class: 'flex justify-center' }, [
+          h('div', { class: 'flex justify-center rounded-lg bg-white p-0.5' }, [
             h(QRCode, {
               bgColor: '#ffffff',
+              bordered: false,
+              class: '!h-[212px] !w-[212px] !border-0 !p-0',
               color: '#000000',
               key: buildMfaUrl,
-              size: 168,
+              size: 238,
               value: buildMfaUrl,
             }),
           ]),
@@ -662,7 +722,7 @@ function buildMfaVerificationContent(
           ),
           h(
             'div',
-            { class: 'border-t border-[var(--vben-border-color)]/80 pt-3' },
+            { class: 'border-t border-[var(--vben-border-color)]/80 pt-2' },
             [
               h(
                 'div',
@@ -671,7 +731,7 @@ function buildMfaVerificationContent(
               ),
               h(
                 Space,
-                { class: 'mt-2 w-full', direction: 'vertical', size: 8 },
+                { class: 'mt-1.5 w-full', direction: 'vertical', size: 6 },
                 () => [
                   h(Input, {
                     class: 'w-full',
@@ -697,19 +757,19 @@ function buildMfaVerificationContent(
           ),
         ],
       ),
-      h('div', { class: 'min-w-0 space-y-3' }, [
+      h('div', { class: 'min-w-0 space-y-2' }, [
         buildMfaGuideSummary(),
         buildMfaBindingMeta(info, options),
         h(
           'div',
           {
             class:
-              'rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/50 p-4',
+              'rounded-2xl border border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/50 p-2.5',
           },
           [
             h(
               'div',
-              { class: 'mb-3 flex items-center justify-between gap-3' },
+              { class: 'mb-2 flex items-center justify-between gap-2' },
               [
                 h(
                   'div',
@@ -728,6 +788,7 @@ function buildMfaVerificationContent(
               errorMessage,
               onSecureChange,
               onSubmit,
+              renderActions,
             ),
           ],
         ),
@@ -820,7 +881,7 @@ export function createMfaCheckDialog(
             'div',
             {
               class:
-                'relative flex min-h-screen items-center justify-center px-4 py-6 sm:px-6 lg:px-8',
+                'relative flex min-h-screen items-center justify-center px-4 py-3 sm:px-5 lg:px-6',
             },
             [
               h(
@@ -840,7 +901,7 @@ export function createMfaCheckDialog(
                         'div',
                         {
                           class:
-                            'border-b border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/60 px-6 py-5 sm:px-8',
+                            'border-b border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/60 px-4 py-3 sm:px-6',
                         },
                         [
                           h(
@@ -850,7 +911,7 @@ export function createMfaCheckDialog(
                                 'flex flex-wrap items-start justify-between gap-4',
                             },
                             [
-                              h('div', { class: 'space-y-2' }, [
+                              h('div', { class: 'space-y-1.5' }, [
                                 h(
                                   'div',
                                   {
@@ -865,7 +926,7 @@ export function createMfaCheckDialog(
                                   'div',
                                   {
                                     class:
-                                      'text-2xl font-semibold text-foreground',
+                                      'text-xl font-semibold text-foreground',
                                   },
                                   title,
                                 ),
@@ -873,7 +934,7 @@ export function createMfaCheckDialog(
                                   'div',
                                   {
                                     class:
-                                      'max-w-3xl text-sm leading-6 text-foreground/65',
+                                      'max-w-3xl text-sm leading-5 text-foreground/65',
                                   },
                                   currentBuildMfaUrl
                                     ? $t(
@@ -904,7 +965,7 @@ export function createMfaCheckDialog(
                         'div',
                         {
                           class:
-                            'max-h-[calc(100vh-180px)] overflow-y-auto px-5 py-5 sm:px-6',
+                            'max-h-[calc(100vh-132px)] overflow-y-auto px-4 py-3 sm:px-5',
                         },
                         [
                           buildMfaVerificationContent(
@@ -926,53 +987,20 @@ export function createMfaCheckDialog(
                                 }
                               : undefined,
                             refreshLoading,
-                          ),
-                        ],
-                      ),
-                      h(
-                        'div',
-                        {
-                          class:
-                            'border-t border-[var(--vben-border-color)] bg-[var(--vben-background-soft)]/40 px-6 py-4 sm:px-8',
-                        },
-                        [
-                          h(
-                            'div',
-                            {
-                              class:
-                                'flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end',
-                            },
-                            [
-                              h(
-                                Button,
-                                {
-                                  disabled: submitting,
-                                  onClick: () => {
-                                    destroyOverlay();
-                                    rejectDialog?.(
-                                      new Error(cancelErrorMessage),
-                                    );
-                                  },
-                                  size: 'large',
+                            () =>
+                              buildMfaDialogActions({
+                                cancelText: $t('business.message.mfaCancel'),
+                                disabled: submitting,
+                                loading: submitting,
+                                okText,
+                                onCancel: () => {
+                                  destroyOverlay();
+                                  rejectDialog?.(new Error(cancelErrorMessage));
                                 },
-                                {
-                                  default: () =>
-                                    $t('business.message.mfaCancel'),
+                                onSubmit: () => {
+                                  void submitCheck();
                                 },
-                              ),
-                              h(
-                                Button,
-                                {
-                                  loading: submitting,
-                                  onClick: () => {
-                                    void submitCheck();
-                                  },
-                                  size: 'large',
-                                  type: 'primary',
-                                },
-                                { default: () => okText },
-                              ),
-                            ],
+                              }),
                           ),
                         ],
                       ),

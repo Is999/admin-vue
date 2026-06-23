@@ -1761,6 +1761,7 @@ watch(
       :title="workflowTraceDetailsModalTitle"
       :width="920"
       destroy-on-close
+      wrap-class-name="workflow-trace-detail-dialog"
     >
       <div class="workflow-trace-detail-modal">
         <div class="workflow-trace-detail-modal__meta">
@@ -1799,9 +1800,15 @@ watch(
               <span class="workflow-trace-detail-modal__object">
                 {{ detail.name || '-' }}
               </span>
-              <span>{{ formatTraceCount(detail.count) }}</span>
-              <span>{{ formatTraceCount(detail.times) }}</span>
-              <span>{{ formatDurationMs(detail.elapsedMs) }}</span>
+              <span class="workflow-trace-detail-modal__number is-primary">{{
+                formatTraceCount(detail.count)
+              }}</span>
+              <span class="workflow-trace-detail-modal__number is-info">{{
+                formatTraceCount(detail.times)
+              }}</span>
+              <span class="workflow-trace-detail-modal__number is-neutral">{{
+                formatDurationMs(detail.elapsedMs)
+              }}</span>
             </div>
           </div>
         </div>
@@ -2325,25 +2332,34 @@ watch(
 }
 
 .workflow-trace-detail-modal {
-  max-height: 68vh;
-  overflow-y: auto;
+  padding: 2px 0 4px;
 }
 
 .workflow-trace-detail-modal__meta {
-  margin-bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 10px;
+  margin-bottom: 12px;
   font-size: 12px;
-  color: var(--workflow-muted-color);
+  font-weight: 800;
+  color: var(--workflow-primary-color);
+  background: var(--workflow-primary-soft);
+  border: 1px solid var(--workflow-primary-border);
+  border-radius: 999px;
 }
 
 .workflow-trace-detail-modal__scroll {
-  overflow-x: auto;
+  max-height: 58vh;
+  overflow: auto;
+  border: 1px solid var(--workflow-border-color);
+  border-radius: 8px;
 }
 
 .workflow-trace-detail-modal__table {
   min-width: 720px;
   overflow: hidden;
-  border: 1px solid var(--workflow-border-color);
-  border-radius: 8px;
+  background: var(--workflow-page-surface);
 }
 
 .workflow-trace-detail-modal__row {
@@ -2359,18 +2375,104 @@ watch(
   border-top: 1px solid var(--workflow-border-color);
 }
 
-.workflow-trace-detail-modal__row:first-child {
-  border-top: 0;
+.workflow-trace-detail-modal__row:nth-child(odd):not(
+    .workflow-trace-detail-modal__row--head
+  ) {
+  background: color-mix(in srgb, var(--workflow-soft-surface) 28%, transparent);
+}
+
+.workflow-trace-detail-modal__row:hover:not(
+    .workflow-trace-detail-modal__row--head
+  ) {
+  background: color-mix(in srgb, var(--workflow-soft-surface) 70%, transparent);
 }
 
 .workflow-trace-detail-modal__row--head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   font-weight: 800;
   color: var(--workflow-text-color);
   background: var(--workflow-soft-surface);
+  border-top: 0;
+  border-bottom: 1px solid var(--workflow-border-color);
 }
 
 .workflow-trace-detail-modal__object {
+  font-weight: 700;
   overflow-wrap: anywhere;
+}
+
+.workflow-trace-detail-modal__number {
+  font-weight: 900;
+}
+
+.workflow-trace-detail-modal__number.is-primary {
+  color: var(--workflow-primary-color);
+}
+
+.workflow-trace-detail-modal__number.is-info {
+  color: var(--workflow-info-color);
+}
+
+.workflow-trace-detail-modal__number.is-neutral {
+  color: var(--workflow-text-color);
+}
+
+:global(.workflow-trace-detail-dialog .ant-modal-content) {
+  --workflow-text-color: var(--vben-text-color, hsl(var(--foreground)));
+  --workflow-muted-color: var(
+    --vben-text-color-secondary,
+    hsl(var(--foreground) / 72%)
+  );
+  --workflow-soft-surface: var(
+    --vben-background-soft,
+    hsl(var(--accent) / 72%)
+  );
+  --workflow-page-surface: var(--vben-background-color, hsl(var(--background)));
+  --workflow-border-color: var(--vben-border-color, hsl(var(--border)));
+  --workflow-primary-color: hsl(var(--primary, 212 100% 45%));
+  --workflow-info-color: var(--ant-color-info, #0ea5e9);
+  --workflow-success-color: var(--ant-color-success, #16a34a);
+  --workflow-warning-color: var(--ant-color-warning, #d97706);
+  --workflow-danger-color: var(--ant-color-error, #dc2626);
+  --workflow-primary-soft: color-mix(
+    in srgb,
+    var(--workflow-primary-color) 12%,
+    var(--workflow-page-surface)
+  );
+  --workflow-primary-border: color-mix(
+    in srgb,
+    var(--workflow-primary-color) 42%,
+    var(--workflow-border-color)
+  );
+
+  overflow: hidden;
+  background: var(--workflow-page-surface);
+  border: 1px solid var(--workflow-border-color);
+  box-shadow: 0 18px 44px rgb(15 23 42 / 18%);
+}
+
+:global(.workflow-trace-detail-dialog .ant-modal-header) {
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  background: transparent;
+  border-bottom: 1px solid var(--workflow-border-color);
+}
+
+:global(.workflow-trace-detail-dialog .ant-modal-title) {
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--workflow-text-color);
+}
+
+:global(.workflow-trace-detail-dialog .ant-modal-close) {
+  color: var(--workflow-muted-color);
+}
+
+:global(.workflow-trace-detail-dialog .ant-modal-close:hover) {
+  color: var(--workflow-text-color);
+  background: var(--workflow-soft-surface);
 }
 
 .workflow-topology-card {

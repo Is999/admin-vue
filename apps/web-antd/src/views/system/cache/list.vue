@@ -38,9 +38,10 @@ import {
   asActionPermission,
   SYSTEM_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
-import { $t, $te } from '#/locales';
+import { $t } from '#/locales';
 import { copyTextToClipboard } from '#/utils/security/password';
 
+import { resolveBackendMessage } from '../shared';
 import { useColumns } from './data';
 import {
   buildTemplateSearchPattern,
@@ -92,17 +93,6 @@ const topCardBodyClass = computed(() =>
   topCardsExpanded.value ? 'h-[360px]' : 'h-[196px]',
 );
 
-// resolveBackendMessage 优先翻译后端返回的多语言 key，否则展示原始消息或本地兜底文案。
-function resolveBackendMessage(
-  message: string | undefined,
-  fallbackKey: string,
-) {
-  const text = String(message || '').trim();
-  if (!text) {
-    return $t(fallbackKey);
-  }
-  return $te(text) ? $t(text) : text;
-}
 // TopCardToggleIcon 返回顶部两张卡片同步收缩按钮图标。
 const TopCardToggleIcon = computed(() =>
   topCardsExpanded.value ? UpOutlined : DownOutlined,

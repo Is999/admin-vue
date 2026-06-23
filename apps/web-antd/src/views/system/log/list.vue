@@ -81,7 +81,7 @@ function parseLogData(data = '') {
 // onViewDetail 展示单条操作日志详情。
 function onViewDetail(row: SystemAdminLogApi.Item) {
   Modal.info({
-    content: h('div', { class: 'space-y-4' }, [
+    content: h('div', { style: { paddingTop: '4px' } }, [
       h(
         Descriptions,
         {
@@ -134,6 +134,7 @@ function onViewDetail(row: SystemAdminLogApi.Item) {
         {
           class:
             'max-h-[360px] overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 text-xs dark:bg-gray-900',
+          style: { marginTop: '16px' },
         },
         JSON.stringify(parseLogData(row.data), null, 2),
       ),

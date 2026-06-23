@@ -1128,204 +1128,380 @@ function runtimeActionSuccess(type: RuntimeActionType) {
       <Modal
         v-model:open="periodicModalOpen"
         :confirm-loading="submitting"
+        :body-style="{ padding: '0' }"
         destroy-on-close
-        width="820px"
+        :width="940"
         :title="rt('periodicDraft')"
+        wrap-class-name="runtime-config-editor-dialog"
         @ok="submitPeriodic"
       >
-        <Form :model="periodicForm" layout="vertical">
-          <div class="runtime-form-grid">
-            <Form.Item :label="rt('enabled')">
-              <Switch v-model:checked="periodicForm.enabled" />
-            </Form.Item>
-            <Form.Item required :label="rt('name')">
-              <Input v-model:value="periodicForm.name" />
-            </Form.Item>
-            <Form.Item required :label="rt('workflow')">
-              <Input v-model:value="periodicForm.workflow" />
-            </Form.Item>
-            <Form.Item :label="rt('queue')">
-              <Input v-model:value="periodicForm.queue" />
-            </Form.Item>
-            <Form.Item label="Cron">
-              <Input
-                v-model:value="periodicForm.cron"
-                placeholder="0 */5 * * * *"
-              />
-            </Form.Item>
-            <Form.Item :label="rt('everySeconds')">
-              <InputNumber
-                v-model:value="periodicForm.everySeconds"
-                class="w-full"
-                :min="0"
-              />
-            </Form.Item>
-            <Form.Item :label="rt('shardTotal')">
-              <InputNumber
-                v-model:value="periodicForm.shardTotal"
-                class="w-full"
-                :min="0"
-              />
-            </Form.Item>
-            <Form.Item :label="rt('grayPercent')">
-              <InputNumber
-                v-model:value="periodicForm.grayPercent"
-                class="w-full"
-                :max="100"
-                :min="0"
-              />
-            </Form.Item>
-            <Form.Item :label="rt('retry')">
-              <InputNumber
-                v-model:value="periodicForm.retry"
-                class="w-full"
-                :min="0"
-              />
-            </Form.Item>
-            <Form.Item :label="rt('timeoutSeconds')">
-              <InputNumber
-                v-model:value="periodicForm.timeoutSeconds"
-                class="w-full"
-                :min="0"
-              />
-            </Form.Item>
-            <Form.Item :label="rt('uniqueKey')">
-              <Input v-model:value="periodicForm.uniqueKey" />
-            </Form.Item>
-            <Form.Item :label="rt('uniqueTtlSeconds')">
-              <InputNumber
-                v-model:value="periodicForm.uniqueTtlSeconds"
-                class="w-full"
-                :min="0"
-              />
-            </Form.Item>
-            <Form.Item :label="rt('sortOrder')">
-              <InputNumber
-                v-model:value="periodicForm.sortOrder"
-                class="w-full"
-              />
-            </Form.Item>
-            <Form.Item :label="rt('deadline')">
-              <Input
-                v-model:value="periodicForm.deadline"
-                placeholder="RFC3339"
-              />
-            </Form.Item>
-          </div>
-          <Form.Item :label="rt('targets')">
-            <Textarea
-              v-model:value="periodicTargetsText"
-              :rows="3"
-              :placeholder="rt('targetsPlaceholder')"
-            />
-          </Form.Item>
-          <Form.Item :label="rt('remark')">
-            <Textarea v-model:value="periodicForm.remark" :rows="2" />
-          </Form.Item>
-        </Form>
+        <div class="runtime-editor">
+          <Alert
+            class="runtime-editor__alert"
+            :message="rt('periodicFormGuide')"
+            :description="rt('periodicFormGuideDesc')"
+            show-icon
+            type="info"
+          />
+          <Form :model="periodicForm" layout="vertical">
+            <div class="runtime-editor__layout">
+              <section class="runtime-editor__section">
+                <div class="runtime-editor__section-head">
+                  <div>
+                    <div class="runtime-editor__section-title">
+                      {{ rt('runtimeFormBasic') }}
+                    </div>
+                    <div class="runtime-editor__section-desc">
+                      {{ rt('runtimeFormBasicDesc') }}
+                    </div>
+                  </div>
+                  <Switch v-model:checked="periodicForm.enabled" />
+                </div>
+                <div class="runtime-editor__grid">
+                  <Form.Item required :label="rt('name')">
+                    <Input v-model:value="periodicForm.name" />
+                  </Form.Item>
+                  <Form.Item required :label="rt('workflow')">
+                    <Input v-model:value="periodicForm.workflow" />
+                  </Form.Item>
+                  <Form.Item :label="rt('queue')">
+                    <Input v-model:value="periodicForm.queue" />
+                  </Form.Item>
+                  <Form.Item :label="rt('sortOrder')">
+                    <InputNumber
+                      v-model:value="periodicForm.sortOrder"
+                      class="w-full"
+                    />
+                  </Form.Item>
+                </div>
+              </section>
+
+              <section class="runtime-editor__section">
+                <div class="runtime-editor__section-head">
+                  <div>
+                    <div class="runtime-editor__section-title">
+                      {{ rt('runtimeFormSchedule') }}
+                    </div>
+                    <div class="runtime-editor__section-desc">
+                      {{ rt('runtimeFormScheduleDesc') }}
+                    </div>
+                  </div>
+                </div>
+                <div class="runtime-editor__grid">
+                  <Form.Item label="Cron">
+                    <Input
+                      v-model:value="periodicForm.cron"
+                      placeholder="0 */5 * * * *"
+                    />
+                  </Form.Item>
+                  <Form.Item :label="rt('everySeconds')">
+                    <InputNumber
+                      v-model:value="periodicForm.everySeconds"
+                      class="w-full"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item :label="rt('deadline')">
+                    <Input
+                      v-model:value="periodicForm.deadline"
+                      placeholder="RFC3339"
+                    />
+                  </Form.Item>
+                </div>
+              </section>
+
+              <section class="runtime-editor__section">
+                <div class="runtime-editor__section-head">
+                  <div>
+                    <div class="runtime-editor__section-title">
+                      {{ rt('runtimeFormExecution') }}
+                    </div>
+                    <div class="runtime-editor__section-desc">
+                      {{ rt('runtimeFormExecutionDesc') }}
+                    </div>
+                  </div>
+                </div>
+                <div class="runtime-editor__grid">
+                  <Form.Item :label="rt('shardTotal')">
+                    <InputNumber
+                      v-model:value="periodicForm.shardTotal"
+                      class="w-full"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item :label="rt('grayPercent')">
+                    <InputNumber
+                      v-model:value="periodicForm.grayPercent"
+                      class="w-full"
+                      :max="100"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item :label="rt('retry')">
+                    <InputNumber
+                      v-model:value="periodicForm.retry"
+                      class="w-full"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item :label="rt('timeoutSeconds')">
+                    <InputNumber
+                      v-model:value="periodicForm.timeoutSeconds"
+                      class="w-full"
+                      :min="0"
+                    />
+                  </Form.Item>
+                </div>
+              </section>
+
+              <section class="runtime-editor__section">
+                <div class="runtime-editor__section-head">
+                  <div>
+                    <div class="runtime-editor__section-title">
+                      {{ rt('runtimeFormDedupe') }}
+                    </div>
+                    <div class="runtime-editor__section-desc">
+                      {{ rt('runtimeFormDedupeDesc') }}
+                    </div>
+                  </div>
+                </div>
+                <div class="runtime-editor__grid">
+                  <Form.Item :label="rt('uniqueKey')">
+                    <Input v-model:value="periodicForm.uniqueKey" />
+                  </Form.Item>
+                  <Form.Item :label="rt('uniqueTtlSeconds')">
+                    <InputNumber
+                      v-model:value="periodicForm.uniqueTtlSeconds"
+                      class="w-full"
+                      :min="0"
+                    />
+                  </Form.Item>
+                </div>
+              </section>
+
+              <section
+                class="runtime-editor__section runtime-editor__section--wide"
+              >
+                <div class="runtime-editor__section-head">
+                  <div>
+                    <div class="runtime-editor__section-title">
+                      {{ rt('runtimeFormPayload') }}
+                    </div>
+                    <div class="runtime-editor__section-desc">
+                      {{ rt('runtimeFormPayloadDesc') }}
+                    </div>
+                  </div>
+                </div>
+                <div class="runtime-editor__stack">
+                  <Form.Item :label="rt('targets')">
+                    <Textarea
+                      v-model:value="periodicTargetsText"
+                      :rows="3"
+                      :placeholder="rt('targetsPlaceholder')"
+                    />
+                  </Form.Item>
+                  <Form.Item :label="rt('remark')">
+                    <Textarea v-model:value="periodicForm.remark" :rows="2" />
+                  </Form.Item>
+                </div>
+              </section>
+            </div>
+          </Form>
+        </div>
       </Modal>
 
       <Modal
         v-model:open="archiveModalOpen"
         :confirm-loading="submitting"
+        :body-style="{ padding: '0' }"
         destroy-on-close
-        width="920px"
+        :width="980"
         :title="rt('archiveDraft')"
+        wrap-class-name="runtime-config-editor-dialog"
         @ok="submitArchive"
       >
-        <Form :model="archiveForm" layout="vertical">
-          <div class="runtime-form-grid">
-            <Form.Item :label="rt('enabled')">
-              <Switch v-model:checked="archiveForm.enabled" />
-            </Form.Item>
-            <Form.Item required :label="rt('name')">
-              <Input v-model:value="archiveForm.name" />
-            </Form.Item>
-            <Form.Item :label="rt('database')">
-              <Input v-model:value="archiveForm.database" />
-            </Form.Item>
-            <Form.Item required :label="rt('hotTableName')">
-              <Input v-model:value="archiveForm.tableName" />
-            </Form.Item>
-            <Form.Item :label="rt('timeColumn')">
-              <Input v-model:value="archiveForm.timeColumn" />
-            </Form.Item>
-            <Form.Item :label="rt('primaryKey')">
-              <Input v-model:value="archiveForm.primaryKey" />
-            </Form.Item>
-            <Form.Item :label="rt('splitUnit')">
-              <Input v-model:value="archiveForm.splitUnit" />
-            </Form.Item>
-            <Form.Item :label="rt('hotKeepDays')">
-              <InputNumber
-                v-model:value="archiveForm.hotKeepDays"
-                class="w-full"
-                :min="0"
-              />
-            </Form.Item>
-            <Form.Item :label="rt('archiveDelayDays')">
-              <InputNumber
-                v-model:value="archiveForm.archiveDelayDays"
-                class="w-full"
-                :min="0"
-              />
-            </Form.Item>
-            <Form.Item :label="rt('archiveWindowSeconds')">
-              <InputNumber
-                v-model:value="archiveForm.archiveWindowSeconds"
-                class="w-full"
-                :min="0"
-              />
-            </Form.Item>
-            <Form.Item :label="rt('archiveBatch')">
-              <InputNumber
-                v-model:value="archiveForm.batchSize"
-                class="w-full"
-                :min="0"
-              />
-            </Form.Item>
-            <Form.Item :label="rt('deleteBatch')">
-              <InputNumber
-                v-model:value="archiveForm.deleteBatchSize"
-                class="w-full"
-                :min="0"
-              />
-            </Form.Item>
-            <Form.Item :label="rt('deleteDisabled')">
-              <Switch v-model:checked="archiveForm.deleteDisabled" />
-            </Form.Item>
-            <Form.Item :label="rt('queryWriteDb')">
-              <Switch v-model:checked="archiveForm.queryWriteDb" />
-            </Form.Item>
-            <Form.Item :label="rt('sortOrder')">
-              <InputNumber
-                v-model:value="archiveForm.sortOrder"
-                class="w-full"
-              />
-            </Form.Item>
-            <Form.Item :label="rt('startAt')">
-              <Input
-                v-model:value="archiveForm.startAt"
-                placeholder="RFC3339"
-              />
-            </Form.Item>
-          </div>
-          <Form.Item :label="rt('historyTablePrefix')">
-            <Input v-model:value="archiveForm.historyTablePrefix" />
-          </Form.Item>
-          <Form.Item :label="rt('historyTableNameRule')">
-            <Input v-model:value="archiveForm.historyTableNameRule" />
-          </Form.Item>
-          <Form.Item :label="rt('archiveCondition')">
-            <Textarea v-model:value="archiveForm.archiveCondition" :rows="2" />
-          </Form.Item>
-          <Form.Item :label="rt('deleteCondition')">
-            <Textarea v-model:value="archiveForm.deleteCondition" :rows="2" />
-          </Form.Item>
-          <Form.Item :label="rt('remark')">
-            <Textarea v-model:value="archiveForm.remark" :rows="2" />
-          </Form.Item>
-        </Form>
+        <div class="runtime-editor">
+          <Alert
+            class="runtime-editor__alert"
+            :message="rt('archiveFormGuide')"
+            :description="rt('archiveFormGuideDesc')"
+            show-icon
+            type="info"
+          />
+          <Form :model="archiveForm" layout="vertical">
+            <div class="runtime-editor__layout">
+              <section class="runtime-editor__section">
+                <div class="runtime-editor__section-head">
+                  <div>
+                    <div class="runtime-editor__section-title">
+                      {{ rt('runtimeFormBasic') }}
+                    </div>
+                    <div class="runtime-editor__section-desc">
+                      {{ rt('runtimeFormArchiveBasicDesc') }}
+                    </div>
+                  </div>
+                  <Switch v-model:checked="archiveForm.enabled" />
+                </div>
+                <div class="runtime-editor__grid">
+                  <Form.Item required :label="rt('name')">
+                    <Input v-model:value="archiveForm.name" />
+                  </Form.Item>
+                  <Form.Item :label="rt('database')">
+                    <Input v-model:value="archiveForm.database" />
+                  </Form.Item>
+                  <Form.Item required :label="rt('hotTableName')">
+                    <Input v-model:value="archiveForm.tableName" />
+                  </Form.Item>
+                  <Form.Item :label="rt('sortOrder')">
+                    <InputNumber
+                      v-model:value="archiveForm.sortOrder"
+                      class="w-full"
+                    />
+                  </Form.Item>
+                </div>
+              </section>
+
+              <section class="runtime-editor__section">
+                <div class="runtime-editor__section-head">
+                  <div>
+                    <div class="runtime-editor__section-title">
+                      {{ rt('runtimeFormArchiveWindow') }}
+                    </div>
+                    <div class="runtime-editor__section-desc">
+                      {{ rt('runtimeFormArchiveWindowDesc') }}
+                    </div>
+                  </div>
+                </div>
+                <div class="runtime-editor__grid">
+                  <Form.Item :label="rt('timeColumn')">
+                    <Input v-model:value="archiveForm.timeColumn" />
+                  </Form.Item>
+                  <Form.Item :label="rt('primaryKey')">
+                    <Input v-model:value="archiveForm.primaryKey" />
+                  </Form.Item>
+                  <Form.Item :label="rt('splitUnit')">
+                    <Input v-model:value="archiveForm.splitUnit" />
+                  </Form.Item>
+                  <Form.Item :label="rt('hotKeepDays')">
+                    <InputNumber
+                      v-model:value="archiveForm.hotKeepDays"
+                      class="w-full"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item :label="rt('archiveDelayDays')">
+                    <InputNumber
+                      v-model:value="archiveForm.archiveDelayDays"
+                      class="w-full"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item :label="rt('archiveWindowSeconds')">
+                    <InputNumber
+                      v-model:value="archiveForm.archiveWindowSeconds"
+                      class="w-full"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item :label="rt('startAt')">
+                    <Input
+                      v-model:value="archiveForm.startAt"
+                      placeholder="RFC3339"
+                    />
+                  </Form.Item>
+                </div>
+              </section>
+
+              <section class="runtime-editor__section">
+                <div class="runtime-editor__section-head">
+                  <div>
+                    <div class="runtime-editor__section-title">
+                      {{ rt('runtimeFormBatchDelete') }}
+                    </div>
+                    <div class="runtime-editor__section-desc">
+                      {{ rt('runtimeFormBatchDeleteDesc') }}
+                    </div>
+                  </div>
+                </div>
+                <div class="runtime-editor__grid">
+                  <Form.Item :label="rt('archiveBatch')">
+                    <InputNumber
+                      v-model:value="archiveForm.batchSize"
+                      class="w-full"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item :label="rt('deleteBatch')">
+                    <InputNumber
+                      v-model:value="archiveForm.deleteBatchSize"
+                      class="w-full"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item :label="rt('deleteDisabled')">
+                    <Switch v-model:checked="archiveForm.deleteDisabled" />
+                  </Form.Item>
+                  <Form.Item :label="rt('queryWriteDb')">
+                    <Switch v-model:checked="archiveForm.queryWriteDb" />
+                  </Form.Item>
+                </div>
+              </section>
+
+              <section class="runtime-editor__section">
+                <div class="runtime-editor__section-head">
+                  <div>
+                    <div class="runtime-editor__section-title">
+                      {{ rt('runtimeFormHistoryTable') }}
+                    </div>
+                    <div class="runtime-editor__section-desc">
+                      {{ rt('runtimeFormHistoryTableDesc') }}
+                    </div>
+                  </div>
+                </div>
+                <div class="runtime-editor__stack">
+                  <Form.Item :label="rt('historyTablePrefix')">
+                    <Input v-model:value="archiveForm.historyTablePrefix" />
+                  </Form.Item>
+                  <Form.Item :label="rt('historyTableNameRule')">
+                    <Input v-model:value="archiveForm.historyTableNameRule" />
+                  </Form.Item>
+                </div>
+              </section>
+
+              <section
+                class="runtime-editor__section runtime-editor__section--wide"
+              >
+                <div class="runtime-editor__section-head">
+                  <div>
+                    <div class="runtime-editor__section-title">
+                      {{ rt('runtimeFormConditions') }}
+                    </div>
+                    <div class="runtime-editor__section-desc">
+                      {{ rt('runtimeFormConditionsDesc') }}
+                    </div>
+                  </div>
+                </div>
+                <div class="runtime-editor__stack">
+                  <Form.Item :label="rt('archiveCondition')">
+                    <Textarea
+                      v-model:value="archiveForm.archiveCondition"
+                      :rows="2"
+                    />
+                  </Form.Item>
+                  <Form.Item :label="rt('deleteCondition')">
+                    <Textarea
+                      v-model:value="archiveForm.deleteCondition"
+                      :rows="2"
+                    />
+                  </Form.Item>
+                  <Form.Item :label="rt('remark')">
+                    <Textarea v-model:value="archiveForm.remark" :rows="2" />
+                  </Form.Item>
+                </div>
+              </section>
+            </div>
+          </Form>
+        </div>
       </Modal>
 
       <Modal
@@ -1538,6 +1714,93 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   color: var(--vben-text-color-secondary);
 }
 
+.runtime-editor {
+  max-height: min(76vh, 760px);
+  padding: 16px 18px 18px;
+  overflow: auto;
+}
+
+.runtime-editor__alert {
+  margin-bottom: 14px;
+}
+
+.runtime-editor__layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.runtime-editor__section {
+  min-width: 0;
+  padding: 14px;
+  background: hsl(var(--accent) / 32%);
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+}
+
+.runtime-editor__section--wide {
+  grid-column: 1 / -1;
+}
+
+.runtime-editor__section-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.runtime-editor__section-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: hsl(var(--foreground));
+}
+
+.runtime-editor__section-desc {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--vben-text-color-secondary);
+}
+
+.runtime-editor__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.runtime-editor__stack {
+  display: grid;
+  gap: 12px;
+}
+
+.runtime-editor :deep(.ant-form-item) {
+  margin-bottom: 0;
+}
+
+.runtime-editor :deep(.ant-form-item-label > label) {
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.runtime-editor :deep(.ant-input),
+.runtime-editor :deep(.ant-input-number),
+.runtime-editor :deep(.ant-input-number-input),
+.runtime-editor :deep(.ant-input-affix-wrapper),
+.runtime-editor :deep(.ant-select-selector),
+.runtime-editor :deep(textarea.ant-input) {
+  border-radius: 6px;
+}
+
+:global(.runtime-config-editor-dialog .ant-modal-footer) {
+  padding: 14px 18px 16px;
+  margin-top: 0;
+  border-top: 1px solid hsl(var(--border));
+}
+
 .runtime-filter-input {
   width: 180px;
 }
@@ -1589,12 +1852,6 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   opacity: 0.65;
 }
 
-.runtime-form-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0 12px;
-}
-
 .runtime-action-target {
   display: flex;
   gap: 8px;
@@ -1622,7 +1879,8 @@ function runtimeActionSuccess(type: RuntimeActionType) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .runtime-form-grid {
+  .runtime-editor__layout,
+  .runtime-editor__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1632,7 +1890,8 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   .runtime-periodic-summary,
   .runtime-release-layout,
   .runtime-snapshot-layout,
-  .runtime-form-grid {
+  .runtime-editor__layout,
+  .runtime-editor__grid {
     grid-template-columns: 1fr;
   }
 

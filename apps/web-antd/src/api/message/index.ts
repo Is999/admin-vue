@@ -16,7 +16,7 @@ export namespace AdminMessageApi {
     type: string; // 消息类型
     level: Level; // 消息等级
     title: string; // 消息标题
-    content: string; // 消息内容
+    content: string; // 消息内容，支持受控富文本HTML
     data: string; // 扩展数据JSON
     link: string; // 跳转链接
     senderAdminId: number; // 发送人管理员ID
@@ -68,7 +68,7 @@ export namespace AdminMessageApi {
     type: string; // 消息类型
     level: Level; // 消息等级
     title: string; // 消息标题
-    content: string; // 消息内容
+    content: string; // 消息内容，支持受控富文本HTML
     data?: string; // 扩展数据JSON
     link?: string; // 跳转链接
     receiverIDs?: number[]; // 收件人管理员ID列表；为空表示广播
@@ -91,7 +91,7 @@ export namespace AdminMessageApi {
     type: string; // 消息类型
     level: Level; // 消息等级
     title: string; // 消息标题
-    content: string; // 消息内容
+    content: string; // 消息内容，支持受控富文本HTML
     data: string; // 扩展数据JSON
     link: string; // 跳转链接
     senderAdminId: number; // 发送人管理员ID

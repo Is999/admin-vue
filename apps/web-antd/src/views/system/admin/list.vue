@@ -47,7 +47,7 @@ import {
   asActionPermission,
   SYSTEM_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
-import { $t, $te } from '#/locales';
+import { $t } from '#/locales';
 import {
   buildAdminCacheTargets,
   openSystemCachePage,
@@ -65,6 +65,7 @@ import {
   validateStrongPassword,
 } from '#/utils/security/password';
 
+import { resolveBackendMessage } from '../shared';
 import { useColumns, useGridFormSchema } from './data';
 import Form from './modules/form.vue';
 import {
@@ -185,18 +186,6 @@ const PasswordEditor = defineComponent({
       ]);
   },
 });
-
-// resolveBackendMessage 优先翻译后端返回的多语言 key，否则展示原始消息或本地兜底文案。
-function resolveBackendMessage(
-  message: string | undefined,
-  fallbackKey: string,
-) {
-  const text = String(message || '').trim();
-  if (!text) {
-    return $t(fallbackKey);
-  }
-  return $te(text) ? $t(text) : text;
-}
 
 // ================= 抽屉表单配置 =================
 // FormDrawer 用于新增和编辑用户。

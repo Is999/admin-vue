@@ -3,7 +3,12 @@ import type { OnActionClickFn, VxeTableGridOptions } from '#/adapter/vxe-table';
 import type { AdminMessageApi } from '#/api/message';
 import type { SystemAdminApi } from '#/api/system';
 
-import { buildClampTextColumn } from '#/adapter/vxe-table';
+import { h } from 'vue';
+
+import { VbenTiptapPreview } from '@vben/plugins/tiptap';
+
+import { Popover } from 'ant-design-vue';
+
 import { fetchAdminList } from '#/api/system';
 import { $t } from '#/locales';
 
@@ -12,6 +17,7 @@ import {
   messageLevelTagMap,
   readStatusTagMap,
 } from '../table-tags';
+import { messageContentText, sanitizeMessageContentHtml } from './content';
 
 // MESSAGE_TYPE_OPTIONS 定义常用消息类型选项。
 export const MESSAGE_TYPE_OPTIONS = [
@@ -153,16 +159,15 @@ export function useSendFormSchema(): VbenFormSchema[] {
       },
     },
     {
-      component: 'Textarea',
+      component: 'Tiptap',
       fieldName: 'content',
       label: $t('business.message.content'),
       rules: 'required',
       formItemClass: 'col-span-2',
       componentProps: {
-        autoSize: { minRows: 4, maxRows: 10 },
-        maxLength: 2000,
+        maxHeight: 260,
+        minHeight: 150,
         placeholder: $t('business.message.messageContentPlaceholder'),
-        showCount: true,
       },
     },
     {
@@ -310,6 +315,40 @@ function messageHandleTagMeta(
     : { color: 'warning', text: $t('business.message.messagePendingHandle') };
 }
 
+// renderMessageContentCell 在列表中展示可扫读摘要，并通过悬浮/点击查看格式化富文本预览。
+function renderMessageContentCell(content = '') {
+  const html = sanitizeMessageContentHtml(content);
+  const text = messageContentText(content) || '-';
+  if (!html || text === '-') {
+    return h('span', { class: 'message-content-cell--empty' }, '-');
+  }
+  return h(
+    Popover,
+    {
+      overlayClassName: 'message-rich-popover',
+      placement: 'topLeft',
+      trigger: ['hover', 'click'],
+    },
+    {
+      content: () =>
+        h(VbenTiptapPreview, {
+          class: 'message-rich-popover__content message-content-rich',
+          content: html,
+          minHeight: 0,
+        }),
+      default: () =>
+        h(
+          'div',
+          {
+            class: 'message-content-cell',
+            title: text,
+          },
+          [h('div', { class: 'message-content-cell__summary' }, text)],
+        ),
+    },
+  );
+}
+
 // useColumns 返回消息管理表格列配置。
 export function useColumns<T = AdminMessageApi.Item>(
   onActionClick: OnActionClickFn<T>,
@@ -337,16 +376,15 @@ export function useColumns<T = AdminMessageApi.Item>(
       width: 90,
     },
     { field: 'title', minWidth: 200, title: $t('business.message.title') },
-    buildClampTextColumn(
-      {
-        field: 'content',
-        minWidth: 260,
-        title: $t('business.message.content'),
+    {
+      field: 'content',
+      minWidth: 320,
+      slots: {
+        default: ({ row }: { row: AdminMessageApi.Item }) =>
+          renderMessageContentCell(row.content),
       },
-      {
-        getText: ({ row }) => (row as AdminMessageApi.Item).content || '-',
-      },
-    ),
+      title: $t('business.message.content'),
+    },
     {
       align: 'center',
       cellRender: {
@@ -452,6 +490,15 @@ export function useSentColumns<T = AdminMessageApi.SentItem>(
       width: 90,
     },
     { field: 'title', minWidth: 200, title: $t('business.message.title') },
+    {
+      field: 'content',
+      minWidth: 320,
+      slots: {
+        default: ({ row }: { row: AdminMessageApi.SentItem }) =>
+          renderMessageContentCell(row.content),
+      },
+      title: $t('business.message.content'),
+    },
     {
       align: 'center',
       cellRender: {
