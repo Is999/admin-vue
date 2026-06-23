@@ -66,6 +66,12 @@ type TablePage = {
   current?: number;
   pageSize?: number;
 };
+type SnapshotDiffKind = 'added' | 'removed' | 'same';
+type SnapshotDiffLine = {
+  key: string;
+  kind: SnapshotDiffKind;
+  text: string;
+};
 type RuntimeActionType = 'import' | 'publish' | 'rollback';
 type RuntimeEnabledFilter = 'all' | 'disabled' | 'enabled';
 
@@ -218,12 +224,16 @@ const draftSnapshotText = computed(() =>
 const snapshotChanged = computed(
   () => currentSnapshotText.value !== draftSnapshotText.value,
 );
+const snapshotDiffLines = computed(() =>
+  buildSnapshotDiffLines(currentSnapshotText.value, draftSnapshotText.value),
+);
 const activeChecksumShort = computed(() =>
   shortChecksum(activeState.value.activeChecksum),
 );
 const validateChecksumShort = computed(() =>
   shortChecksum(validateResult.value?.checksum || ''),
 );
+const validateMessages = computed(() => validateResult.value?.messages || []);
 const selectedReleaseSnapshotText = computed(
   () =>
     selectedRelease.value?.snapshotYaml ||
@@ -288,13 +298,20 @@ const releaseColumns = computed(() => [
     title: rt('version'),
     dataIndex: 'versionNo',
     key: 'versionNo',
-    width: 100,
+    width: 90,
   },
   { title: rt('releaseId'), dataIndex: 'id', key: 'id', width: 110 },
-  { title: 'Checksum', dataIndex: 'checksum', key: 'checksum', width: 170 },
+  {
+    title: 'Checksum',
+    dataIndex: 'checksum',
+    ellipsis: true,
+    key: 'checksum',
+    width: 190,
+  },
   {
     title: rt('publisher'),
     dataIndex: 'publishedByName',
+    ellipsis: true,
     key: 'publishedByName',
     width: 140,
   },
@@ -304,8 +321,14 @@ const releaseColumns = computed(() => [
     key: 'publishedAt',
     width: 180,
   },
-  { title: rt('remark'), dataIndex: 'remark', key: 'remark' },
-  { title: rt('action'), key: 'action', width: 132 },
+  {
+    title: rt('remark'),
+    dataIndex: 'remark',
+    ellipsis: true,
+    key: 'remark',
+    width: 260,
+  },
+  { title: rt('action'), key: 'action', width: 96 },
 ]);
 
 onMounted(async () => {
@@ -360,12 +383,118 @@ function newArchiveForm(): RuntimeConfigApi.ArchiveJobItem {
 }
 
 function assignForm<T extends object>(target: T, source: T) {
-  Object.keys(target).forEach((key) => delete (target as any)[key]);
+  const mutableTarget = target as Record<string, unknown>;
+  Object.keys(mutableTarget).forEach((key) => delete mutableTarget[key]);
   Object.assign(target, source);
 }
 
 function shortChecksum(value: string) {
   return value ? `${value.slice(0, 10)}...${value.slice(-8)}` : '-';
+}
+
+function splitSnapshotLines(text: string) {
+  return text ? text.split('\n') : [];
+}
+
+// buildSnapshotDiffLines 生成左右快照行级差异，用于预览中高亮当前缺失和草稿新增行。
+function buildSnapshotDiffLines(currentText: string, draftText: string) {
+  const currentLines = splitSnapshotLines(currentText);
+  const draftLines = splitSnapshotLines(draftText);
+  const lcs = Array.from({ length: currentLines.length + 1 }, () =>
+    Array.from({ length: draftLines.length + 1 }, () => 0),
+  );
+  const readLcs = (row: number, col: number) => lcs[row]?.[col] ?? 0;
+
+  for (let i = currentLines.length - 1; i >= 0; i -= 1) {
+    for (let j = draftLines.length - 1; j >= 0; j -= 1) {
+      const currentLine = currentLines[i] ?? '';
+      const draftLine = draftLines[j] ?? '';
+      lcs[i]![j] =
+        currentLine === draftLine
+          ? readLcs(i + 1, j + 1) + 1
+          : Math.max(readLcs(i + 1, j), readLcs(i, j + 1));
+    }
+  }
+
+  const current: SnapshotDiffLine[] = [];
+  const draft: SnapshotDiffLine[] = [];
+  let currentIndex = 0;
+  let draftIndex = 0;
+
+  while (currentIndex < currentLines.length && draftIndex < draftLines.length) {
+    const currentLine = currentLines[currentIndex] ?? '';
+    const draftLine = draftLines[draftIndex] ?? '';
+
+    if (currentLine === draftLine) {
+      current.push({
+        key: `current-${currentIndex}-draft-${draftIndex}`,
+        kind: 'same',
+        text: currentLine,
+      });
+      draft.push({
+        key: `draft-${draftIndex}-current-${currentIndex}`,
+        kind: 'same',
+        text: draftLine,
+      });
+      currentIndex += 1;
+      draftIndex += 1;
+      continue;
+    }
+
+    if (
+      readLcs(currentIndex + 1, draftIndex) >=
+      readLcs(currentIndex, draftIndex + 1)
+    ) {
+      current.push({
+        key: `current-${currentIndex}-removed`,
+        kind: 'removed',
+        text: currentLine,
+      });
+      currentIndex += 1;
+      continue;
+    }
+
+    draft.push({
+      key: `draft-${draftIndex}-added`,
+      kind: 'added',
+      text: draftLine,
+    });
+    draftIndex += 1;
+  }
+
+  while (currentIndex < currentLines.length) {
+    current.push({
+      key: `current-${currentIndex}-removed`,
+      kind: 'removed',
+      text: currentLines[currentIndex] ?? '',
+    });
+    currentIndex += 1;
+  }
+
+  while (draftIndex < draftLines.length) {
+    draft.push({
+      key: `draft-${draftIndex}-added`,
+      kind: 'added',
+      text: draftLines[draftIndex] ?? '',
+    });
+    draftIndex += 1;
+  }
+
+  return { current, draft };
+}
+
+function snapshotDiffLineClass(kind: SnapshotDiffKind) {
+  return `runtime-code-line--${kind}`;
+}
+
+function snapshotDiffLineMarker(kind: SnapshotDiffKind) {
+  if (kind === 'added') {
+    return '+';
+  }
+  if (kind === 'removed') {
+    return '-';
+  }
+  return ' ';
 }
 
 function enabledParam(value: RuntimeEnabledFilter) {
@@ -380,6 +509,11 @@ function enabledParam(value: RuntimeEnabledFilter) {
 
 function enabledText(enabled: boolean) {
   return enabled ? rt('enabled') : rt('disabled');
+}
+
+function clearDraftFeedback() {
+  validateResult.value = null;
+  lastPublishResult.value = null;
 }
 
 async function refreshAll() {
@@ -521,6 +655,7 @@ async function submitPeriodic() {
       targets: splitTextToItems(periodicTargetsText.value),
     });
     periodicModalOpen.value = false;
+    clearDraftFeedback();
     message.success(rt('periodicSaved'));
     await Promise.all([loadPeriodicTasks(), loadOverview()]);
   } finally {
@@ -540,6 +675,7 @@ async function submitArchive() {
       database: archiveForm.database?.trim() || 'main',
     });
     archiveModalOpen.value = false;
+    clearDraftFeedback();
     message.success(rt('archiveSaved'));
     await Promise.all([loadArchiveJobs(), loadOverview()]);
   } finally {
@@ -555,6 +691,7 @@ function confirmDeletePeriodic(row: Record<string, any>) {
     title: rt('deletePeriodicTitle'),
     async onOk() {
       await deleteRuntimePeriodicTask(Number(row.id));
+      clearDraftFeedback();
       message.success(rt('periodicDeleted'));
       await Promise.all([loadPeriodicTasks(), loadOverview()]);
     },
@@ -569,6 +706,7 @@ function confirmDeleteArchive(row: Record<string, any>) {
     title: rt('deleteArchiveTitle'),
     async onOk() {
       await deleteRuntimeArchiveJob(Number(row.id));
+      clearDraftFeedback();
       message.success(rt('archiveDeleted'));
       await Promise.all([loadArchiveJobs(), loadOverview()]);
     },
@@ -578,6 +716,7 @@ function confirmDeleteArchive(row: Record<string, any>) {
 async function runValidate() {
   submitting.value = true;
   try {
+    lastPublishResult.value = null;
     validateResult.value = await validateRuntimeConfigDraft();
     message.success(
       validateResult.value.valid ? rt('validatePassed') : rt('validateDone'),
@@ -632,6 +771,7 @@ async function submitRuntimeAction() {
       },
     );
     lastPublishResult.value = result;
+    validateResult.value = null;
     actionModalOpen.value = false;
     message.success(runtimeActionSuccess(actionType.value));
     await refreshAll();
@@ -960,44 +1100,50 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 
         <Tabs.TabPane key="release" :tab="rt('releaseTab')">
           <div class="runtime-release-layout">
-            <Card size="small" :title="rt('releaseActions')">
-              <Space wrap>
-                <VbenButton
-                  v-access="
-                    asActionPermission(
-                      OPS_ACTION_PERMISSION_CODES.RUNTIME_CONFIG_VALIDATE,
-                    )
-                  "
-                  :loading="submitting"
-                  @click="runValidate"
-                >
-                  <template #icon><CheckCircleOutlined /></template>
-                  {{ rt('validateDraft') }}
-                </VbenButton>
-                <VbenButton
-                  v-access="
-                    asActionPermission(
-                      OPS_ACTION_PERMISSION_CODES.RUNTIME_CONFIG_PUBLISH,
-                    )
-                  "
-                  type="primary"
-                  @click="openRuntimeAction('publish')"
-                >
-                  <template #icon><CloudUploadOutlined /></template>
-                  {{ rt('publishDraft') }}
-                </VbenButton>
-                <VbenButton
-                  v-access="
-                    asActionPermission(
-                      OPS_ACTION_PERMISSION_CODES.RUNTIME_CONFIG_IMPORT,
-                    )
-                  "
-                  @click="openRuntimeAction('import')"
-                >
-                  <template #icon><ImportOutlined /></template>
-                  {{ rt('importCurrent') }}
-                </VbenButton>
-              </Space>
+            <Card
+              class="runtime-list-card runtime-release-card"
+              size="small"
+              :title="rt('releaseHistory')"
+            >
+              <template #extra>
+                <Space class="runtime-release-actions" wrap>
+                  <VbenButton
+                    v-access="
+                      asActionPermission(
+                        OPS_ACTION_PERMISSION_CODES.RUNTIME_CONFIG_VALIDATE,
+                      )
+                    "
+                    :loading="submitting"
+                    @click="runValidate"
+                  >
+                    <template #icon><CheckCircleOutlined /></template>
+                    {{ rt('validateDraft') }}
+                  </VbenButton>
+                  <VbenButton
+                    v-access="
+                      asActionPermission(
+                        OPS_ACTION_PERMISSION_CODES.RUNTIME_CONFIG_PUBLISH,
+                      )
+                    "
+                    type="primary"
+                    @click="openRuntimeAction('publish')"
+                  >
+                    <template #icon><CloudUploadOutlined /></template>
+                    {{ rt('publishDraft') }}
+                  </VbenButton>
+                  <VbenButton
+                    v-access="
+                      asActionPermission(
+                        OPS_ACTION_PERMISSION_CODES.RUNTIME_CONFIG_IMPORT,
+                      )
+                    "
+                    @click="openRuntimeAction('import')"
+                  >
+                    <template #icon><ImportOutlined /></template>
+                    {{ rt('importCurrent') }}
+                  </VbenButton>
+                </Space>
+              </template>
               <div class="runtime-action-result">
                 <Alert
                   v-if="validateResult"
@@ -1008,8 +1154,23 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                       ? rt('draftValidatePassed')
                       : rt('draftValidateFailed')
                   "
-                  :description="`checksum: ${validateChecksumShort}`"
-                />
+                >
+                  <template #description>
+                    <div
+                      v-if="
+                        !validateResult.valid && validateMessages.length > 0
+                      "
+                      class="runtime-validate-messages"
+                    >
+                      <div v-for="item in validateMessages" :key="item">
+                        {{ item }}
+                      </div>
+                    </div>
+                    <span v-else-if="validateResult.checksum">
+                      checksum: {{ validateChecksumShort }}
+                    </span>
+                  </template>
+                </Alert>
                 <Alert
                   v-if="lastPublishResult"
                   :type="
@@ -1024,12 +1185,6 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   "
                 />
               </div>
-            </Card>
-            <Card
-              class="runtime-list-card"
-              size="small"
-              :title="rt('releaseHistory')"
-            >
               <Table
                 :columns="releaseColumns"
                 :data-source="releaseRows"
@@ -1042,13 +1197,25 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   total: releaseTotal,
                 }"
                 row-key="id"
-                :scroll="{ x: 920 }"
+                :scroll="{ x: 1066 }"
                 size="small"
                 @change="handleReleaseTableChange"
               >
                 <template #bodyCell="{ column, record }">
                   <template v-if="column.key === 'checksum'">
-                    {{ shortChecksum(record.checksum) }}
+                    <Tooltip :title="record.checksum">
+                      <span class="runtime-table-ellipsis">
+                        {{ shortChecksum(record.checksum) }}
+                      </span>
+                    </Tooltip>
+                  </template>
+                  <template v-else-if="column.key === 'remark'">
+                    <Tooltip v-if="record.remark" :title="record.remark">
+                      <span class="runtime-table-ellipsis">
+                        {{ record.remark }}
+                      </span>
+                    </Tooltip>
+                    <span v-else class="runtime-table-empty">-</span>
                   </template>
                   <template v-else-if="column.key === 'action'">
                     <Space>
@@ -1084,43 +1251,86 @@ function runtimeActionSuccess(type: RuntimeActionType) {
         </Tabs.TabPane>
 
         <Tabs.TabPane key="snapshot" :tab="rt('snapshotTab')">
-          <div class="runtime-snapshot-layout">
-            <Card size="small" :title="rt('currentSnapshot')">
-              <div class="runtime-snapshot-meta">
-                <Tag :color="sourceTone">{{ overview?.source || '-' }}</Tag>
-                <Tag>
-                  {{ rt('version') }} {{ activeState.activeVersion || 0 }}
-                </Tag>
-                <Tag>{{ activeChecksumShort }}</Tag>
-              </div>
-              <pre class="runtime-code">{{ currentSnapshotText }}</pre>
-            </Card>
-            <Card size="small" :title="rt('draftDiffPreview')">
-              <Alert
-                :type="snapshotChanged ? 'warning' : 'success'"
-                show-icon
-                :message="
-                  snapshotChanged ? rt('snapshotChanged') : rt('snapshotSame')
-                "
-                :description="rt('snapshotPreviewDescription')"
-              />
-              <pre class="runtime-code">{{ draftSnapshotText }}</pre>
-            </Card>
-            <Card size="small" :title="rt('releaseSnapshotDetail')">
-              <div class="runtime-snapshot-meta">
-                <Tag v-if="selectedRelease">
-                  {{ rt('version') }} {{ selectedRelease.versionNo }}
-                </Tag>
-                <Tag v-if="selectedRelease">
-                  {{ shortChecksum(selectedRelease.checksum) }}
-                </Tag>
-              </div>
-              <pre
-                class="runtime-code"
-                :class="{ loading: releaseDetailLoading }"
-                >{{ selectedReleaseSnapshotText || rt('selectReleaseHint') }}
-              </pre>
-            </Card>
+          <div class="runtime-snapshot-stack">
+            <Alert
+              class="runtime-diff-alert"
+              :type="snapshotChanged ? 'warning' : 'success'"
+              show-icon
+              :message="
+                snapshotChanged ? rt('snapshotChanged') : rt('snapshotSame')
+              "
+              :description="rt('snapshotPreviewDescription')"
+            />
+            <div class="runtime-snapshot-layout">
+              <Card
+                class="runtime-snapshot-card"
+                size="small"
+                :title="rt('currentSnapshot')"
+              >
+                <div class="runtime-snapshot-meta">
+                  <Tag :color="sourceTone">{{ overview?.source || '-' }}</Tag>
+                  <Tag>
+                    {{ rt('version') }} {{ activeState.activeVersion || 0 }}
+                  </Tag>
+                  <Tag>{{ activeChecksumShort }}</Tag>
+                </div>
+                <div class="runtime-code runtime-code-diff">
+                  <div
+                    v-for="line in snapshotDiffLines.current"
+                    :key="line.key"
+                    class="runtime-code-line"
+                    :class="snapshotDiffLineClass(line.kind)"
+                  >
+                    <span class="runtime-code-line-marker">
+                      {{ snapshotDiffLineMarker(line.kind) }}
+                    </span>
+                    <span class="runtime-code-line-text">
+                      {{ line.text || ' ' }}
+                    </span>
+                  </div>
+                </div>
+              </Card>
+              <Card
+                class="runtime-snapshot-card"
+                size="small"
+                :title="rt('draftDiffPreview')"
+              >
+                <div class="runtime-code runtime-code-diff">
+                  <div
+                    v-for="line in snapshotDiffLines.draft"
+                    :key="line.key"
+                    class="runtime-code-line"
+                    :class="snapshotDiffLineClass(line.kind)"
+                  >
+                    <span class="runtime-code-line-marker">
+                      {{ snapshotDiffLineMarker(line.kind) }}
+                    </span>
+                    <span class="runtime-code-line-text">
+                      {{ line.text || ' ' }}
+                    </span>
+                  </div>
+                </div>
+              </Card>
+              <Card
+                class="runtime-snapshot-card"
+                size="small"
+                :title="rt('releaseSnapshotDetail')"
+              >
+                <div class="runtime-snapshot-meta">
+                  <Tag v-if="selectedRelease">
+                    {{ rt('version') }} {{ selectedRelease.versionNo }}
+                  </Tag>
+                  <Tag v-if="selectedRelease">
+                    {{ shortChecksum(selectedRelease.checksum) }}
+                  </Tag>
+                </div>
+                <pre
+                  class="runtime-code"
+                  :class="{ loading: releaseDetailLoading }"
+                  >{{ selectedReleaseSnapshotText || rt('selectReleaseHint') }}
+                </pre>
+              </Card>
+            </div>
           </div>
         </Tabs.TabPane>
       </Tabs>
@@ -1686,12 +1896,21 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 }
 
 .runtime-list-card :deep(.ant-card-body) {
+  min-width: 0;
   padding: 12px;
+}
+
+.runtime-list-card {
+  min-width: 0;
 }
 
 .runtime-list-card :deep(.ant-table) {
   color: var(--vben-text-color);
   background: transparent;
+}
+
+.runtime-list-card :deep(.ant-table-wrapper) {
+  min-width: 0;
 }
 
 .runtime-list-card :deep(.ant-table-thead > tr > th) {
@@ -1708,6 +1927,10 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 .runtime-list-card :deep(.ant-table-tbody > tr > td) {
   color: var(--vben-text-color);
   border-bottom-color: hsl(var(--border));
+}
+
+.runtime-list-card :deep(.ant-table-cell) {
+  vertical-align: middle;
 }
 
 .runtime-list-card :deep(.ant-empty-description) {
@@ -1812,30 +2035,116 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 .runtime-release-layout,
 .runtime-snapshot-layout {
   display: grid;
-  grid-template-columns: minmax(320px, 0.6fr) minmax(0, 1.4fr);
+  grid-template-columns: 1fr;
   gap: 8px;
+  align-items: start;
 }
 
 .runtime-snapshot-layout {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(360px, 1fr));
 }
 
 .runtime-action-result {
   display: grid;
   gap: 12px;
-  margin-top: 16px;
+  margin-bottom: 12px;
+}
+
+.runtime-validate-messages {
+  display: grid;
+  gap: 4px;
+  line-height: 1.6;
+}
+
+.runtime-release-card :deep(.ant-card-head) {
+  align-items: center;
+}
+
+.runtime-release-card :deep(.ant-card-head-title),
+.runtime-release-card :deep(.ant-card-head-wrapper) {
+  min-width: 0;
+}
+
+.runtime-release-card :deep(.ant-card-extra) {
+  min-width: 0;
+  padding: 8px 0;
+}
+
+.runtime-release-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.runtime-table-ellipsis {
+  display: inline-block;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.5;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.runtime-table-empty {
+  color: var(--vben-text-color-secondary);
+}
+
+.runtime-snapshot-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.runtime-snapshot-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: min(66vh, 680px);
+  overflow: hidden;
+}
+
+.runtime-snapshot-card :deep(.ant-card-head) {
+  flex: none;
+}
+
+.runtime-snapshot-card :deep(.ant-card-body) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.runtime-diff-alert {
+  padding: 10px 12px;
+}
+
+.runtime-diff-alert :deep(.ant-alert-message) {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.runtime-diff-alert :deep(.ant-alert-description) {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .runtime-snapshot-meta {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 8px;
 }
 
 .runtime-code {
-  min-height: 240px;
-  max-height: 560px;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
   padding: 12px;
   margin: 0;
   overflow: auto;
@@ -1850,6 +2159,51 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 
 .runtime-code.loading {
   opacity: 0.65;
+}
+
+.runtime-code-diff {
+  display: block;
+}
+
+.runtime-code-line {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 6px;
+  min-height: 19px;
+  padding: 0 6px;
+  margin: 0 -6px;
+  border-radius: 4px;
+}
+
+.runtime-code-line--added {
+  background: hsl(142deg 76% 36% / 14%);
+  box-shadow: inset 3px 0 0 hsl(142deg 76% 36% / 72%);
+}
+
+.runtime-code-line--removed {
+  background: hsl(0deg 84% 60% / 14%);
+  box-shadow: inset 3px 0 0 hsl(0deg 84% 60% / 72%);
+}
+
+.runtime-code-line-marker {
+  overflow: hidden;
+  font-weight: 700;
+  color: var(--vben-text-color-secondary);
+  text-align: center;
+  user-select: none;
+}
+
+.runtime-code-line--added .runtime-code-line-marker {
+  color: hsl(142deg 76% 45%);
+}
+
+.runtime-code-line--removed .runtime-code-line-marker {
+  color: hsl(0deg 84% 66%);
+}
+
+.runtime-code-line-text {
+  min-width: 0;
+  white-space: pre-wrap;
 }
 
 .runtime-action-target {
@@ -1870,7 +2224,6 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 @media (max-width: 1200px) {
   .runtime-overview,
   .runtime-periodic-summary,
-  .runtime-release-layout,
   .runtime-snapshot-layout {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1917,6 +2270,39 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 
   .runtime-filter-actions :deep(.ant-btn) {
     flex: 1;
+  }
+
+  .runtime-release-card :deep(.ant-card-head) {
+    align-items: stretch;
+  }
+
+  .runtime-release-card :deep(.ant-card-head-wrapper) {
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  .runtime-release-card :deep(.ant-card-extra) {
+    width: 100%;
+    padding-top: 0;
+  }
+
+  .runtime-release-actions,
+  .runtime-release-actions :deep(.ant-space-item) {
+    width: 100%;
+  }
+
+  .runtime-release-actions :deep(.ant-btn) {
+    width: 100%;
+  }
+
+  .runtime-snapshot-card {
+    height: auto;
+  }
+
+  .runtime-code {
+    min-height: 260px;
+    max-height: 520px;
   }
 }
 </style>

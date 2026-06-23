@@ -63,6 +63,11 @@ export namespace AdminMessageApi {
     allRead?: boolean; // 是否删除全部已读
   }
 
+  // AffectedResp 表示批量消息操作影响行数。
+  export interface AffectedResp {
+    affected: number; // 影响行数
+  }
+
   // SendReq 表示发送消息请求参数。
   export interface SendReq {
     type: string; // 消息类型
@@ -72,6 +77,11 @@ export namespace AdminMessageApi {
     data?: string; // 扩展数据JSON
     link?: string; // 跳转链接
     receiverIDs?: number[]; // 收件人管理员ID列表；为空表示广播
+  }
+
+  // SendResp 表示发送消息结果。
+  export interface SendResp {
+    id: number; // 消息ID
   }
 
   // SentListParams 表示已发送列表查询参数。
@@ -119,6 +129,15 @@ export namespace AdminMessageApi {
   // HandleReq 表示标记消息已处理请求参数。
   export interface HandleReq {
     id: number; // 消息ID
+  }
+
+  // HandleResp 表示消息处理状态更新结果。
+  export interface HandleResp {
+    id: number; // 消息ID
+    handledStatus: number; // 处理状态：0未处理 1已处理
+    handledByAdminName: string; // 处理人账号
+    handledAt: string; // 处理时间
+    alreadyHandled: boolean; // 是否在本次请求前已处理
   }
 }
 
@@ -174,20 +193,32 @@ export async function fetchAdminMessageNotifications(
 
 // markAdminMessageRead 标记消息已读（支持批量与全部）。
 export async function markAdminMessageRead(data: AdminMessageApi.MarkReadReq) {
-  return requestClient.patch('/admin-messages/read', data);
+  return requestClient.patch<AdminMessageApi.AffectedResp>(
+    '/admin-messages/read',
+    data,
+  );
 }
 
 // deleteAdminMessage 删除消息（软删除，支持批量与清空全部已读）。
 export async function deleteAdminMessage(data: AdminMessageApi.DeleteReq) {
-  return requestClient.post('/admin-messages/delete', data);
+  return requestClient.post<AdminMessageApi.AffectedResp>(
+    '/admin-messages/delete',
+    data,
+  );
 }
 
 // sendAdminMessage 发送管理员消息到收件箱。
 export async function sendAdminMessage(data: AdminMessageApi.SendReq) {
-  return requestClient.post('/admin-messages/send', data);
+  return requestClient.post<AdminMessageApi.SendResp>(
+    '/admin-messages/send',
+    data,
+  );
 }
 
 // handleAdminMessage 标记消息为已处理（仅支持部分业务类型）。
 export async function handleAdminMessage(data: AdminMessageApi.HandleReq) {
-  return requestClient.post('/admin-messages/handle', data);
+  return requestClient.post<AdminMessageApi.HandleResp>(
+    '/admin-messages/handle',
+    data,
+  );
 }

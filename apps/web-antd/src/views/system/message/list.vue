@@ -417,7 +417,7 @@ function onViewDetail(row: AdminMessageApi.Item) {
       if (!processable || handled) {
         return;
       }
-      const resp: any = await handleAdminMessage({ id: row.id });
+      const resp = await handleAdminMessage({ id: row.id });
       if (resp?.alreadyHandled) {
         message.info(
           resp?.handledByAdminName

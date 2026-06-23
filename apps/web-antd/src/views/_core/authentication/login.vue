@@ -46,7 +46,7 @@ async function loadLoginCaptcha(resetField = false) {
   }
 }
 
-// handleLoginSubmit 在提交时把验证码 key 一并带给后端；登录失败后自动刷新验证码，避免复用已消费的旧值。
+// handleLoginSubmit 在提交时把验证码 key 一并带给后端；登录失败后自动刷新验证码，避免复用已消费值。
 async function handleLoginSubmit(values: Record<string, any>) {
   try {
     await authStore.authLogin({

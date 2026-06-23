@@ -31,7 +31,7 @@ function safeDecodeRedirectPath(
 }
 
 // resolveAccessibleRedirectPath 校验登录后的目标路由是否已注册且不是 404 兜底页。
-// 旧版本缓存或登录前访问无权限页面时，redirect 可能仍指向任务中心等不可访问路径；
+// 登录前访问无权限页面时，redirect 可能指向当前账号不可访问的路径；
 // 此时统一降级到个人信息页，避免用户登录后被带入空白 404。
 function resolveAccessibleRedirectPath(
   router: Router,
@@ -149,12 +149,12 @@ function setupAccessGuard(router: Router) {
       }
       throw error;
     }
-    // 获取当前登录账号的角色名称、角色ID与权限码。
+    // 获取当前登录账号的角色名称、角色 ID与权限码。
     // `roles` 主要用于 Vben 的路由过滤入参与布局展示，不直接承担按钮/API 鉴权职责。
-    // `roleIds` 主要用于识别超级管理员角色；当前约定角色ID 1 为超级管理员。
+    // `roleIds` 主要用于识别超级管理员角色；当前约定角色 ID 1 为超级管理员。
     // `accessCodes` 来自后端 `/auth/codes`，实际内容是 admin_permission.uuid 列表，
     // 会与路由 meta.authority、按钮 v-access、表格 action.auth 做字符串匹配。
-    // 超级管理员兜底只认后端显式返回的 isSuperAdmin 或 roleIds 是否包含角色ID 1，不再按角色名推断权限。
+    // 超级管理员兜底只认后端显式返回的 isSuperAdmin 或 roleIds 是否包含角色 ID 1，不再按角色名推断权限。
     const userRoles = userInfo.roles ?? [];
     const accessCodes = buildEffectiveAccessCodes(
       userInfo,

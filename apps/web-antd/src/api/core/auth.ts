@@ -24,7 +24,7 @@ export namespace AuthApi {
 
   /** LoginUserInfo 表示登录接口返回的MFA相关用户资料 */
   export interface LoginUserInfo {
-    id?: number | string; // 用户ID
+    id?: number | string; // 用户 ID
     buildMFAURL?: string; // MFA绑定二维码地址
     existMFA?: boolean; // 是否已存在MFA秘钥
     forceMFAEnabled?: boolean; // 系统是否开启强制启用MFA

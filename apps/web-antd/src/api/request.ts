@@ -1,7 +1,10 @@
 /**
  * 该文件可自行根据业务逻辑进行调整
  */
-import type { RequestClientOptions } from '@vben/request';
+import type { RequestClientConfig, RequestClientOptions } from '@vben/request';
+
+import type { AuthApi } from './core';
+import type { SystemProfileApi } from './system';
 
 import { LOGIN_PATH } from '@vben/constants';
 import { useAppConfig } from '@vben/hooks';
@@ -27,11 +30,9 @@ import {
   TRACE_ID_HEADER,
   TRACEPARENT_HEADER,
 } from '#/utils/request/trace';
-import {
-  createMfaOverlayDialog,
-  extractMfaSecret,
-  getMfaMicrosoftScanTip,
-} from '#/utils/security/mfa-overlay';
+import { extractMfaSecret } from '#/utils/security/mfa-core';
+import { getMfaMicrosoftScanTip } from '#/utils/security/mfa-guide';
+import { createMfaOverlayDialog } from '#/utils/security/mfa-overlay';
 import {
   attachAdminSecurityHeaders,
   handleAdminSecurityResponse,
@@ -84,6 +85,16 @@ type LoginMfaUserContext = {
   mfaStatus?: number;
   username?: string;
 };
+
+// UserStoreInfo 表示当前 vben 用户仓库接受的用户资料结构。
+type UserStoreInfo = NonNullable<ReturnType<typeof useUserStore>['userInfo']>;
+
+// UserInfoPatch 表示后端用户资料增量字段。
+type UserInfoPatch = Partial<UserStoreInfo> &
+  Record<string, unknown> & {
+    id?: number | string;
+    needResetPassword?: number;
+  };
 
 // createRequestClient 创建后台请求客户端，并统一挂载登录态、安全头、刷新令牌与登录 MFA 处理逻辑。
 function createRequestClient(baseURL: string, options?: RequestClientOptions) {
@@ -190,18 +201,43 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
   }
 
   // syncPasswordResetFlag 把必须改密状态同步回 userStore，便于路由守卫和个人中心页面复用同一份状态。
-  function syncPasswordResetFlag(user?: Record<string, any>) {
+  function syncPasswordResetFlag(user?: UserInfoPatch) {
     const userStore = useUserStore();
-    const currentUserInfo = userStore.userInfo || {};
-    userStore.setUserInfo({
+    if (!userStore.userInfo && !user) {
+      return;
+    }
+    userStore.setUserInfo(
+      toUserStoreInfo(
+        {
+          ...user,
+          needResetPassword: 1,
+        },
+        userStore.userInfo,
+      ),
+    );
+  }
+
+  // toUserStoreInfo 合并后端用户资料并补齐 vben 用户仓库需要的基础字段。
+  function toUserStoreInfo(
+    user: UserInfoPatch,
+    currentUserInfo: null | UserStoreInfo,
+  ): UserStoreInfo {
+    const merged = {
       ...currentUserInfo,
       ...user,
-      needResetPassword: 1,
-    } as any);
+    };
+    return {
+      ...merged,
+      avatar: String(merged.avatar || preferences.app.defaultAvatar || ''),
+      realName: String(merged.realName || ''),
+      roles: Array.isArray(merged.roles) ? merged.roles.map(String) : [],
+      userId: String(merged.userId || merged.id || ''),
+      username: String(merged.username || ''),
+    };
   }
 
   // redirectToPasswordResetPage 统一处理“必须先修改登录密码”的前端提示与跳转。
-  async function redirectToPasswordResetPage(user?: Record<string, any>) {
+  async function redirectToPasswordResetPage(user?: UserInfoPatch) {
     syncPasswordResetFlag(user);
     promptPasswordResetRequired();
     if (passwordResetRedirecting) {
@@ -231,7 +267,7 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
   }
 
   // shouldSkipLoginMfaHandler 判断当前请求是否应跳过登录 MFA 全局拦截。
-  function shouldSkipLoginMfaHandler(config?: Record<string, any>) {
+  function shouldSkipLoginMfaHandler(config?: RequestClientConfig) {
     if (!config) {
       return true;
     }
@@ -259,7 +295,7 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
   }
 
   // setLoginMfaUser 合并并回写登录 MFA 过程中拿到的最新用户资料。
-  function setLoginMfaUser(user: Record<string, any>) {
+  function setLoginMfaUser(user: UserInfoPatch) {
     const userStore = useUserStore();
     const currentUserInfo = userStore.userInfo;
     let nextRoles: string[] = [];
@@ -268,20 +304,14 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
     } else if (Array.isArray(currentUserInfo?.roles)) {
       nextRoles = currentUserInfo.roles;
     }
-    const nextUserInfo = {
-      ...currentUserInfo,
-      ...user,
-      avatar: String(
-        user.avatar ||
-          currentUserInfo?.avatar ||
-          preferences.app.defaultAvatar ||
-          '',
-      ),
-      id: Number(user.id || currentUserInfo?.id || 0) || undefined,
-      realName: String(user.realName || currentUserInfo?.realName || ''),
-      username: String(user.username || currentUserInfo?.username || ''),
-      roles: nextRoles,
-    } as any;
+    const nextUserInfo = toUserStoreInfo(
+      {
+        ...user,
+        id: Number(user.id || currentUserInfo?.id || 0) || undefined,
+        roles: nextRoles,
+      },
+      currentUserInfo,
+    );
     userStore.setUserInfo(nextUserInfo);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
@@ -297,9 +327,9 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
     try {
       const userInfo = await client.get('/auth/profile', {
         skipLoginMfaHandler: true,
-      } as any);
+      });
       if (userInfo && typeof userInfo === 'object') {
-        setLoginMfaUser(userInfo as Record<string, any>);
+        setLoginMfaUser(userInfo as UserInfoPatch);
       }
     } catch {
       // 登录 MFA 完成后刷新资料失败时，不阻断原请求重试。
@@ -335,10 +365,14 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
     }
     if (needBind && !buildMfaUrl) {
       try {
-        const resp: any = await client.post('/profile/mfa-secret/refresh', {}, {
-          skipGlobalErrorMessage: true,
-          skipLoginMfaHandler: true,
-        } as any);
+        const resp = await client.post<SystemProfileApi.RefreshMfaSecretResp>(
+          '/profile/mfa-secret/refresh',
+          {},
+          {
+            skipGlobalErrorMessage: true,
+            skipLoginMfaHandler: true,
+          },
+        );
         const refreshed = String(resp?.buildMFAURL || '').trim();
         if (refreshed) {
           buildMfaUrl = refreshed;
@@ -379,7 +413,7 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
       headerMessage,
       okText: $t('business.message.mfaVerifyButton'),
       onSubmit: async ({ buildMfaUrl: currentBuildMfaUrl, secure }) => {
-        const loginCheckResp: any = await client.post(
+        const loginCheckResp = await client.post<AuthApi.CheckMfaResult>(
           '/profile/check-mfa',
           {
             mfaSecureKey: needBind
@@ -391,7 +425,7 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
           {
             skipGlobalErrorMessage: true,
             skipLoginMfaHandler: true,
-          } as any,
+          },
         );
 
         if (!loginCheckResp?.isOk) {
@@ -401,7 +435,7 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
         if (needBind) {
           const mfaSecureKey =
             extractMfaSecret(currentBuildMfaUrl) || undefined;
-          const enableCheckResp: any = await client.post(
+          const enableCheckResp = await client.post<AuthApi.CheckMfaResult>(
             '/profile/check-mfa',
             {
               mfaSecureKey,
@@ -411,7 +445,7 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
             {
               skipGlobalErrorMessage: true,
               skipLoginMfaHandler: true,
-            } as any,
+            },
           );
 
           if (!enableCheckResp?.isOk || !enableCheckResp?.twoStep) {
@@ -429,7 +463,7 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
             {
               skipGlobalErrorMessage: true,
               skipLoginMfaHandler: true,
-            } as any,
+            },
           );
 
           setLoginMfaUser({
@@ -559,7 +593,9 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
     rejected: async (error) => {
       const response = error?.response;
       const businessCode = Number(response?.data?.code ?? 0);
-      const requestConfig = (error?.config || response?.config || {}) as any;
+      const requestConfig = (error?.config ||
+        response?.config ||
+        {}) as RequestClientConfig;
 
       if (
         businessCode !== LOGIN_MFA_REQUIRED_CODE &&
@@ -582,7 +618,11 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
         throw markSkipGlobalMessage(mfaError);
       }
 
-      return client.request(requestConfig.url, {
+      const retryUrl = requestConfig.url;
+      if (!retryUrl) {
+        throw error;
+      }
+      return client.request(retryUrl, {
         ...requestConfig,
         __loginMfaRetried: true,
       });

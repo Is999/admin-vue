@@ -109,13 +109,6 @@ export function useUserTagWorkflowSchema(
       componentProps: { checkedValue: true, unCheckedValue: false },
     },
     {
-      component: 'Switch',
-      fieldName: 'syncSnapshotOnly',
-      label: $t('business.message.syncSnapshotOnly'),
-      defaultValue: false,
-      componentProps: { checkedValue: true, unCheckedValue: false },
-    },
-    {
       component: 'Input',
       fieldName: 'uniqueKey',
       label: $t('business.message.uniqueKey'),

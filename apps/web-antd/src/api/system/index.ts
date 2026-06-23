@@ -20,9 +20,9 @@ export namespace SystemAdminApi {
     avatar: string; // 头像地址
     description: string; // 备注说明
     lastLoginTime: string; // 最近登录时间
-    lastLoginIP: string; // 最近登录IP
-    lastLoginIpaddr: string; // 最近登录IP归属地
-    roleIDs: number[]; // 已绑定角色ID
+    lastLoginIP: string; // 最近登录 IP
+    lastLoginIpaddr: string; // 最近登录 IP 归属地
+    roleIDs: number[]; // 已绑定角色 ID
     roles: Array<{ id: number; title: string }>; // 已绑定角色列表
     createdAt: string; // 创建时间
     updatedAt: string; // 更新时间
@@ -34,7 +34,7 @@ export namespace SystemAdminApi {
     pageSize?: number; // 每页条数
     username?: string; // 用户名筛选
     realName?: string; // 真实姓名筛选
-    roleID?: number; // 角色ID筛选
+    roleID?: number; // 角色 ID筛选
     status?: Status; // 状态筛选
   }
 
@@ -42,7 +42,7 @@ export namespace SystemAdminApi {
   export interface ExportParams {
     username?: string; // 用户名筛选
     realName?: string; // 真实姓名筛选
-    roleID?: number; // 角色ID筛选
+    roleID?: number; // 角色 ID筛选
     status?: Status; // 状态筛选
   }
 
@@ -78,7 +78,7 @@ export namespace SystemAdminApi {
   }
 
   // SaveParams 表示新增或编辑管理员参数。
-  export interface SaveParams {
+  export interface SaveParams extends CommonApi.TwoStepReq {
     username?: string; // 登录用户名
     realName?: string; // 真实姓名
     email?: string; // 邮箱
@@ -89,15 +89,13 @@ export namespace SystemAdminApi {
     mfaSecureKey?: string; // MFA密钥
     mfaStatus?: Status; // MFA状态
     status?: Status; // 账号状态
-    roleIDs?: number[]; // 角色ID列表
+    roleIDs?: number[]; // 角色 ID列表
     isUpdateRoles?: boolean; // 是否同步角色
-    twoStepKey?: string; // MFA二次校验票据key
-    twoStepValue?: string; // MFA二次校验票据value
   }
 
   // RoleItem 表示管理员已绑定角色列表项。
   export interface RoleItem {
-    id: number; // 角色ID
+    id: number; // 角色 ID
     title: string; // 角色名称
     status: Status; // 角色状态
     description: string; // 角色说明
@@ -112,9 +110,9 @@ export namespace SystemRoleApi {
 
   // Item 表示角色列表、树与详情数据。
   export interface Item {
-    id: number; // 角色ID
+    id: number; // 角色 ID
     title: string; // 角色名称
-    pid: number; // 上级角色ID
+    pid: number; // 上级角色 ID
     pids: string; // 上级角色族谱
     status: Status; // 角色状态
     description: string; // 角色描述
@@ -138,9 +136,9 @@ export namespace SystemRoleApi {
   }
 
   // SaveParams 表示新增或编辑角色参数。
-  export interface SaveParams {
+  export interface SaveParams extends CommonApi.TwoStepReq {
     title?: string; // 角色名称
-    pid?: number; // 上级角色ID
+    pid?: number; // 上级角色 ID
     status?: Status; // 角色状态
     description?: string; // 角色描述
     permissions?: number[]; // 权限ID列表
@@ -351,7 +349,7 @@ export namespace SystemAdminLogApi {
     page?: number; // 当前页码
     pageSize?: number; // 每页条数
     traceID?: string; // Trace ID筛选
-    userID?: number; // 用户ID筛选
+    userID?: number; // 用户 ID筛选
     username?: string; // 用户名筛选
     action?: string; // 操作动作筛选
   }
@@ -364,13 +362,13 @@ export namespace SystemSecretKeyApi {
 
   // VersionItem 表示单个秘钥版本配置。
   export interface VersionItem {
-    id: number; // 版本ID
+    id: number; // 版本 ID
     keyVersion: string; // 版本号
     aesKeyRef: string; // AES KEY 文件绝对路径
     aesIvRef: string; // AES IV 文件绝对路径
-    rsaPublicKeyUserRef: string; // 用户RSA公钥文件绝对路径
-    rsaPublicKeyServerRef: string; // 服务端RSA公钥路径，可为空并由私钥派生
-    rsaPrivateKeyServerRef: string; // 服务端RSA私钥文件绝对路径
+    rsaPublicKeyUserRef: string; // 用户 RSA 公钥文件绝对路径
+    rsaPublicKeyServerRef: string; // 服务端 RSA 公钥路径，可为空并由私钥派生
+    rsaPrivateKeyServerRef: string; // 服务端 RSA 私钥文件绝对路径
     secretMasked: boolean; // 当前敏感字段是否已脱敏
     status: Status; // 版本状态
     isStable: boolean; // 是否稳定版本
@@ -391,9 +389,9 @@ export namespace SystemSecretKeyApi {
     grayPercent: number; // 灰度流量百分比
     aesKeyRef: string; // AES KEY 文件绝对路径
     aesIvRef: string; // AES IV 文件绝对路径
-    rsaPublicKeyUserRef: string; // 用户RSA公钥文件绝对路径
-    rsaPublicKeyServerRef: string; // 服务端RSA公钥路径，可为空并由私钥派生
-    rsaPrivateKeyServerRef: string; // 服务端RSA私钥文件绝对路径
+    rsaPublicKeyUserRef: string; // 用户 RSA 公钥文件绝对路径
+    rsaPublicKeyServerRef: string; // 服务端 RSA 公钥路径，可为空并由私钥派生
+    rsaPrivateKeyServerRef: string; // 服务端 RSA 私钥文件绝对路径
     secretMasked: boolean; // 当前敏感字段是否已脱敏
     status: Status; // 状态
     signStatus: Status; // 签名验签状态
@@ -425,9 +423,9 @@ export namespace SystemSecretKeyApi {
     keyVersion?: string; // 当前编辑的版本号
     aesKeyRef?: string; // AES KEY 文件绝对路径
     aesIvRef?: string; // AES IV 文件绝对路径
-    rsaPublicKeyUserRef?: string; // 用户RSA公钥文件绝对路径
-    rsaPublicKeyServerRef?: string; // 服务端RSA公钥路径，可为空并由私钥派生
-    rsaPrivateKeyServerRef?: string; // 服务端RSA私钥文件绝对路径
+    rsaPublicKeyUserRef?: string; // 用户 RSA 公钥文件绝对路径
+    rsaPublicKeyServerRef?: string; // 服务端 RSA 公钥路径，可为空并由私钥派生
+    rsaPrivateKeyServerRef?: string; // 服务端 RSA 私钥文件绝对路径
     status?: Status; // 状态
     signStatus?: Status; // 签名验签状态
     cryptoStatus?: Status; // 加密解密状态
@@ -436,8 +434,6 @@ export namespace SystemSecretKeyApi {
     grayVersion?: string; // 灰度版本
     grayPercent?: number; // 灰度流量百分比
     remark?: string; // 备注
-    twoStepKey?: string; // MFA二次校验票据key
-    twoStepValue?: string; // MFA二次校验票据value
   }
 
   // CheckItem 表示单个秘钥校验项结果。
@@ -467,15 +463,15 @@ export namespace SystemSecretKeyApi {
   }
 
   // ValidateParams 表示秘钥路径预检参数。
-  export interface ValidateParams {
+  export interface ValidateParams extends CommonApi.TwoStepReq {
     uuid?: string; // AppID/API KEY唯一标识
     title?: string; // 秘钥标题
     keyVersion?: string; // 当前校验版本号
     aesKeyRef?: string; // AES KEY 文件绝对路径
     aesIvRef?: string; // AES IV 文件绝对路径
-    rsaPublicKeyUserRef?: string; // 用户RSA公钥文件绝对路径
-    rsaPublicKeyServerRef?: string; // 服务端RSA公钥路径，可为空并由私钥派生
-    rsaPrivateKeyServerRef?: string; // 服务端RSA私钥文件绝对路径
+    rsaPublicKeyUserRef?: string; // 用户 RSA 公钥文件绝对路径
+    rsaPublicKeyServerRef?: string; // 服务端 RSA 公钥路径，可为空并由私钥派生
+    rsaPrivateKeyServerRef?: string; // 服务端 RSA 私钥文件绝对路径
     status?: Status; // 当前状态
     signStatus?: Status; // 签名验签状态
     cryptoStatus?: Status; // 加密解密状态
@@ -483,8 +479,6 @@ export namespace SystemSecretKeyApi {
     stableVersion?: string; // 稳定版本
     grayVersion?: string; // 灰度版本
     grayPercent?: number; // 灰度流量百分比
-    twoStepKey?: string; // MFA二次校验票据key
-    twoStepValue?: string; // MFA二次校验票据value
   }
 }
 
@@ -548,7 +542,7 @@ export namespace SystemProfileApi {
     forceMFAEnabled?: boolean; // 系统是否开启强制启用MFA
     frequency?: number; // MFA校验频率，单位秒
     groupID?: number; // 当前账号分组ID
-    id?: number; // 当前用户ID
+    id?: number; // 当前用户 ID
     mfaBindRequired?: boolean; // 当前登录是否必须先绑定并启用MFA
     needResetPassword?: number; // 是否必须先修改登录密码
     mfaCheck?: number; // 当前登录是否需要先完成MFA校验
@@ -561,31 +555,25 @@ export namespace SystemProfileApi {
   }
 
   // UpdateMineParams 表示个人中心基础资料更新参数。
-  export interface UpdateMineParams {
+  export interface UpdateMineParams extends CommonApi.TwoStepReq {
     avatar?: string; // 头像地址
     description?: string; // 个人说明
     email?: string; // 邮箱
     phone?: string; // 手机号
     realName?: string; // 真实姓名
-    twoStepKey?: string; // MFA二次校验票据key
-    twoStepValue?: string; // MFA二次校验票据value
   }
 
   // UpdatePasswordParams 表示个人中心修改密码参数。
-  export interface UpdatePasswordParams {
+  export interface UpdatePasswordParams extends CommonApi.TwoStepReq {
     confirmPassword: string; // 确认新密码
     passwordNew: string; // 新密码
     passwordOld: string; // 旧密码
-    twoStepKey?: string; // MFA二次校验票据key
-    twoStepValue?: string; // MFA二次校验票据value
   }
 
   // UpdateMfaStatusParams 表示个人中心修改MFA状态参数。
-  export interface UpdateMfaStatusParams {
+  export interface UpdateMfaStatusParams extends CommonApi.TwoStepReq {
     mfaStatus: number; // MFA状态：0关闭，1开启
     mfaSecureKey?: string; // 当前绑定流程使用的TOTP MFA秘钥
-    twoStepKey?: string; // MFA二次校验票据key
-    twoStepValue?: string; // MFA二次校验票据value
   }
 }
 
@@ -637,10 +625,7 @@ export async function updateAdmin(id: number, data: SystemAdminApi.SaveParams) {
 }
 
 // deleteAdmin 删除管理员。
-export async function deleteAdmin(
-  id: number,
-  twoStep?: { twoStepKey?: string; twoStepValue?: string },
-) {
+export async function deleteAdmin(id: number, twoStep?: CommonApi.TwoStepReq) {
   return requestClient.delete(`/admins/${id}`, {
     data: { ...twoStep },
   });
@@ -650,7 +635,7 @@ export async function deleteAdmin(
 export async function updateAdminStatus(
   id: number,
   status: SystemAdminApi.Status,
-  twoStep?: { twoStepKey?: string; twoStepValue?: string },
+  twoStep?: CommonApi.TwoStepReq,
 ) {
   return requestClient.patch(`/admins/status/${id}`, { status, ...twoStep });
 }
@@ -659,7 +644,7 @@ export async function updateAdminStatus(
 export async function resetAdminPassword(
   id: number,
   password: string,
-  twoStep?: { twoStepKey?: string; twoStepValue?: string },
+  twoStep?: CommonApi.TwoStepReq,
 ) {
   return requestClient.post(`/admins/password/reset/${id}`, {
     password,
@@ -671,7 +656,7 @@ export async function resetAdminPassword(
 export async function resetAdminInitialState(
   id: number,
   password: string,
-  twoStep?: { twoStepKey?: string; twoStepValue?: string },
+  twoStep?: CommonApi.TwoStepReq,
 ) {
   return requestClient.post(`/admins/initial-state/reset/${id}`, {
     password,
@@ -688,7 +673,7 @@ export async function fetchAdminRoles(id: number) {
 export async function updateAdminRoles(
   id: number,
   roleIDs: number[],
-  payload?: Pick<SystemAdminApi.SaveParams, 'twoStepKey' | 'twoStepValue'>,
+  payload?: CommonApi.TwoStepReq,
 ) {
   return requestClient.patch(`/admins/roles/${id}`, { roleIDs, ...payload });
 }
@@ -956,7 +941,7 @@ export async function fetchSecretKeyList(
 // fetchSecretKeyDetail 查询单个秘钥详情。
 export async function fetchSecretKeyDetail(
   id: number,
-  params?: { keyVersion?: string; twoStepKey?: string; twoStepValue?: string },
+  params?: CommonApi.TwoStepWithKeyVersionReq,
 ) {
   return requestClient.get<SystemSecretKeyApi.Item>(`/secret-keys/${id}`, {
     params,
@@ -980,7 +965,7 @@ export async function updateSecretKey(
 export async function updateSecretKeyStatus(
   id: number,
   status: SystemSecretKeyApi.Status,
-  twoStep?: { twoStepKey?: string; twoStepValue?: string },
+  twoStep?: CommonApi.TwoStepReq,
 ) {
   return requestClient.patch(`/secret-keys/status/${id}`, {
     status,
@@ -991,7 +976,7 @@ export async function updateSecretKeyStatus(
 // renewSecretKeyCache 刷新指定 AppID 的秘钥缓存。
 export async function renewSecretKeyCache(
   uuid: string,
-  twoStep?: { twoStepKey?: string; twoStepValue?: string },
+  twoStep?: CommonApi.TwoStepReq,
 ) {
   return requestClient.post(`/secret-keys/cache/refresh/${uuid}`, {
     ...twoStep,
@@ -1011,7 +996,7 @@ export async function validateSecretKeyPaths(
 // selfCheckSecretKey 执行已落库秘钥的运行态自检。
 export async function selfCheckSecretKey(
   uuid: string,
-  payload?: { keyVersion?: string; twoStepKey?: string; twoStepValue?: string },
+  payload?: CommonApi.TwoStepWithKeyVersionReq,
 ) {
   return requestClient.post<SystemSecretKeyApi.CheckResult>(
     `/secret-keys/self-check/${uuid}`,
@@ -1088,10 +1073,7 @@ export async function updateProfileMfaStatus(
 }
 
 // refreshProfileMfaSecretKey 重新生成当前登录管理员 MFA 秘钥。
-export async function refreshProfileMfaSecretKey(data?: {
-  twoStepKey?: string;
-  twoStepValue?: string;
-}) {
+export async function refreshProfileMfaSecretKey(data?: CommonApi.TwoStepReq) {
   return requestClient.post<SystemProfileApi.RefreshMfaSecretResp>(
     '/profile/mfa-secret/refresh',
     data || {},

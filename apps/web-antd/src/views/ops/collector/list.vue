@@ -64,7 +64,7 @@ const runLimit = ref(200);
 const retryDelaySeconds = ref(60);
 // retryLimit 控制一次批量重试的最大条数，避免一键放大事故。
 const retryLimit = ref(200);
-// resetAttempt 用于控制是否重置尝试次数，具体语义以服务端实现为准。
+// resetAttempt 控制人工重试时是否清零失败次数。
 const resetAttempt = ref(true);
 
 // canRunCollector 控制“执行一轮”按钮展示。
@@ -265,15 +265,19 @@ const [Grid, gridApi] = useVbenVxeGrid({
     proxyConfig: {
       autoLoad: false,
       ajax: {
-        query: async ({ page }: { page: any }) => {
+        query: async ({
+          page,
+        }: {
+          page: { currentPage: number; pageSize: number };
+        }) => {
+          const transport =
+            searchTransport.value === '' ? undefined : searchTransport.value;
+          const state =
+            searchState.value === '' ? undefined : searchState.value;
           const responseData = await fetchCollectorTasks({
             bizType: searchBizType.value.trim() || undefined,
-            transport: (searchTransport.value === ''
-              ? undefined
-              : searchTransport.value) as any,
-            state: (searchState.value === ''
-              ? undefined
-              : searchState.value) as any,
+            transport,
+            state,
             page: page.currentPage,
             pageSize: page.pageSize,
           });

@@ -32,7 +32,7 @@ const emit = defineEmits<{ toLogin: [] }>();
 
 // MFA_SCENARIO_UNLOCK 表示锁屏 MFA 解锁沿用登录 MFA 场景。
 const MFA_SCENARIO_UNLOCK = 0;
-// UNLOCK_VERIFY_AUTH_FAILED_CODE 表示旧版后端使用的通用验证失败业务码。
+// UNLOCK_VERIFY_AUTH_FAILED_CODE 表示后端通用验证失败业务码。
 const UNLOCK_VERIFY_AUTH_FAILED_CODE = 1002;
 // UNLOCK_VERIFY_INVALID_PASSWORD_CODE 表示登录密码验证失败业务码。
 const UNLOCK_VERIFY_INVALID_PASSWORD_CODE = 100_001;

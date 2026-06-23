@@ -2,6 +2,17 @@ import type { Recordable } from '@vben/types';
 
 // CommonApi 收口后台通用接口类型，避免 Admin/System 模块依赖已删除的业务目录。
 export namespace CommonApi {
+  // TwoStepReq 表示敏感操作通用 MFA 二次确认票据。
+  export interface TwoStepReq {
+    twoStepKey?: string; // MFA二次校验票据key
+    twoStepValue?: string; // MFA二次校验票据value
+  }
+
+  // TwoStepWithKeyVersionReq 表示秘钥版本操作的二次确认参数。
+  export interface TwoStepWithKeyVersionReq extends TwoStepReq {
+    keyVersion?: string; // 当前秘钥版本号
+  }
+
   // DropdownItem 表示通用下拉选项。
   export interface DropdownItem {
     id: number | string; // 选项ID

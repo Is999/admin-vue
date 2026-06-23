@@ -287,7 +287,7 @@ async function onSaveProfile() {
 }
 
 // onLoginMfaUserUpdated 把全局登录态里最新的 MFA 结果同步到当前个人信息页。
-// 强制绑定场景会先完成登录态校验再重放原请求；这里补一次页面内状态合并，避免界面仍显示旧的“未启用”状态。
+// 强制绑定场景会先完成登录态校验再重放原请求；这里补一次页面内状态合并，避免界面仍显示未启用状态。
 function onLoginMfaUserUpdated(event: Event) {
   const detail = (event as CustomEvent<Record<string, any> | undefined>).detail;
   if (!detail || typeof detail !== 'object') {
@@ -416,10 +416,12 @@ async function onUpdatePassword() {
     ...profile.value,
     needResetPassword: 0,
   };
-  userStore.setUserInfo({
-    ...userStore.userInfo,
-    needResetPassword: 0,
-  } as any);
+  if (userStore.userInfo) {
+    userStore.setUserInfo({
+      ...userStore.userInfo,
+      needResetPassword: 0,
+    });
+  }
   passwordFormApi.resetForm();
   message.success($t('business.message.passwordChanged'));
   if (route.query.forceChangePassword) {
