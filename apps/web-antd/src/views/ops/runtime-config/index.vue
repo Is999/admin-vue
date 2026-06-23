@@ -130,10 +130,10 @@ const actionRemark = ref('');
 const rollbackRelease = ref<null | RuntimeConfigApi.ReleaseItem>(null);
 
 const canList = computed(() =>
-  hasAnyPermission(
-    accessStore.accessCodes,
+  hasAnyPermission(accessStore.accessCodes, [
+    OPS_ACTION_PERMISSION_CODES.RUNTIME_CONFIG_OVERVIEW,
     OPS_ACTION_PERMISSION_CODES.RUNTIME_CONFIG_LIST,
-  ),
+  ]),
 );
 
 const sourceTone = computed(() =>

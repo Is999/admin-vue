@@ -1433,7 +1433,7 @@
       "responseCipher": []
     },
     {
-      "alias": "runtime.config.list",
+      "alias": "runtime.config.overview",
       "method": "GET",
       "path": "/api/runtime-config/overview",
       "access": "auth",

@@ -46,10 +46,16 @@ import {
   TASK_QUEUE_OPTIONS,
 } from '../shared';
 import {
+  buildTaskTraceDetailRows,
+  buildTaskTraceSummaryRows,
+  formatTaskTraceAction,
+  hasTaskExecutionTrace,
+  taskTraceActionColor,
+} from '../task-trace';
+import {
   formatTraceCount,
   getTaskExecutionTrace,
   getTaskWorkflowId,
-  hasTaskExecutionTrace,
   TASK_STATE_OPTIONS,
   useColumns,
 } from './data';
@@ -673,53 +679,6 @@ function sumTaskTraceTotalCount(tasks: TaskApi.TaskItem[]) {
   return total;
 }
 
-// formatTaskTraceAction 把后端稳定动作枚举转换为当前语言文案。
-function formatTaskTraceAction(action?: string) {
-  const normalized = String(action || '')
-    .trim()
-    .toLowerCase();
-  const actionLabels: Record<string, string> = {
-    custom: $t('business.message.taskTraceActionCustom'),
-    delete: $t('business.message.taskTraceActionDelete'),
-    error: $t('business.message.taskTraceActionError'),
-    insert: $t('business.message.taskTraceActionInsert'),
-    read: $t('business.message.taskTraceActionRead'),
-    skip: $t('business.message.taskTraceActionSkip'),
-    update: $t('business.message.taskTraceActionUpdate'),
-    upsert: $t('business.message.taskTraceActionUpsert'),
-  };
-  return actionLabels[normalized] || normalized || '-';
-}
-
-// buildTaskTraceSummaryRows 生成任务追踪摘要指标行。
-function buildTaskTraceSummaryRows(trace: TaskApi.TaskExecutionTrace) {
-  return [
-    [$t('business.message.taskTraceTotalCount'), trace.totalCount, 'primary'],
-    [$t('business.message.taskTraceReadCount'), trace.readCount, 'info'],
-    [$t('business.message.taskTraceInsertCount'), trace.insertCount, 'success'],
-    [$t('business.message.taskTraceUpdateCount'), trace.updateCount, 'success'],
-    [$t('business.message.taskTraceDeleteCount'), trace.deleteCount, 'warning'],
-    [$t('business.message.taskTraceUpsertCount'), trace.upsertCount, 'success'],
-    [$t('business.message.taskTraceSkipCount'), trace.skipCount, 'warning'],
-    [$t('business.message.taskTraceErrorCount'), trace.errorCount, 'danger'],
-    [
-      $t('business.message.taskTraceDuration'),
-      formatTaskDurationMs(trace.durationMs),
-      'default',
-    ],
-    [
-      $t('business.message.taskTraceDetailCount'),
-      (trace.details || []).length,
-      'default',
-    ],
-  ];
-}
-
-// buildTaskTraceDetailRows 返回完整处理量明细，便于非工作流任务直接查看全部运行指标。
-function buildTaskTraceDetailRows(trace: TaskApi.TaskExecutionTrace) {
-  return trace.details || [];
-}
-
 // taskDetailToneClass 返回任务详情信息块的视觉语义。
 function taskDetailToneClass(tone?: string) {
   const toneMap: Record<string, string> = {
@@ -749,24 +708,6 @@ function taskStateTagColor(state?: string) {
     pending: 'default',
     retry: 'warning',
     scheduled: 'blue',
-  };
-  return colorMap[normalized] || 'default';
-}
-
-// taskTraceActionColor 返回运行指标动作标签颜色。
-function taskTraceActionColor(action?: string) {
-  const normalized = String(action || '')
-    .trim()
-    .toLowerCase();
-  const colorMap: Record<string, string> = {
-    custom: 'default',
-    delete: 'orange',
-    error: 'error',
-    insert: 'green',
-    read: 'blue',
-    skip: 'gold',
-    update: 'cyan',
-    upsert: 'green',
   };
   return colorMap[normalized] || 'default';
 }
