@@ -215,7 +215,7 @@ const [Grid, gridApi] = useVbenVxeGrid({
 
 // normalizeListParams 清洗列表查询参数，避免空字符串落到后端条件中。
 function normalizeListParams(values: Record<string, any> = {}) {
-  const id = Number(values.id || 0);
+  const id = String(values.id || '').trim();
   const shardNo = Number(values.shardNo);
   const status =
     values.status === 0 || values.status === 1
@@ -223,7 +223,7 @@ function normalizeListParams(values: Record<string, any> = {}) {
       : undefined;
   return {
     email: String(values.email || '').trim() || undefined,
-    id: id > 0 ? id : undefined,
+    id: /^[1-9]\d*$/.test(id) ? id : undefined,
     phone: String(values.phone || '').trim() || undefined,
     shardNo: shardNo >= 0 && shardNo < USER_SHARD_NO_MOD ? shardNo : undefined,
     status,

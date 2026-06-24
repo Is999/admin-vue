@@ -9,7 +9,7 @@ export namespace UserApi {
 
   // Item 表示用户列表与详情数据。
   export interface Item {
-    id: number; // 用户 ID
+    id: string; // 用户雪花 ID，后端以字符串返回避免精度丢失
     shardNo: number; // 取模分片
     username: string; // 用户名
     nickname: string; // 昵称
@@ -27,7 +27,7 @@ export namespace UserApi {
   export interface ListParams {
     page?: number; // 当前页码
     pageSize?: number; // 每页条数
-    id?: number; // 用户 ID
+    id?: string; // 用户雪花 ID
     shardNo?: number; // 取模分片
     username?: string; // 用户名前缀
     email?: string; // 邮箱前缀
@@ -56,7 +56,7 @@ export namespace UserApi {
   export interface RuntimeSyncResp {
     enabled: boolean; // 是否配置 API 内网同步
     success: boolean; // 本次同步是否成功
-    userId: number; // 用户 ID
+    userId: string; // 用户雪花 ID
     profileCacheInvalidated: boolean; // 是否处理资料缓存
     sessionsInvalidated: boolean; // 是否处理登录态
     message: string; // 同步说明
@@ -77,7 +77,7 @@ export async function fetchUserList(params: UserApi.ListParams) {
 }
 
 // fetchUserDetail 查询用户详情。
-export async function fetchUserDetail(id: number) {
+export async function fetchUserDetail(id: string) {
   return requestClient.get<UserApi.Item>(`/users/${id}`);
 }
 
@@ -87,13 +87,13 @@ export async function createUser(data: UserApi.SaveParams) {
 }
 
 // updateUser 编辑用户资料。
-export async function updateUser(id: number, data: UserApi.SaveParams) {
+export async function updateUser(id: string, data: UserApi.SaveParams) {
   return requestClient.patch<UserApi.MutationResp>(`/users/${id}`, data);
 }
 
 // updateUserStatus 修改用户状态。
 export async function updateUserStatus(
-  id: number,
+  id: string,
   status: UserApi.Status,
   twoStep?: CommonApi.TwoStepReq,
 ) {
@@ -105,7 +105,7 @@ export async function updateUserStatus(
 
 // resetUserPassword 重置用户密码。
 export async function resetUserPassword(
-  id: number,
+  id: string,
   password: string,
   twoStep?: CommonApi.TwoStepReq,
 ) {
@@ -120,7 +120,7 @@ export async function resetUserPassword(
 
 // syncUserRuntime 手动同步用户 API 运行态。
 export async function syncUserRuntime(
-  id: number,
+  id: string,
   data: UserApi.RuntimeSyncParams,
 ) {
   return requestClient.post<UserApi.RuntimeSyncResp>(

@@ -22,14 +22,12 @@ const USER_SHARD_NO_MAX = 999;
 export function useGridFormSchema(): VbenFormSchema[] {
   return [
     {
-      component: 'InputNumber',
+      component: 'Input',
       fieldName: 'id',
       label: 'ID',
       componentProps: {
-        min: 1,
+        allowClear: true,
         placeholder: $t('business.message.filterByUserId'),
-        precision: 0,
-        style: { width: '100%' },
       },
     },
     {
@@ -90,7 +88,7 @@ export function useColumns<T = UserApi.Item>(
   onStatusChange?: (newStatus: any, row: T) => PromiseLike<boolean | undefined>,
 ): VxeTableGridOptions['columns'] {
   return [
-    { field: 'id', fixed: 'left', title: 'ID', width: 90 },
+    { field: 'id', fixed: 'left', minWidth: 180, title: 'ID' },
     {
       field: 'shardNo',
       title: $t('business.message.shardNo'),
