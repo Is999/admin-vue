@@ -269,7 +269,6 @@ async function onSubmit() {
         v-model="selectedPermissionIds"
         :can-write="canWriteRolePermissions"
         :tree-data="permissionTree"
-        :can-write-description="$t('business.message.roleDrawerCanWriteDesc')"
       />
     </div>
     <FormTips :title="$t('business.message.description')" :tips="formTips" />
