@@ -36,7 +36,7 @@ function getParamsSerializer(
   return paramsSerializer;
 }
 
-// normalizeRequestError 保留旧版业务错误字段，同时补齐 response/config/traceId 便于页面级 catch 排障。
+// normalizeRequestError 保留业务错误字段，同时补齐 response/config/traceId 便于页面级 catch 排障。
 function normalizeRequestError(error: any) {
   const response = error?.response;
   if (!response) {
