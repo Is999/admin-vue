@@ -87,6 +87,10 @@ const profileMfaIssuer = computed(() => mfaIssuerLabel(profileMfaInfo.value));
 const profileMfaAccount = computed(() =>
   mfaAccountLabel(profileMfaInfo.value, String(profile.value.username || '-')),
 );
+// profileMfaAccountName 提供二次验证弹框使用的当前登录账号名。
+const profileMfaAccountName = computed(
+  () => String(profile.value.username || '').trim() || undefined,
+);
 // profileHasMfaBindingMaterial 标识当前页面是否存在可展示的 MFA 绑定材料。
 const profileHasMfaBindingMaterial = computed(() =>
   Boolean(profileMfaUrl.value || profileMfaSecret.value),
@@ -445,6 +449,7 @@ async function onToggleMfa(nextStatus: number) {
       ? $t('business.message.mfaEnableShort')
       : $t('business.message.mfaDisableShort'),
     profileMfaUrl.value,
+    { accountName: profileMfaAccountName.value },
   );
   await updateProfileMfaStatus({
     mfaStatus: nextStatus,
@@ -498,6 +503,7 @@ async function submitWithMfa<T>(
       scenario,
       $t('business.message.mfaSecondConfirmTitle'),
       profileMfaUrl.value,
+      { accountName: profileMfaAccountName.value },
     );
   }
   try {
@@ -510,6 +516,7 @@ async function submitWithMfa<T>(
       scenario,
       $t('business.message.mfaSecondConfirmTitle'),
       profileMfaUrl.value,
+      { accountName: profileMfaAccountName.value },
     );
     return await submit(retryTicket);
   }

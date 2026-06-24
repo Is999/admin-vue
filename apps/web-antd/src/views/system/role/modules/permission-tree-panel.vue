@@ -323,11 +323,28 @@ watch(
     </div>
     <Alert
       class="mb-3"
-      :message="$t('business.message.permissionTreeUsageDesc')"
       :description="canWrite ? canWriteDescription : readOnlyDescription"
       show-icon
       type="info"
-    />
+    >
+      <template #message>
+        <span class="leading-6">
+          {{ $t('business.message.permissionTreeUsageSearch') }}
+          <span
+            class="rounded-md border border-primary/25 bg-primary/10 px-1.5 py-0.5 font-semibold text-primary"
+          >
+            {{ $t('business.message.permissionTreeSingleClickAction') }}
+          </span>
+          {{ $t('business.message.permissionTreeSingleClickDesc') }}
+          <span
+            class="rounded-md border border-primary/25 bg-primary/10 px-1.5 py-0.5 font-semibold text-primary"
+          >
+            {{ $t('business.message.permissionTreeDoubleClickAction') }}
+          </span>
+          {{ $t('business.message.permissionTreeDoubleClickDesc') }}
+        </span>
+      </template>
+    </Alert>
     <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
       <Space wrap>
         <Input
@@ -363,7 +380,7 @@ watch(
         </Button>
       </Space>
     </div>
-    <div class="max-h-[420px] overflow-auto pr-1">
+    <div class="role-permission-tree-scroll max-h-[420px] overflow-auto pr-1">
       <Tree
         :checked-keys="displayedPermissionIds"
         :expanded-keys="expandedPermissionIds"

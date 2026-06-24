@@ -24,6 +24,7 @@ import {
   SearchOutlined,
   SettingOutlined,
   TeamOutlined,
+  ThunderboltOutlined,
   UnorderedListOutlined,
   UserSwitchOutlined,
 } from '@ant-design/icons-vue';
@@ -116,7 +117,7 @@ function resolveOperationIcon(icon: string | undefined, code: string) {
     run: PlayCircleOutlined,
     runNow: PlayCircleOutlined,
     'self-check': CheckCircleOutlined,
-    templateWarmup: ReloadOutlined,
+    templateWarmup: ThunderboltOutlined,
     renew: ReloadOutlined,
     refreshCache: ReloadOutlined,
     search: SearchOutlined,

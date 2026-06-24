@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import {
   computed,
+  nextTick,
   onActivated,
   onBeforeUnmount,
   onDeactivated,
@@ -48,6 +49,8 @@ const loadFailed = ref(false);
 let docsReadyTimer: number | undefined;
 // docsReadyStartedAt 保存本轮文档渲染等待开始时间。
 let docsReadyStartedAt = 0;
+// staleSidebarReloaded 避免旧目录检测异常时反复重载 iframe。
+let staleSidebarReloaded = false;
 
 // clearDocsReadyTimer 清理文档渲染完成检查定时器。
 function clearDocsReadyTimer() {
@@ -58,9 +61,53 @@ function clearDocsReadyTimer() {
   docsReadyTimer = undefined;
 }
 
+// isApiServiceDocs 判断当前页面是否为前台 API 文档入口。
+function isApiServiceDocs() {
+  return props.docsBase === '/api/docs/api';
+}
+
+// hasStaleApiServiceSidebar 判断 iframe 是否仍停留在旧版前台 API 目录。
+function hasStaleApiServiceSidebar() {
+  if (!isApiServiceDocs() || staleSidebarReloaded) {
+    return false;
+  }
+  try {
+    const sidebarText = docsFrameRef.value?.contentDocument
+      ?.querySelector('.sidebar-nav')
+      ?.textContent?.trim();
+    return Boolean(
+      sidebarText &&
+      sidebarText.includes('前台 API') &&
+      !sidebarText.includes('角色文档'),
+    );
+  } catch {
+    return false;
+  }
+}
+
+// reloadDocsFrameOnce 清空并重建 iframe，用于淘汰 keepAlive 中的旧 docsify DOM。
+async function reloadDocsFrameOnce() {
+  staleSidebarReloaded = true;
+  clearDocsReadyTimer();
+  loading.value = true;
+  loadFailed.value = false;
+  frameSrc.value = '';
+  await nextTick();
+  try {
+    await createDocsSession();
+    frameSrc.value = docsUrl.value;
+  } catch {
+    markDocsLoadFailed();
+  }
+}
+
 // markDocsLoaded 在 iframe 内菜单和正文都渲染完成后关闭 loading。
 function markDocsLoaded() {
   if (!frameSrc.value || loadFailed.value) {
+    return;
+  }
+  if (hasStaleApiServiceSidebar()) {
+    void reloadDocsFrameOnce();
     return;
   }
   clearDocsReadyTimer();
@@ -130,8 +177,8 @@ function restoreDocsView() {
     return;
   }
   if (isDocsFrameReady()) {
-    markDocsLoaded();
     void refreshDocsSession();
+    markDocsLoaded();
     return;
   }
   loading.value = true;
@@ -156,6 +203,7 @@ async function loadDocs() {
 
   clearDocsReadyTimer();
   docsReadyStartedAt = 0;
+  staleSidebarReloaded = false;
   loading.value = true;
   loadFailed.value = false;
   frameSrc.value = '';

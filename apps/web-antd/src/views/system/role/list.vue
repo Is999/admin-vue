@@ -79,7 +79,7 @@ const canUpdateRolePermission = computed(() =>
 // PermissionModal 用于保存角色权限关系。
 const [PermissionModal, permissionModalApi] = useVbenModal({
   appendToMain: true,
-  class: 'w-[680px]',
+  class: 'w-[1120px] max-w-[calc(100vw-48px)]',
   destroyOnClose: true,
   draggable: true,
   onConfirm: onSavePermissions,
@@ -435,6 +435,7 @@ function confirm(content: string, title: string) {
       <div class="px-2 py-3">
         <PermissionTreePanel
           v-model="selectedPermissionIds"
+          class="role-permission-panel--modal"
           :can-write="canUpdateRolePermission"
           :tree-data="permissionTree"
           :can-write-description="
@@ -483,5 +484,9 @@ function confirm(content: string, title: string) {
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 9999px;
+}
+
+:deep(.role-permission-panel--modal .role-permission-tree-scroll) {
+  max-height: min(62vh, 680px);
 }
 </style>

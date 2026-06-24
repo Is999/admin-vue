@@ -1915,6 +1915,9 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 }
 
 .runtime-editor {
+  --runtime-editor-help-color: hsl(var(--foreground) / 52%);
+  --runtime-editor-section-help-color: hsl(var(--foreground) / 56%);
+
   padding: 16px 18px 18px;
 }
 
@@ -1982,7 +1985,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   min-width: 0;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--vben-text-color-secondary);
+  color: var(--runtime-editor-section-help-color);
 }
 
 .runtime-editor-guide__extra {
@@ -1993,7 +1996,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   flex: none;
   font-size: 12px;
   line-height: 22px;
-  color: var(--vben-text-color-secondary);
+  color: var(--runtime-editor-help-color);
 }
 
 .runtime-editor__layout {
@@ -2045,7 +2048,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   max-width: 150px;
   font-size: 12px;
   line-height: 1.4;
-  color: var(--vben-text-color-secondary);
+  color: var(--runtime-editor-help-color);
   text-align: right;
 }
 
@@ -2060,7 +2063,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.55;
-  color: var(--vben-text-color-secondary);
+  color: var(--runtime-editor-section-help-color);
 }
 
 .runtime-editor__grid {
@@ -2088,7 +2091,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.45;
-  color: var(--vben-text-color-secondary);
+  color: var(--runtime-editor-help-color);
   overflow-wrap: anywhere;
 }
 
