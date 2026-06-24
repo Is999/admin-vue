@@ -199,11 +199,11 @@ async function validateLoginPassword(value: string) {
     showUnlockVerifyError(error, 'business.message.loginPasswordVerifyFailed');
     return undefined;
   });
-  const result = unwrapUnlockVerifyData(response);
   if (!response) {
     return false;
   }
-  if (!result?.isOk) {
+  const result = readUnlockPayload(response);
+  if (!result.isOk) {
     message.error(
       readUnlockVerifyMessage(
         response,
@@ -236,11 +236,11 @@ async function validateMfaCode(value: string) {
     showUnlockVerifyError(error, 'business.message.mfaCodeVerifyFailed');
     return undefined;
   });
-  const data = unwrapUnlockVerifyData(result);
   if (!result) {
     return false;
   }
-  if (!data?.isOk) {
+  const payload = readUnlockPayload(result);
+  if (!payload.isOk) {
     message.error(
       readUnlockVerifyMessage(result, 'business.message.mfaCodeInvalid'),
     );
@@ -249,8 +249,8 @@ async function validateMfaCode(value: string) {
   return true;
 }
 
-// unwrapUnlockVerifyData 兼容 responseReturn=body 与默认 data 两种响应结构。
-function unwrapUnlockVerifyData(response: any) {
+// readUnlockPayload 兼容已拆包 data 与 responseReturn=body 的完整业务响应体。
+function readUnlockPayload(response: any) {
   return response?.data && typeof response.data === 'object'
     ? response.data
     : response;

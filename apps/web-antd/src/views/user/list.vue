@@ -4,7 +4,7 @@ import type { UserApi } from '#/api/user';
 
 import { computed, defineComponent, h, reactive, ref } from 'vue';
 
-import { Page, VbenButton } from '@vben/common-ui';
+import { Page, useVbenDrawer, VbenButton } from '@vben/common-ui';
 import { Plus } from '@vben/icons';
 
 import {
@@ -41,6 +41,7 @@ import {
   generateRandomPassword,
 } from '#/utils/security/password';
 
+import FormTips from '../system/components/form-tips.vue';
 import { USER_STATUS_OPTIONS, useColumns, useGridFormSchema } from './data';
 
 defineOptions({ name: 'UserListPage' });
@@ -54,7 +55,7 @@ const USER_PASSWORD_MAX_LENGTH = 64;
 // USER_SHARD_NO_MOD 表示用户固定取模分片上限。
 const USER_SHARD_NO_MOD = 1000;
 
-// UserFormState 保存新增和编辑弹窗中的表单字段。
+// UserFormState 保存新增和编辑抽屉中的表单字段。
 interface UserFormState {
   avatar: string;
   email: string;
@@ -126,15 +127,13 @@ const PasswordEditor = defineComponent({
   },
 });
 
-// editorOpen 控制新增/编辑弹窗显示。
-const editorOpen = ref(false);
-// editorMode 标识当前弹窗是新增还是编辑。
+// editorMode 标识当前抽屉是新增还是编辑。
 const editorMode = ref<'create' | 'edit'>('create');
 // editorSubmitting 避免用户重复提交新增或编辑请求。
 const editorSubmitting = ref(false);
 // currentUser 保存当前正在编辑或操作的用户。
 const currentUser = ref<null | UserApi.Item>(null);
-// editorForm 保存新增/编辑弹窗字段。
+// editorForm 保存新增/编辑抽屉字段。
 const editorForm = reactive<UserFormState>({
   avatar: '',
   email: '',
@@ -145,18 +144,31 @@ const editorForm = reactive<UserFormState>({
   username: '',
 });
 
-// editorTitle 返回当前新增或编辑弹窗标题。
+// editorTitle 返回当前新增或编辑抽屉标题。
 const editorTitle = computed(() =>
   editorMode.value === 'create'
     ? $t('business.message.addUser')
     : $t('business.message.editUser'),
 );
-// editorModeDesc 返回弹窗顶部说明，按新增和编辑区分用户预期。
+// editorModeDesc 返回抽屉顶部说明，按新增和编辑区分用户预期。
 const editorModeDesc = computed(() =>
   editorMode.value === 'create'
-    ? $t('business.message.userAddModeDesc')
-    : $t('business.message.userEditModeDesc'),
+    ? $t('business.message.userListAddModeDesc')
+    : $t('business.message.userListEditModeDesc'),
 );
+// formTips 定义用户抽屉底部注意事项。
+const formTips = computed(() => [
+  $t('business.message.userNameTip'),
+  $t('business.message.userListPasswordTip'),
+  $t('business.message.userContactInfoDesc'),
+  $t('business.message.userRuntimeSyncDesc'),
+  $t('business.message.userManageMfaTip'),
+]);
+
+// EditorDrawer 承载新增和编辑用户表单。
+const [EditorDrawer, editorDrawerApi] = useVbenDrawer({
+  onConfirm: submitEditor,
+});
 
 // Grid 使用 VbenVxeGrid 承载用户分页、筛选和行操作。
 const [Grid, gridApi] = useVbenVxeGrid({
@@ -334,12 +346,12 @@ function onActionClick(e: OnActionClickParams<UserApi.Item>) {
   }
 }
 
-// onCreate 打开新增用户弹窗。
+// onCreate 打开新增用户抽屉。
 function onCreate() {
   currentUser.value = null;
   editorMode.value = 'create';
   resetEditorForm();
-  editorOpen.value = true;
+  editorDrawerApi.open();
 }
 
 // fillRandomEditorPassword 生成随机初始密码并复制，减少新增用户时手动拼复杂密码。
@@ -353,19 +365,22 @@ async function fillRandomEditorPassword() {
   );
 }
 
-// onEdit 打开编辑用户弹窗。
+// onEdit 打开编辑用户抽屉。
 async function onEdit(row: UserApi.Item) {
   currentUser.value = row;
   editorMode.value = 'edit';
   resetEditorForm();
-  editorOpen.value = true;
+  fillEditorForm(row);
+  editorDrawerApi.open();
   editorSubmitting.value = true;
+  editorDrawerApi.lock();
   try {
     const detail = await fetchUserDetail(row.id);
     currentUser.value = detail;
     fillEditorForm(detail);
   } finally {
     editorSubmitting.value = false;
+    editorDrawerApi.unlock();
   }
 }
 
@@ -377,6 +392,7 @@ async function submitEditor() {
     return;
   }
   editorSubmitting.value = true;
+  editorDrawerApi.lock();
   try {
     const result = await submitWithMfaRetry(
       MFA_SCENARIO_USER_MANAGE,
@@ -394,10 +410,11 @@ async function submitEditor() {
         : $t('business.message.userUpdated'),
     );
     showRuntimeSyncResult(result.sync);
-    editorOpen.value = false;
+    editorDrawerApi.close();
     refreshGrid();
   } finally {
     editorSubmitting.value = false;
+    editorDrawerApi.unlock();
   }
 }
 
@@ -549,15 +566,10 @@ function confirm(content: string, title: string) {
       </template>
     </Grid>
 
-    <Modal
-      v-model:open="editorOpen"
-      :confirm-loading="editorSubmitting"
-      :body-style="{ padding: '0' }"
-      destroy-on-close
+    <EditorDrawer
+      class="w-full max-w-[900px]"
+      :loading="editorSubmitting"
       :title="editorTitle"
-      :width="860"
-      wrap-class-name="user-editor-dialog"
-      @ok="submitEditor"
     >
       <div class="user-editor">
         <Alert
@@ -690,7 +702,8 @@ function confirm(content: string, title: string) {
           </div>
         </Form>
       </div>
-    </Modal>
+      <FormTips :title="$t('business.message.userFormTips')" :tips="formTips" />
+    </EditorDrawer>
   </Page>
 </template>
 
@@ -793,12 +806,6 @@ function confirm(content: string, title: string) {
   background: hsl(var(--primary) / 8%);
   border: 1px solid hsl(var(--primary) / 26%);
   border-radius: 8px;
-}
-
-:global(.user-editor-dialog .ant-modal-footer) {
-  padding: 14px 22px 18px;
-  margin-top: 0;
-  border-top: 1px solid hsl(var(--border));
 }
 
 @media (max-width: 768px) {

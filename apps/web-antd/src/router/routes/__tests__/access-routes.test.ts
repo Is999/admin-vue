@@ -172,8 +172,11 @@ describe('admin access routes', () => {
       ]),
     );
     expect(apiDocsRoute?.alias).toBeUndefined();
+    expect(apiDocsRoute?.meta?.keepAlive).toBe(true);
+    expect(apiServiceDocsRoute?.meta?.keepAlive).toBe(true);
     expect(apiServiceDocsRoute?.props).toMatchObject({
-      docsHash: '/api/接口文档/接口文档统一规范',
+      docsBase: '/api/docs/api',
+      docsHash: '/接口文档/前台系统/系统接口',
       titleKey: 'admin.route.apiServiceDocs',
     });
     expect(securityDebugRoute?.alias).toBe('/system/security-debug');

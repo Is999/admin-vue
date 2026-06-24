@@ -20,16 +20,13 @@ const TRACE_ID_UUID_PATTERN =
 // TRACE_ID_HEX_PATTERN 用于判断字符串是否已经是标准 32 位十六进制 trace_id。
 const TRACE_ID_HEX_PATTERN = /^[\da-f]{32}$/i;
 
-// getRandomBytes 生成安全随机字节；极老环境无 crypto 时回退 Math.random，只用于本地调试兜底。
+// getRandomBytes 生成安全随机字节；缺少 Web Crypto 时直接失败，避免弱随机 trace/span。
 function getRandomBytes(size: number) {
+  if (!globalThis.crypto?.getRandomValues) {
+    throw new Error('Web Crypto getRandomValues unavailable');
+  }
   const bytes = new Uint8Array(size);
-  if (globalThis.crypto?.getRandomValues) {
-    globalThis.crypto.getRandomValues(bytes);
-    return bytes;
-  }
-  for (let index = 0; index < size; index++) {
-    bytes[index] = Math.trunc(Math.random() * 256);
-  }
+  globalThis.crypto.getRandomValues(bytes);
   return bytes;
 }
 

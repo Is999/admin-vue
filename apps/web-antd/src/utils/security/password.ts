@@ -55,17 +55,17 @@ export function validateStrongPassword(
   return '';
 }
 
-// secureRandomInt 返回 [0,max) 范围内的随机整数，优先使用浏览器安全随机源。
+// secureRandomInt 返回 [0,max) 范围内的安全随机整数。
 function secureRandomInt(max: number) {
   if (max <= 1) {
     return 0;
   }
-  if (globalThis.crypto?.getRandomValues) {
-    const values = new Uint32Array(1);
-    globalThis.crypto.getRandomValues(values);
-    return (values[0] ?? 0) % max;
+  if (!globalThis.crypto?.getRandomValues) {
+    throw new Error($t('business.message.webCryptoUnavailable'));
   }
-  return Math.floor(Math.random() * max);
+  const values = new Uint32Array(1);
+  globalThis.crypto.getRandomValues(values);
+  return (values[0] ?? 0) % max;
 }
 
 // randomChar 从指定字符集中随机取一个字符。

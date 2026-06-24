@@ -163,7 +163,7 @@ export function useSendFormSchema(): VbenFormSchema[] {
       fieldName: 'content',
       label: $t('business.message.content'),
       rules: 'required',
-      formItemClass: 'col-span-2',
+      formItemClass: 'col-span-2 message-send-content-item',
       componentProps: {
         maxHeight: 260,
         minHeight: 150,

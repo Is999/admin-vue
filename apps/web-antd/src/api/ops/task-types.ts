@@ -203,12 +203,18 @@ export namespace TaskApi {
     details?: TaskExecutionTraceDetail[];
   }
 
+  /** 工作流状态，和后端 TaskWorkflowStatusResp.status 保持一致。 */
+  export type WorkflowStatus = 'failed' | 'pending' | 'running' | 'success';
+
+  /** 工作流节点状态，和后端 TaskWorkflowNodeItem.status 保持一致。 */
+  export type WorkflowNodeStatus = 'skipped' | WorkflowStatus;
+
   /** 执行进度摘要 */
   export interface TaskExecutionProgress {
     /** 进度单位 */
     unit?: string;
     /** 当前状态 */
-    status?: string;
+    status?: WorkflowNodeStatus;
     /** 计划执行总量 */
     total?: number;
     /** 已进入终态数量 */
@@ -240,7 +246,7 @@ export namespace TaskApi {
     /** 分片总数 */
     shardTotal: number;
     /** 分片状态 */
-    status?: string;
+    status?: WorkflowNodeStatus;
     /** 分片执行进度 */
     progress?: TaskExecutionProgress;
     /** 分片处理量摘要 */
@@ -364,7 +370,7 @@ export namespace TaskApi {
     /** 节点执行队列 */
     queue: string;
     /** 节点状态 */
-    status: string;
+    status: WorkflowNodeStatus;
     /** 依赖节点列表 */
     dependsOn?: string[];
     /** 期望执行实例数 */
@@ -398,7 +404,7 @@ export namespace TaskApi {
     /** 工作流名称 */
     workflowName: string;
     /** 工作流状态 */
-    status: string;
+    status: WorkflowStatus;
     /** 触发来源 */
     source: string;
     /** 默认执行队列 */

@@ -1,5 +1,13 @@
 <script lang="ts" setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import {
+  computed,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  onMounted,
+  ref,
+  watch,
+} from 'vue';
 
 import { Page, VbenButton } from '@vben/common-ui';
 
@@ -9,6 +17,7 @@ import { createDocsSession } from '#/api/docs';
 import { $t } from '#/locales';
 
 interface DocsPageProps {
+  docsBase?: string; // 文档站入口，不含 hash
   docsHash?: string; // docsify hash 路径，不含 /api/docs 前缀
   titleKey?: string; // iframe title 使用的 i18n key
 }
@@ -16,12 +25,13 @@ interface DocsPageProps {
 defineOptions({ name: 'OpsApiDocsPage' });
 
 const props = withDefaults(defineProps<DocsPageProps>(), {
+  docsBase: '/api/docs',
   docsHash: '/',
   titleKey: 'admin.route.apiDocs',
 });
 
 // docsUrl 指向后端文档站入口；加载前必须先创建文档会话 cookie。
-const docsUrl = computed(() => `/api/docs#${props.docsHash}`);
+const docsUrl = computed(() => `${props.docsBase}#${props.docsHash}`);
 // docsReadyPollIntervalMs 控制检查 iframe 内文档渲染完成的频率。
 const docsReadyPollIntervalMs = 120;
 // docsReadyTimeoutMs 避免文档资源异常时 loading 一直停留。
@@ -102,8 +112,48 @@ function handleFrameLoad() {
   waitDocsFrameReady();
 }
 
+// refreshDocsSession 静默续写文档 cookie，不重置已打开的 iframe。
+async function refreshDocsSession() {
+  try {
+    await createDocsSession();
+  } catch {
+    if (!frameSrc.value || loadFailed.value) {
+      markDocsLoadFailed();
+    }
+  }
+}
+
+// restoreDocsView 从 keepAlive 恢复时补齐 iframe、loading 和 cookie 状态。
+function restoreDocsView() {
+  if (!frameSrc.value || loadFailed.value || frameSrc.value !== docsUrl.value) {
+    void loadDocs();
+    return;
+  }
+  if (isDocsFrameReady()) {
+    markDocsLoaded();
+    void refreshDocsSession();
+    return;
+  }
+  loading.value = true;
+  docsReadyStartedAt = Date.now();
+  waitDocsFrameReady();
+  void refreshDocsSession();
+}
+
 // loadDocs 先通过后台鉴权接口写入文档 cookie，再加载文档站。
 async function loadDocs() {
+  if (frameSrc.value === docsUrl.value && !loadFailed.value) {
+    if (isDocsFrameReady()) {
+      markDocsLoaded();
+      void refreshDocsSession();
+      return;
+    }
+    loading.value = true;
+    docsReadyStartedAt = Date.now();
+    waitDocsFrameReady();
+    return;
+  }
+
   clearDocsReadyTimer();
   docsReadyStartedAt = 0;
   loading.value = true;
@@ -118,6 +168,11 @@ async function loadDocs() {
 }
 
 onMounted(loadDocs);
+onActivated(restoreDocsView);
+onDeactivated(clearDocsReadyTimer);
+watch(docsUrl, () => {
+  void loadDocs();
+});
 onBeforeUnmount(clearDocsReadyTimer);
 </script>
 
