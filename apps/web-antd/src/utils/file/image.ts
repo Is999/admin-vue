@@ -76,7 +76,7 @@ function normalizeDisplayFileBaseURL(baseURL: string, fallbackOrigin: string) {
 }
 
 // isInvalidManagedAccessURL 判断统一文件访问地址是否缺少必要的 uploadId。
-// 旧数据或异常回填若只剩 `/api/file-transfer/access`，浏览器继续请求只会打出参数错误日志。
+// 缺少 uploadId 时直接忽略，避免头像预览打出无效访问请求。
 function isInvalidManagedAccessURL(url: URL) {
   const normalizedPath = String(url.pathname || '').trim();
   if (

@@ -113,7 +113,7 @@ export function formatProgressPercent(
   return `${value.toFixed(value >= 10 || Number.isInteger(value) ? 0 : 1)}%`;
 }
 
-// getProgressPercentValue 返回进度条宽度百分比，兼容历史响应。
+// getProgressPercentValue 返回进度条宽度百分比。
 export function getProgressPercentValue(
   progress?: TaskApi.TaskExecutionProgress,
 ) {
