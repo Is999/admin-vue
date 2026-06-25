@@ -93,6 +93,11 @@ export namespace SystemAdminApi {
     isUpdateRoles?: boolean; // 是否同步角色
   }
 
+  // MfaStatusParams 表示管理员 MFA 状态修改参数。
+  export interface MfaStatusParams extends CommonApi.TwoStepReq {
+    mfaStatus: Status; // MFA状态
+  }
+
   // RoleItem 表示管理员已绑定角色列表项。
   export interface RoleItem {
     id: number; // 角色 ID
@@ -148,6 +153,14 @@ export async function createAdmin(data: SystemAdminApi.SaveParams) {
 // updateAdmin 编辑管理员。
 export async function updateAdmin(id: number, data: SystemAdminApi.SaveParams) {
   return requestClient.patch(`/admins/${id}`, data);
+}
+
+// updateAdminMfaStatus 修改管理员 MFA 状态。
+export async function updateAdminMfaStatus(
+  id: number,
+  data: SystemAdminApi.MfaStatusParams,
+) {
+  return requestClient.patch(`/admins/mfa-status/${id}`, data);
 }
 
 // deleteAdmin 删除管理员。

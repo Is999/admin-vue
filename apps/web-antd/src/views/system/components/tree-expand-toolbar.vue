@@ -11,30 +11,49 @@ type TreeExpandGridApi = {
   grid?: any;
 };
 
+type TreeExpandHandler = () => Promise<void> | void;
+type TreeExpandLevelHandler = (level: number) => Promise<void> | void;
+
 const props = withDefaults(
   defineProps<{
     childrenField?: string;
+    collapseAllHandler?: TreeExpandHandler;
+    collapseLevelHandler?: TreeExpandLevelHandler;
+    expandAllHandler?: TreeExpandHandler;
+    expandLevelHandler?: TreeExpandLevelHandler;
     gridApi: TreeExpandGridApi;
     maxLevel?: number;
     minLevel?: number;
   }>(),
   {
     childrenField: 'children',
+    collapseAllHandler: undefined,
+    collapseLevelHandler: undefined,
+    expandAllHandler: undefined,
+    expandLevelHandler: undefined,
     maxLevel: 10,
     minLevel: 1,
   },
 );
 
-const level = ref(2);
+const level = ref<number | undefined>(2);
 // operating 表示当前是否正在执行树展开/折叠批量操作，避免重复点击叠加渲染任务。
 const operating = ref(false);
 
-const safeLevel = computed(() => {
+// clampLevel 统一限制输入层级边界，避免按钮联动后越过可配置范围。
+function clampLevel(value: null | number | undefined) {
   const min = Math.max(1, Number(props.minLevel) || 1);
   const max = Math.max(min, Number(props.maxLevel) || min);
-  const value = Number(level.value) || min;
-  return Math.min(max, Math.max(min, value));
-});
+  const current = Math.trunc(Number(value) || min);
+  return Math.min(max, Math.max(min, current));
+}
+
+const safeLevel = computed(() => clampLevel(level.value));
+
+// stepLevel 在 N 层操作成功后联动输入框，并复用同一套边界限制。
+function stepLevel(delta: number) {
+  level.value = clampLevel(safeLevel.value + delta);
+}
 
 function resolveGrid() {
   return props.gridApi?.grid;
@@ -120,17 +139,36 @@ async function setAllTreeExpand(expanded: boolean) {
 }
 
 async function expandAll() {
-  await runTreeOperation(() => setAllTreeExpand(true));
+  await runTreeOperation(async () => {
+    if (props.expandAllHandler) {
+      await props.expandAllHandler();
+      return;
+    }
+    await setAllTreeExpand(true);
+  });
 }
 
 async function collapseAll() {
-  await runTreeOperation(() => setAllTreeExpand(false));
+  await runTreeOperation(async () => {
+    if (props.collapseAllHandler) {
+      await props.collapseAllHandler();
+      return;
+    }
+    await setAllTreeExpand(false);
+  });
 }
 
 async function expandN() {
   await runTreeOperation(async () => {
+    const currentLevel = safeLevel.value;
+    if (props.expandLevelHandler) {
+      await props.expandLevelHandler(currentLevel);
+      stepLevel(1);
+      return;
+    }
     const grid = resolveGrid();
     if (!grid || typeof grid.setTreeExpand !== 'function') {
+      stepLevel(1);
       return;
     }
 
@@ -138,18 +176,24 @@ async function expandN() {
     const items: Array<{ depth: number; row: any }> = [];
     collectExpandableNodes(data, 1, items);
     await applyTreeExpandBatch(
-      items
-        .filter((item) => item.depth < safeLevel.value)
-        .map((item) => item.row),
+      items.filter((item) => item.depth < currentLevel).map((item) => item.row),
       true,
     );
+    stepLevel(1);
   });
 }
 
 async function collapseN() {
   await runTreeOperation(async () => {
+    const currentLevel = safeLevel.value;
+    if (props.collapseLevelHandler) {
+      await props.collapseLevelHandler(currentLevel);
+      stepLevel(-1);
+      return;
+    }
     const grid = resolveGrid();
     if (!grid || typeof grid.setTreeExpand !== 'function') {
+      stepLevel(-1);
       return;
     }
 
@@ -158,10 +202,11 @@ async function collapseN() {
     collectExpandableNodes(data, 1, items);
     await applyTreeExpandBatch(
       items
-        .filter((item) => item.depth >= safeLevel.value)
+        .filter((item) => item.depth >= currentLevel)
         .map((item) => item.row),
       false,
     );
+    stepLevel(-1);
   });
 }
 </script>
@@ -178,6 +223,8 @@ async function collapseN() {
       v-model:value="level"
       :max="maxLevel"
       :min="minLevel"
+      :precision="0"
+      :step="1"
       class="w-[86px]"
       :disabled="operating"
       size="small"

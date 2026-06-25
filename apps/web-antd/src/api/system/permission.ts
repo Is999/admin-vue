@@ -22,6 +22,7 @@ export namespace SystemPermissionApi {
     disabled: boolean; // 是否禁用
     disableCheckbox: boolean; // 是否禁止勾选
     selectable: boolean; // 是否允许选择
+    hasChild: boolean; // 是否存在子权限，用于列表展开入口
     children?: Item[]; // 子权限列表
     createdAt: string; // 创建时间
     updatedAt: string; // 更新时间

@@ -63,6 +63,13 @@ export async function fetchRoleTreeOptions() {
   return requestClient.get<SystemRoleApi.Item[]>('/roles/tree-options');
 }
 
+// fetchRoleParentTreeOptions 查询角色父级下拉，允许普通管理员选择自身角色创建下级。
+export async function fetchRoleParentTreeOptions() {
+  return requestClient.get<SystemRoleApi.Item[]>('/roles/tree-options', {
+    params: { scope: 'parent' },
+  });
+}
+
 // createRole 新增角色。
 export async function createRole(data: SystemRoleApi.SaveParams) {
   return requestClient.post('/roles', data);

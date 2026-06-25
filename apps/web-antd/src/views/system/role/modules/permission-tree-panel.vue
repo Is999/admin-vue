@@ -22,6 +22,7 @@ import {
   buildPermissionRelationMaps,
   buildPermissionViewTree,
   collectAllPermissionIds,
+  collectPermissionState,
   isPermissionNodeCheckable,
   updateSelectedPermissionIds,
 } from './permission-tree';
@@ -69,11 +70,14 @@ const permissionTypeFilter = ref<number>();
 // onlyShowChecked 控制是否只显示已选权限节点。
 const onlyShowChecked = ref(false);
 
-// selectedPermissionIds 统一代理 v-model，保存当前真正要提交的权限 ID 集合。
+// selectedPermissionIds 统一代理 v-model，保存权限树当前勾选态。
 const selectedPermissionIds = computed({
   get: () => props.modelValue || [],
   set: (value: number[]) => emit('update:modelValue', value),
 });
+
+// permissionState 缓存权限树勾选与可编辑范围，避免展示态误覆盖只读授权。
+const permissionState = computed(() => collectPermissionState(props.treeData));
 
 // translateOptionLabel 优先翻译已登记 key，未登记时保留后端或枚举原文。
 function translateOptionLabel(key: string, fallback: string) {
@@ -113,12 +117,12 @@ function resolvePermissionStateHints(item: SystemPermissionApi.Item) {
     if (item.checked && item.status === 1) {
       tags.push({
         color: 'gold',
-        text: $t('business.message.outOfParentScope'),
+        text: $t('business.message.operatorPermissionInsufficient'),
       });
     } else if (item.status === 1) {
       tags.push({
         color: 'default',
-        text: $t('business.message.parentNotAuthorized'),
+        text: $t('business.message.operatorNotAuthorized'),
       });
     }
   }
@@ -214,13 +218,17 @@ const filteredPermissionTree = computed(() =>
     keyword: permissionKeyword.value,
     onlyShowChecked: onlyShowChecked.value,
     permissionType: permissionTypeFilter.value,
+    readOnly: !props.canWrite,
     renderTitle: buildPermissionTitle,
   }),
 );
 
-// selectedPermissionCount 返回当前真正待提交的权限数。
+// selectedPermissionCount 返回当前可提交的权限数，不统计只读保留项。
 const selectedPermissionCount = computed(
-  () => selectedPermissionIds.value.length,
+  () =>
+    selectedPermissionIds.value.filter((item) =>
+      permissionState.value.enabledIds.has(item),
+    ).length,
 );
 
 // onExpandAll 展开整棵权限树。
@@ -243,14 +251,14 @@ function onCheckAllEnabled() {
       return [...current, ...walk(item.children || [])];
     });
   const enabledIds = walk(props.treeData);
-  selectedPermissionIds.value = [...new Set(enabledIds)].toSorted(
-    (a, b) => a - b,
-  );
+  selectedPermissionIds.value = [
+    ...new Set([...permissionState.value.readonlyCheckedIds, ...enabledIds]),
+  ].toSorted((a, b) => a - b);
 }
 
 // onClearChecked 清空当前已选权限。
 function onClearChecked() {
-  selectedPermissionIds.value = [];
+  selectedPermissionIds.value = [...permissionState.value.readonlyCheckedIds];
 }
 
 // onExpandChange 同步树组件展开状态。
@@ -260,6 +268,9 @@ function onExpandChange(keys: Array<number | string>) {
 
 // onPermissionCheck 统一接管权限树勾选，按项目自定义规则维护选中集合。
 function onPermissionCheck(_checkedKeys: unknown, event: any) {
+  if (!props.canWrite) {
+    return;
+  }
   const nodeID = Number(event?.node?.id ?? event?.node?.key ?? 0);
   if (!nodeID) {
     return;
@@ -275,6 +286,9 @@ function onPermissionCheck(_checkedKeys: unknown, event: any) {
 
 // onPermissionNodeDoubleClick 双击父级节点时联动当前节点及全部子级。
 function onPermissionNodeDoubleClick(nodeID: number) {
+  if (!props.canWrite) {
+    return;
+  }
   const { childrenById, nodeById } = buildPermissionRelationMaps(
     props.treeData,
   );
@@ -382,7 +396,7 @@ watch(
       <Tree
         :checked-keys="displayedPermissionIds"
         :expanded-keys="expandedPermissionIds"
-        :checkable="canWrite"
+        checkable
         block-node
         check-strictly
         :field-names="{ title: 'title', key: 'id', children: 'children' }"

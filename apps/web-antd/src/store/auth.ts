@@ -226,11 +226,11 @@ export const useAuthStore = defineStore('auth', () => {
     const forceMfaEnabled = Boolean(user?.forceMFAEnabled);
     const mfaBindRequired = Boolean(user?.mfaBindRequired);
     const mfaStatus = Number(user?.mfaStatus || 0);
+    const existMfa = Boolean(user?.existMFA);
     const needBind = mfaBindRequired || (forceMfaEnabled && mfaStatus !== 1);
     // 登录阶段只信任后端返回的 existMFA，避免“状态开启但秘钥丢失”时前端误判成可直接输码。
-    const existMfa = Boolean(user?.existMFA);
     const buildMfaUrl = needBind ? user?.buildMFAURL || '' : '';
-    if (mfaStatus === 1 && !existMfa) {
+    if (mfaStatus === 1 && !existMfa && !needBind) {
       notification.error({
         description: $t('business.message.mfaDeviceUnavailable'),
         duration: 5,
