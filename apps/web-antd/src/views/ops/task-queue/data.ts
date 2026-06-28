@@ -11,6 +11,43 @@ import { countRiskTagMeta, latencyTagMeta } from '../table-tags';
 // TableActionHandler 定义表格操作列点击事件签名。
 type TableActionHandler<T = any> = (params: { code: string; row: T }) => void;
 
+// getMemoryFractionDigits 按容量大小控制小数位，避免展示过长的小数。
+function getMemoryFractionDigits(unitIndex: number, size: number) {
+  if (unitIndex === 0 || size >= 100) {
+    return 0;
+  }
+  if (size >= 10) {
+    return 1;
+  }
+  return 2;
+}
+
+// formatMemoryUsage 将后端返回的 bytes 转成带单位的二进制容量，便于队列页直接阅读。
+function formatMemoryUsage(value: unknown) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return '-';
+  }
+  if (bytes === 0) {
+    return '0 B';
+  }
+
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let unitIndex = 0;
+  let size = bytes;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  const maximumFractionDigits = getMemoryFractionDigits(unitIndex, size);
+  const formatter = new Intl.NumberFormat(undefined, {
+    maximumFractionDigits,
+    minimumFractionDigits: 0,
+  });
+  return `${formatter.format(size)} ${units[unitIndex]}`;
+}
+
 // useColumns 返回任务队列表格列配置。
 export function useColumns<T = any>(
   onActionClick: TableActionHandler<T>,
@@ -98,6 +135,8 @@ export function useColumns<T = any>(
     },
     {
       field: 'memoryUsage',
+      formatter: ({ cellValue }: { cellValue: unknown }) =>
+        formatMemoryUsage(cellValue),
       title: $t('business.message.memoryUsage'),
       minWidth: 140,
     },
