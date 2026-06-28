@@ -36,8 +36,6 @@ export namespace RuntimeConfigApi {
   export interface OverviewResp {
     /** 配置来源：file/database */
     source: 'database' | 'file' | string;
-    /** 当前运行环境 */
-    env: string;
     /** DB 模式轻量轮询间隔秒数 */
     pollIntervalSeconds: number;
     /** 当前 active 版本状态 */

@@ -157,10 +157,10 @@ const overviewCards = computed(() => [
         : rt('sourceFileDesc'),
   },
   {
-    key: 'env',
-    label: rt('env'),
-    value: overview.value?.env || '-',
-    description: `${rt('pollEvery')} ${overview.value?.pollIntervalSeconds || 30} ${rt('seconds')}`,
+    key: 'pollInterval',
+    label: rt('pollInterval'),
+    value: `${overview.value?.pollIntervalSeconds || 30} ${rt('seconds')}`,
+    description: rt('pollIntervalDesc'),
   },
   {
     key: 'version',
