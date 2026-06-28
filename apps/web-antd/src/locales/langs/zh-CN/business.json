@@ -1546,6 +1546,8 @@
     "taskHeaders": "任务头信息",
     "taskHeadersCopied": "任务头信息已复制到剪贴板",
     "taskIdCopied": "任务ID 已复制到剪贴板",
+    "taskIdFilter": "任务ID筛选",
+    "taskIdFilterPlaceholder": "输入完整任务ID或片段",
     "taskListTaskDetailSource": "任务列表 / 任务详情 {0}",
     "taskName": "任务名称",
     "taskNameFilter": "任务名称筛选",

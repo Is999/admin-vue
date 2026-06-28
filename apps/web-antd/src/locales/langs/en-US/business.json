@@ -1546,6 +1546,8 @@
     "taskHeaders": "Task headers",
     "taskHeadersCopied": "Task headers copied to clipboard.",
     "taskIdCopied": "Task ID copied to clipboard.",
+    "taskIdFilter": "Task ID filter",
+    "taskIdFilterPlaceholder": "Enter full task ID or fragment",
     "taskListTaskDetailSource": "Task list / task detail {0}",
     "taskName": "Task name",
     "taskNameFilter": "Task name filter",

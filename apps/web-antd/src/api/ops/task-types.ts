@@ -63,6 +63,8 @@ export namespace TaskApi {
       | 'scheduled';
     /** 聚合组名称，仅 aggregating 使用 */
     group?: string;
+    /** 任务 ID 关键字，支持完整或片段匹配 */
+    taskId?: string;
     /** 工作流实例 ID */
     workflowId?: string;
     /** 任务名称关键字，支持按 task_periodic.name 或展示名筛选 */
@@ -85,6 +87,8 @@ export namespace TaskApi {
     state?: '' | ListTaskItemsReq['state'];
     /** 聚合组名称，仅 aggregating 使用 */
     group?: string;
+    /** 任务 ID 关键字，支持完整或片段匹配 */
+    taskId?: string;
     /** 工作流实例 ID */
     workflowId?: string;
     /** 任务名称关键字，支持按 task_periodic.name 或展示名筛选 */
@@ -309,6 +313,8 @@ export namespace TaskApi {
     state: string;
     /** 聚合分组 */
     group?: string;
+    /** 任务 ID 筛选条件 */
+    taskId?: string;
     /** 工作流实例 ID 筛选条件 */
     workflowId?: string;
     /** 任务名称关键字筛选条件 */
@@ -337,6 +343,8 @@ export namespace TaskApi {
     effectiveState?: string;
     /** 聚合组 */
     group?: string;
+    /** 任务 ID 筛选条件 */
+    taskId?: string;
     /** 工作流实例 ID 筛选条件 */
     workflowId?: string;
     /** 任务名称关键字筛选条件 */

@@ -80,6 +80,8 @@ const queueOptions = ref<Array<{ label: string; value: string }>>(
 const searchQueue = ref('');
 const searchState = ref<TaskStateFilterValue>('');
 const searchGroup = ref('');
+// searchTaskId 保存任务 ID 筛选关键字，和详情深链 route.query.taskId 分开。
+const searchTaskId = ref('');
 // searchTaskName 记录任务名称关键字，便于按 task_periodic.name 追踪定时任务执行情况。
 const searchTaskName = ref('');
 const searchWorkflowId = ref('');
@@ -92,6 +94,8 @@ const aggregateMode = ref(false);
 const currentQueryQueue = ref('');
 const currentQueryState = ref<TaskStateFilterValue>('');
 const currentQueryGroup = ref('');
+// currentQueryTaskId 保存本次实际使用的任务 ID 筛选条件，用于结果摘要回显。
+const currentQueryTaskId = ref('');
 // currentQueryTaskName 保存本次列表实际使用的任务名称筛选条件，用于结果摘要回显。
 const currentQueryTaskName = ref('');
 const currentQueryWorkflowId = ref('');
@@ -248,6 +252,10 @@ const currentTaskSummaryRows = computed(() => {
     {
       label: $t('business.message.taskTraceTotalCount'),
       value: formatTraceCount(traceTotalCount),
+    },
+    {
+      label: $t('business.message.taskIdFilter'),
+      value: currentQueryTaskId.value || $t('business.message.notFiltered'),
     },
     {
       label: $t('business.message.taskNameFilter'),
@@ -453,6 +461,7 @@ const [Grid, gridApi] = useVbenVxeGrid({
           currentQueryQueue.value = searchQueue.value;
           currentQueryState.value = result.effectiveState;
           currentQueryGroup.value = searchGroup.value;
+          currentQueryTaskId.value = searchTaskId.value.trim();
           currentQueryTaskName.value = searchTaskName.value.trim();
           currentQueryWorkflowId.value = searchWorkflowId.value;
           currentQueryStartTime.value = timeRange.startTime || '';
@@ -576,6 +585,7 @@ async function queryTasksByFilters(queryParams: {
     state: stateValue || undefined,
     endTime,
     startTime,
+    taskId: searchTaskId.value.trim() || undefined,
     taskName: searchTaskName.value.trim() || undefined,
     workflowId: searchWorkflowId.value.trim() || undefined,
   });
@@ -1385,6 +1395,7 @@ async function tryAutoOpenTaskDetail() {
     taskId,
     searchState.value,
     searchGroup.value,
+    searchTaskId.value.trim(),
     searchTaskName.value.trim(),
     searchWorkflowId.value,
     ...Object.values(buildTaskTimeRangeParams()),
@@ -1407,6 +1418,8 @@ function applyRouteQueryToFilters() {
     route.query.state,
   ) as TaskStateFilterValue;
   const routeGroup = normalizeRouteQueryValue(route.query.group);
+  // searchTaskId 是列表筛选参数；taskId 继续保留给任务详情深链使用。
+  const routeSearchTaskId = normalizeRouteQueryValue(route.query.searchTaskId);
   // routeTaskName 允许外部页面把周期任务名带入任务列表，直接定位对应执行记录。
   const routeTaskName = normalizeRouteQueryValue(route.query.taskName);
   const routeWorkflowId = normalizeRouteQueryValue(route.query.workflowId);
@@ -1418,6 +1431,7 @@ function applyRouteQueryToFilters() {
     ? routeState
     : '';
   searchGroup.value = routeGroup;
+  searchTaskId.value = routeSearchTaskId;
   searchTaskName.value = routeTaskName;
   searchWorkflowId.value = routeWorkflowId;
   searchTimeRange.value = normalizeRouteTimeRange();
@@ -1689,6 +1703,7 @@ async function handleReset() {
   searchQueue.value = '';
   searchState.value = '';
   searchGroup.value = '';
+  searchTaskId.value = '';
   searchTaskName.value = '';
   searchWorkflowId.value = '';
   searchTimeRange.value = undefined;
@@ -1814,8 +1829,73 @@ watch(
         <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.2fr)_360px]">
           <div class="min-w-0">
             <div
-              class="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1.45fr)_auto]"
+              class="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-4"
             >
+              <div class="min-w-0">
+                <div class="mb-2 text-sm font-medium">
+                  {{ $t('business.message.workflowId') }}
+                </div>
+                <Input
+                  v-model:value="searchWorkflowId"
+                  allow-clear
+                  class="w-full"
+                  :placeholder="
+                    $t('business.message.workflowIdFilterPlaceholder')
+                  "
+                />
+              </div>
+              <div class="min-w-0">
+                <div class="mb-2 text-sm font-medium">
+                  {{ $t('business.message.taskName') }}
+                </div>
+                <Input
+                  v-model:value="searchTaskName"
+                  allow-clear
+                  class="w-full"
+                  :placeholder="
+                    $t('business.message.taskNameFilterPlaceholder')
+                  "
+                />
+              </div>
+              <div class="min-w-0">
+                <div class="mb-2 text-sm font-medium">
+                  {{ $t('business.message.taskId') }}
+                </div>
+                <Input
+                  v-model:value="searchTaskId"
+                  allow-clear
+                  class="w-full"
+                  :placeholder="$t('business.message.taskIdFilterPlaceholder')"
+                />
+              </div>
+              <div class="min-w-0">
+                <div class="mb-2 text-sm font-medium">
+                  {{ $t('business.message.aggregateGroup') }}
+                </div>
+                <Input
+                  v-model:value="searchGroup"
+                  allow-clear
+                  class="w-full"
+                  :placeholder="
+                    $t('business.message.aggregateGroupPlaceholder')
+                  "
+                />
+              </div>
+              <div class="min-w-0">
+                <div class="mb-2 text-sm font-medium">
+                  {{ $t('business.message.timeRange') }}
+                </div>
+                <RangePicker
+                  v-model:value="searchTimeRange"
+                  class="w-full"
+                  format="YYYY-MM-DD HH:mm:ss"
+                  :placeholder="[
+                    $t('business.message.startTime'),
+                    $t('business.message.endTime'),
+                  ]"
+                  show-time
+                />
+              </div>
               <div class="min-w-0">
                 <div class="mb-2 text-sm font-medium">
                   {{ $t('business.message.queueName') }}
@@ -1838,57 +1918,6 @@ watch(
                   class="w-full"
                   :options="TASK_STATE_OPTIONS"
                   :placeholder="$t('business.message.taskStatusAllPlaceholder')"
-                />
-              </div>
-              <div class="min-w-0">
-                <div class="mb-2 text-sm font-medium">
-                  {{ $t('business.message.aggregateGroup') }}
-                </div>
-                <Input
-                  v-model:value="searchGroup"
-                  allow-clear
-                  :placeholder="
-                    $t('business.message.aggregateGroupPlaceholder')
-                  "
-                />
-              </div>
-              <div class="min-w-0">
-                <div class="mb-2 text-sm font-medium">
-                  {{ $t('business.message.taskName') }}
-                </div>
-                <Input
-                  v-model:value="searchTaskName"
-                  allow-clear
-                  :placeholder="
-                    $t('business.message.taskNameFilterPlaceholder')
-                  "
-                />
-              </div>
-              <div class="min-w-0">
-                <div class="mb-2 text-sm font-medium">
-                  {{ $t('business.message.workflowId') }}
-                </div>
-                <Input
-                  v-model:value="searchWorkflowId"
-                  allow-clear
-                  :placeholder="
-                    $t('business.message.workflowIdFilterPlaceholder')
-                  "
-                />
-              </div>
-              <div class="min-w-0">
-                <div class="mb-2 text-sm font-medium">
-                  {{ $t('business.message.timeRange') }}
-                </div>
-                <RangePicker
-                  v-model:value="searchTimeRange"
-                  class="w-full"
-                  format="YYYY-MM-DD HH:mm:ss"
-                  :placeholder="[
-                    $t('business.message.startTime'),
-                    $t('business.message.endTime'),
-                  ]"
-                  show-time
                 />
               </div>
               <div class="flex min-w-0 flex-wrap items-end justify-end gap-2">

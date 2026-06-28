@@ -1388,9 +1388,7 @@ onMounted(() => {
           <div
             class="config-query-panel flex flex-col gap-4 border border-slate-200 bg-slate-50/70 p-5 dark:border-slate-700 dark:bg-slate-950/30"
           >
-            <div
-              class="grid gap-4 2xl:grid-cols-[minmax(420px,1fr)_auto] 2xl:items-center"
-            >
+            <div class="config-query-toolbar grid gap-4">
               <Input
                 v-model:value="activeConfigItemKeyword"
                 allow-clear
@@ -1403,7 +1401,7 @@ onMounted(() => {
                 @press-enter="() => handleFetchActiveConfigItems(true)"
               />
               <div
-                class="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center 2xl:justify-end"
+                class="config-query-actions flex min-w-0 shrink-0 flex-col gap-3 sm:flex-row sm:items-center"
               >
                 <Switch
                   v-model:checked="activeConfigItemSensitiveOnly"
@@ -1691,6 +1689,14 @@ onMounted(() => {
   height: 44px;
 }
 
+.config-query-toolbar {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.config-query-actions {
+  justify-self: start;
+}
+
 :deep(.config-query-input.ant-input),
 :deep(.config-query-input.ant-input-affix-wrapper) {
   min-height: 44px;
@@ -1749,6 +1755,17 @@ onMounted(() => {
   .config-query-switch.ant-switch.ant-switch-checked .ant-switch-inner-unchecked
 ) {
   display: none;
+}
+
+@media (min-width: 900px) {
+  .config-query-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .config-query-actions {
+    justify-self: end;
+  }
 }
 
 .config-yaml-view {

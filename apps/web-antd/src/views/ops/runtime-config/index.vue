@@ -789,14 +789,14 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 <Input
                   v-model:value="periodicFilters.keyword"
                   allow-clear
-                  class="runtime-filter-input"
+                  class="runtime-filter-input runtime-periodic-filter-input"
                   :placeholder="rt('periodicKeywordPlaceholder')"
                   @press-enter="loadPeriodicTasks"
                 />
                 <Input
                   v-model:value="periodicFilters.workflow"
                   allow-clear
-                  class="runtime-filter-input"
+                  class="runtime-filter-input runtime-periodic-filter-input"
                   :placeholder="rt('workflow')"
                   @press-enter="loadPeriodicTasks"
                 />
@@ -889,14 +889,14 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 <Input
                   v-model:value="archiveFilters.keyword"
                   allow-clear
-                  class="runtime-filter-input"
+                  class="runtime-filter-input runtime-archive-filter-input"
                   :placeholder="rt('archiveKeywordPlaceholder')"
                   @press-enter="loadArchiveJobs"
                 />
                 <Input
                   v-model:value="archiveFilters.database"
                   allow-clear
-                  class="runtime-filter-input"
+                  class="runtime-filter-input runtime-archive-filter-input"
                   :placeholder="rt('database')"
                   @press-enter="loadArchiveJobs"
                 />
@@ -1161,7 +1161,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
       </Tabs>
 
       <PeriodicDrawer
-        class="w-full max-w-[940px]"
+        class="w-full max-w-[1120px]"
         :loading="submitting"
         :title="rt('periodicDraft')"
       >
@@ -1413,7 +1413,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
       </PeriodicDrawer>
 
       <ArchiveDrawer
-        class="w-full max-w-[980px]"
+        class="w-full max-w-[1160px]"
         :loading="submitting"
         :title="rt('archiveDraft')"
       >
@@ -1857,7 +1857,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 
 .runtime-filter-panel {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) 140px auto;
+  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr) 140px auto;
   gap: 8px;
   align-items: center;
   padding: 10px;
@@ -2106,6 +2106,14 @@ function runtimeActionSuccess(type: RuntimeActionType) {
 
 .runtime-filter-input {
   width: 180px;
+}
+
+.runtime-periodic-filter-input {
+  width: 280px;
+}
+
+.runtime-archive-filter-input {
+  width: 220px;
 }
 
 .runtime-filter-select {

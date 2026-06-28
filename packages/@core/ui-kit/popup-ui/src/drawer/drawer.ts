@@ -66,6 +66,16 @@ export interface DrawerProps {
    */
   footerClass?: ClassType;
   /**
+   * 是否铺满抽屉可用宽度
+   * @default false
+   */
+  fullscreen?: boolean;
+  /**
+   * 是否显示铺满宽度按钮
+   * @default true
+   */
+  fullscreenButton?: boolean;
+  /**
    * 是否显示顶栏
    * @default true
    */
@@ -98,7 +108,20 @@ export interface DrawerProps {
    * @default right
    */
   placement?: DrawerPlacement;
-
+  /**
+   * 是否允许拖拽调整右侧抽屉宽度
+   * @default true
+   */
+  resizable?: boolean;
+  /**
+   * 拖拽宽度最大值，默认不超过当前视口
+   */
+  resizeMaxWidth?: number;
+  /**
+   * 拖拽宽度最小值
+   * @default 420
+   */
+  resizeMinWidth?: number;
   /**
    * 是否显示取消按钮
    * @default true
@@ -121,6 +144,10 @@ export interface DrawerProps {
    * 弹窗标题提示
    */
   titleTooltip?: string;
+  /**
+   * 抽屉自定义宽度，数字按 px 处理
+   */
+  width?: number | string;
   /**
    * 抽屉层级
    */
