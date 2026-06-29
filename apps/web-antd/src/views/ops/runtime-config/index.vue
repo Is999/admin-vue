@@ -175,6 +175,14 @@ const overviewCards = computed(() => [
     description: rt('draftCountDesc'),
   },
 ]);
+const snapshotDiffIgnoredFields = new Set([
+  'createdAt',
+  'id',
+  'remark',
+  'sortOrder',
+  'updatedAt',
+]);
+const snapshotDiffSectionKeys = ['archiveJobs', 'taskPeriodic'];
 const periodicPageStats = computed(() => {
   const enabledCount = periodicRows.value.filter((item) => item.enabled).length;
   const cronCount = periodicRows.value.filter((item) =>
@@ -211,13 +219,17 @@ const periodicPageStats = computed(() => {
   ];
 });
 const currentSnapshotText = computed(() =>
-  safePrettyJson(overview.value?.currentSnapshot || {}),
+  safePrettyJson(
+    normalizeSnapshotDiffValue(overview.value?.currentSnapshot || {}),
+  ),
 );
 const draftSnapshotText = computed(() =>
-  safePrettyJson({
-    archiveJobs: archiveRows.value,
-    taskPeriodic: periodicRows.value,
-  }),
+  safePrettyJson(
+    normalizeSnapshotDiffValue({
+      archiveJobs: archiveRows.value,
+      taskPeriodic: periodicRows.value,
+    }),
+  ),
 );
 const validateChecksumShort = computed(() =>
   formatShortChecksum(validateResult.value?.checksum || ''),
@@ -228,6 +240,12 @@ const selectedReleaseSnapshotText = computed(
     selectedRelease.value?.snapshotYaml ||
     selectedRelease.value?.snapshotJson ||
     '',
+);
+const selectedReleaseSnapshotJson = computed(
+  () => selectedRelease.value?.snapshotJson || '',
+);
+const selectedReleaseSnapshotYaml = computed(
+  () => selectedRelease.value?.snapshotYaml || '',
 );
 
 // PeriodicDrawer 承载周期任务新增和编辑表单。
@@ -515,6 +533,64 @@ function openPeriodicDrawer(row?: Record<string, any>) {
   );
   periodicTargetsText.value = (periodicForm.targets || []).join('\n');
   periodicDrawerApi.open();
+}
+
+// normalizeSnapshotDiffValue 归一化展示快照，避免编辑态字段和展示顺序制造假差异。
+function normalizeSnapshotDiffValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return normalizeSnapshotDiffList(value);
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  const record = value as Record<string, unknown>;
+  const entries = Object.entries(record).filter(
+    ([key]) => !snapshotDiffIgnoredFields.has(key),
+  );
+  const orderedKeys = [
+    ...snapshotDiffSectionKeys.filter((key) =>
+      Object.prototype.hasOwnProperty.call(record, key),
+    ),
+    ...entries
+      .map(([key]) => key)
+      .filter((key) => !snapshotDiffSectionKeys.includes(key)),
+  ];
+  return Object.fromEntries(
+    orderedKeys.map((key) => [key, normalizeSnapshotDiffValue(record[key])]),
+  );
+}
+
+function normalizeSnapshotDiffList(items: unknown[]) {
+  return items
+    .map((item, index) => ({
+      index,
+      key: snapshotDiffItemKey(item),
+      value: normalizeSnapshotDiffValue(item),
+    }))
+    .toSorted((left, right) => {
+      if (left.key && right.key && left.key !== right.key) {
+        return left.key.localeCompare(right.key);
+      }
+      if (left.key || right.key) {
+        return left.key ? -1 : 1;
+      }
+      return left.index - right.index;
+    })
+    .map((item) => item.value);
+}
+
+function snapshotDiffItemKey(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return '';
+  }
+  const record = value as Record<string, unknown>;
+  return String(
+    record.name ||
+      record.uniqueKey ||
+      record.workflow ||
+      record.tableName ||
+      '',
+  );
 }
 
 function openArchiveDrawer(row?: Record<string, any>) {
@@ -1153,7 +1229,9 @@ function runtimeActionSuccess(type: RuntimeActionType) {
             :release-checksum="selectedRelease?.checksum || ''"
             :release-loading="releaseDetailLoading"
             :release-selected="Boolean(selectedRelease)"
+            :release-snapshot-json="selectedReleaseSnapshotJson"
             :release-snapshot-text="selectedReleaseSnapshotText"
+            :release-snapshot-yaml="selectedReleaseSnapshotYaml"
             :release-version="selectedRelease?.versionNo || 0"
             :source="overview?.source || '-'"
           />
