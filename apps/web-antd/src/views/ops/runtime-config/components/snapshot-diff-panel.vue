@@ -1,13 +1,23 @@
 <script lang="ts" setup>
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 
-import { Alert, Button, Card, Radio, Tag } from 'ant-design-vue';
+import {
+  Alert,
+  Button,
+  Input,
+  Modal,
+  Radio,
+  Switch,
+  Tag,
+} from 'ant-design-vue';
 
 import { $t } from '#/locales';
 
 import { formatShortChecksum } from '../../shared';
 
 type SnapshotDiffKind = 'added' | 'removed' | 'same';
+type SnapshotPanelKey = 'current' | 'draft' | 'release';
+type SnapshotScrollGroup = 'fullscreen' | 'normal';
 type SnapshotTokenKind =
   | 'boolean'
   | 'key'
@@ -52,6 +62,12 @@ type SnapshotPathInfo = {
   type: string;
 };
 
+type SnapshotSearchMatch = {
+  index: number;
+  key: string;
+  panel: SnapshotPanelKey;
+};
+
 // SnapshotDiffPanelProps 定义快照对比面板所需的纯展示数据。
 type SnapshotDiffPanelProps = {
   // activeChecksum 当前运行态快照 checksum。
@@ -60,6 +76,10 @@ type SnapshotDiffPanelProps = {
   activeVersion?: number;
   // currentSnapshotText 当前运行态快照文本。
   currentSnapshotText?: string;
+  // draftChanged 后端按发布口径判断的草稿差异状态。
+  draftChanged?: boolean;
+  // draftChecksum 当前草稿快照 checksum。
+  draftChecksum?: string;
   // draftSnapshotText 当前草稿快照文本。
   draftSnapshotText?: string;
   // releaseChecksum 选中发布快照 checksum。
@@ -84,6 +104,8 @@ const props = withDefaults(defineProps<SnapshotDiffPanelProps>(), {
   activeChecksum: '',
   activeVersion: 0,
   currentSnapshotText: '',
+  draftChanged: false,
+  draftChecksum: '',
   draftSnapshotText: '',
   releaseChecksum: '',
   releaseLoading: false,
@@ -99,6 +121,21 @@ const rt = (key: string) => $t(`admin.runtimeConfig.${key}`);
 
 const viewMode = ref<SnapshotViewMode>('json');
 const collapsedPaths = ref(new Set<string>());
+const searchKeyword = ref('');
+const activeSearchIndex = ref(0);
+const scrollSyncEnabled = ref(true);
+const fullscreenOpen = ref(false);
+const fullscreenDarkTheme = ref(false);
+const fullscreenMaskStyle = {
+  background: 'var(--vben-background-color, hsl(var(--background, 0 0% 100%)))',
+};
+const currentCodeRef = ref<HTMLElement | null>(null);
+const draftCodeRef = ref<HTMLElement | null>(null);
+const releaseCodeRef = ref<HTMLElement | null>(null);
+const fullscreenCurrentCodeRef = ref<HTMLElement | null>(null);
+const fullscreenDraftCodeRef = ref<HTMLElement | null>(null);
+let openedBrowserFullscreen = false;
+let syncingScroll = false;
 
 const sourceTone = computed(() =>
   props.source === 'database' ? 'processing' : 'default',
@@ -112,11 +149,16 @@ const draftSnapshotValue = computed(() =>
 const releaseSnapshotValue = computed(() =>
   parseSnapshotText(props.releaseSnapshotJson || props.releaseSnapshotText),
 );
-const snapshotChanged = computed(
-  () =>
+const snapshotChanged = computed(() => {
+  if (props.activeChecksum || props.draftChecksum) {
+    return props.draftChanged || props.activeChecksum !== props.draftChecksum;
+  }
+  return (
+    props.draftChanged ||
     snapshotValueSignature(currentSnapshotValue.value) !==
-    snapshotValueSignature(draftSnapshotValue.value),
-);
+      snapshotValueSignature(draftSnapshotValue.value)
+  );
+});
 const currentPathInfo = computed(() =>
   buildPathInfoMap(currentSnapshotValue.value),
 );
@@ -156,6 +198,264 @@ const activeChecksumShort = computed(() =>
 const releaseChecksumShort = computed(() =>
   formatShortChecksum(props.releaseChecksum),
 );
+const draftChecksumShort = computed(() =>
+  formatShortChecksum(props.draftChecksum),
+);
+const normalizedSearchKeyword = computed(() =>
+  searchKeyword.value.trim().toLowerCase(),
+);
+const searchMatches = computed(() => {
+  const keyword = normalizedSearchKeyword.value;
+  const matches: SnapshotSearchMatch[] = [];
+  if (!keyword) {
+    return matches;
+  }
+  appendSearchMatches(matches, 'current', currentTreeLines.value, keyword);
+  appendSearchMatches(matches, 'draft', draftTreeLines.value, keyword);
+  appendSearchMatches(matches, 'release', releaseTreeLines.value, keyword);
+  return matches;
+});
+const visibleSearchMatches = computed(() => {
+  const panels = new Set(visibleSearchPanels());
+  return searchMatches.value.filter((match) => panels.has(match.panel));
+});
+const activeSearchMatch = computed(
+  () => searchMatches.value[activeSearchIndex.value] || null,
+);
+const searchResultText = computed(() => {
+  const matches = visibleSearchMatches.value;
+  const total = matches.length;
+  if (!normalizedSearchKeyword.value) {
+    return '';
+  }
+  if (total === 0) {
+    return rt('snapshotSearchNoMatch');
+  }
+  const currentIndex = Math.max(
+    matches.findIndex((match) => match.index === activeSearchIndex.value),
+    0,
+  );
+  return `${currentIndex + 1}/${total}`;
+});
+
+watch(visibleSearchMatches, (matches) => {
+  if (
+    matches.length > 0 &&
+    !matches.some((match) => match.index === activeSearchIndex.value)
+  ) {
+    activeSearchIndex.value = matches[0]?.index || 0;
+  }
+  void nextTick(scrollPanelsToFirstSearchMatch);
+});
+
+watch(fullscreenOpen, (open) => {
+  if (!open) {
+    void exitBrowserFullscreen();
+    return;
+  }
+  void nextTick(scrollPanelsToFirstSearchMatch);
+});
+
+function openFullscreenDiff() {
+  syncFullscreenTheme();
+  fullscreenOpen.value = true;
+  void enterBrowserFullscreen();
+}
+
+function syncFullscreenTheme() {
+  fullscreenDarkTheme.value = Boolean(
+    document.documentElement.classList.contains('dark') ||
+    document.body.classList.contains('dark') ||
+    document.querySelector('.dark'),
+  );
+}
+
+async function enterBrowserFullscreen() {
+  if (
+    document.fullscreenElement ||
+    !document.documentElement.requestFullscreen
+  ) {
+    return;
+  }
+  try {
+    await document.documentElement.requestFullscreen();
+    openedBrowserFullscreen = true;
+  } catch {
+    openedBrowserFullscreen = false;
+  }
+}
+
+async function exitBrowserFullscreen() {
+  if (!openedBrowserFullscreen) {
+    return;
+  }
+  openedBrowserFullscreen = false;
+  if (!document.fullscreenElement || !document.exitFullscreen) {
+    return;
+  }
+  try {
+    await document.exitFullscreen();
+  } catch {
+    // 用户通过 Esc 或浏览器控件退出时，这里无需再打断关闭流程。
+  }
+}
+
+function appendSearchMatches(
+  matches: SnapshotSearchMatch[],
+  panel: SnapshotPanelKey,
+  lines: SnapshotTreeLine[],
+  keyword: string,
+) {
+  lines.forEach((line) => {
+    if (!line.text.toLowerCase().includes(keyword)) {
+      return;
+    }
+    matches.push({
+      index: matches.length,
+      key: line.key,
+      panel,
+    });
+  });
+}
+
+function isSearchLine(line: SnapshotTreeLine) {
+  const keyword = normalizedSearchKeyword.value;
+  return Boolean(keyword && line.text.toLowerCase().includes(keyword));
+}
+
+function isActiveSearchLine(panel: SnapshotPanelKey, line: SnapshotTreeLine) {
+  const active = activeSearchMatch.value;
+  return Boolean(active && active.panel === panel && active.key === line.key);
+}
+
+function searchLineIndex(panel: SnapshotPanelKey, line: SnapshotTreeLine) {
+  const match = searchMatches.value.find(
+    (item) => item.panel === panel && item.key === line.key,
+  );
+  return match?.index;
+}
+
+function submitSearchJump() {
+  activeSearchIndex.value = visibleSearchMatches.value[0]?.index || 0;
+  void nextTick(scrollPanelsToFirstSearchMatch);
+}
+
+function moveSearchMatch(step: number) {
+  const matches = visibleSearchMatches.value;
+  const total = matches.length;
+  if (total === 0) {
+    return;
+  }
+  const currentIndex = Math.max(
+    matches.findIndex((match) => match.index === activeSearchIndex.value),
+    0,
+  );
+  const nextIndex = (currentIndex + step + total) % total;
+  activeSearchIndex.value = matches[nextIndex]?.index || 0;
+  void nextTick(() => {
+    const match = activeSearchMatch.value;
+    if (match) {
+      scrollSearchMatch(match, visibleScrollGroup());
+    }
+  });
+}
+
+function visibleSearchPanels(): SnapshotPanelKey[] {
+  if (fullscreenOpen.value) {
+    return ['current', 'draft'];
+  }
+  return ['current', 'draft', 'release'];
+}
+
+function visibleScrollGroup(): SnapshotScrollGroup {
+  return fullscreenOpen.value ? 'fullscreen' : 'normal';
+}
+
+function scrollPanelsToFirstSearchMatch() {
+  if (!normalizedSearchKeyword.value || searchMatches.value.length === 0) {
+    return;
+  }
+  const group = visibleScrollGroup();
+  visibleSearchPanels().forEach((panel) => {
+    const match = searchMatches.value.find((item) => item.panel === panel);
+    if (match) {
+      scrollSearchMatch(match, group);
+    }
+  });
+}
+
+function scrollSearchMatch(
+  match: SnapshotSearchMatch,
+  group: SnapshotScrollGroup,
+) {
+  const container = codeContainerRef(group, match.panel);
+  if (!container) {
+    return;
+  }
+  const target = container.querySelector<HTMLElement>(
+    `[data-search-index="${match.index}"]`,
+  );
+  target?.scrollIntoView({ block: 'center' });
+}
+
+function codeContainerRef(group: SnapshotScrollGroup, panel: SnapshotPanelKey) {
+  if (group === 'fullscreen') {
+    if (panel === 'current') {
+      return fullscreenCurrentCodeRef.value;
+    }
+    if (panel === 'draft') {
+      return fullscreenDraftCodeRef.value;
+    }
+    return null;
+  }
+  if (panel === 'current') {
+    return currentCodeRef.value;
+  }
+  if (panel === 'draft') {
+    return draftCodeRef.value;
+  }
+  return releaseCodeRef.value;
+}
+
+function handleCodeScroll(
+  group: SnapshotScrollGroup,
+  panel: SnapshotPanelKey,
+  event: Event,
+) {
+  if (!scrollSyncEnabled.value || syncingScroll) {
+    return;
+  }
+  const source = event.currentTarget as HTMLElement | null;
+  if (!source) {
+    return;
+  }
+  const maxTop = Math.max(source.scrollHeight - source.clientHeight, 0);
+  const maxLeft = Math.max(source.scrollWidth - source.clientWidth, 0);
+  const topRatio = maxTop > 0 ? source.scrollTop / maxTop : 0;
+  const leftRatio = maxLeft > 0 ? source.scrollLeft / maxLeft : 0;
+  const panels: SnapshotPanelKey[] =
+    group === 'fullscreen'
+      ? ['current', 'draft']
+      : ['current', 'draft', 'release'];
+
+  syncingScroll = true;
+  panels.forEach((targetPanel) => {
+    if (targetPanel === panel) {
+      return;
+    }
+    const target = codeContainerRef(group, targetPanel);
+    if (!target) {
+      return;
+    }
+    target.scrollTop =
+      topRatio * Math.max(target.scrollHeight - target.clientHeight, 0);
+    target.scrollLeft =
+      leftRatio * Math.max(target.scrollWidth - target.clientWidth, 0);
+  });
+  window.requestAnimationFrame(() => {
+    syncingScroll = false;
+  });
+}
 
 function parseSnapshotText(text: string): SnapshotValue {
   if (!String(text || '').trim()) {
@@ -720,11 +1020,45 @@ function collapseAllSnapshots() {
       :description="rt('snapshotPreviewDescription')"
     />
     <div class="snapshot-diff-panel__toolbar">
-      <Radio.Group v-model:value="viewMode" button-style="solid" size="small">
-        <Radio.Button value="json">{{ rt('snapshotJsonView') }}</Radio.Button>
-        <Radio.Button value="yaml">{{ rt('snapshotYamlView') }}</Radio.Button>
-      </Radio.Group>
+      <div class="snapshot-diff-panel__toolbar-main">
+        <Radio.Group v-model:value="viewMode" button-style="solid" size="small">
+          <Radio.Button value="json">{{ rt('snapshotJsonView') }}</Radio.Button>
+          <Radio.Button value="yaml">{{ rt('snapshotYamlView') }}</Radio.Button>
+        </Radio.Group>
+        <Input
+          v-model:value="searchKeyword"
+          allow-clear
+          class="snapshot-diff-panel__search"
+          :placeholder="rt('snapshotSearchPlaceholder')"
+          size="small"
+          @press-enter="submitSearchJump"
+        />
+        <span v-if="searchResultText" class="snapshot-diff-panel__search-count">
+          {{ searchResultText }}
+        </span>
+        <Button
+          size="small"
+          :disabled="visibleSearchMatches.length === 0"
+          @click="moveSearchMatch(-1)"
+        >
+          {{ rt('snapshotSearchPrev') }}
+        </Button>
+        <Button
+          size="small"
+          :disabled="visibleSearchMatches.length === 0"
+          @click="moveSearchMatch(1)"
+        >
+          {{ rt('snapshotSearchNext') }}
+        </Button>
+      </div>
       <div class="snapshot-diff-panel__toolbar-actions">
+        <label class="snapshot-diff-panel__sync-toggle">
+          <Switch v-model:checked="scrollSyncEnabled" size="small" />
+          <span>{{ rt('snapshotScrollSync') }}</span>
+        </label>
+        <Button size="small" @click="openFullscreenDiff">
+          {{ rt('snapshotFullscreen') }}
+        </Button>
         <Button size="small" @click="expandAllSnapshots">
           {{ rt('snapshotExpandAll') }}
         </Button>
@@ -734,22 +1068,35 @@ function collapseAllSnapshots() {
       </div>
     </div>
     <div class="snapshot-diff-panel__layout">
-      <Card
-        class="snapshot-diff-panel__card"
-        size="small"
-        :title="rt('currentSnapshot')"
-      >
+      <section class="snapshot-diff-panel__card">
+        <div class="snapshot-diff-panel__card-head">
+          {{ rt('currentSnapshot') }}
+        </div>
         <div class="snapshot-diff-panel__meta">
           <Tag :color="sourceTone">{{ source || '-' }}</Tag>
           <Tag>{{ rt('version') }} {{ activeVersion || 0 }}</Tag>
           <Tag>{{ activeChecksumShort }}</Tag>
         </div>
-        <div class="snapshot-diff-panel__code">
+        <div
+          ref="currentCodeRef"
+          class="snapshot-diff-panel__code"
+          @scroll="handleCodeScroll('normal', 'current', $event)"
+        >
           <div
             v-for="line in currentTreeLines"
             :key="line.key"
             class="snapshot-diff-panel__line"
-            :class="treeLineClass(line.kind)"
+            :class="[
+              treeLineClass(line.kind),
+              {
+                'snapshot-diff-panel__line--search': isSearchLine(line),
+                'snapshot-diff-panel__line--active-search': isActiveSearchLine(
+                  'current',
+                  line,
+                ),
+              },
+            ]"
+            :data-search-index="searchLineIndex('current', line)"
             :style="{ paddingLeft: treeLinePadding(line.depth) }"
           >
             <span class="snapshot-diff-panel__line-marker">
@@ -775,19 +1122,35 @@ function collapseAllSnapshots() {
             </span>
           </div>
         </div>
-      </Card>
+      </section>
 
-      <Card
-        class="snapshot-diff-panel__card"
-        size="small"
-        :title="rt('draftDiffPreview')"
-      >
-        <div class="snapshot-diff-panel__code">
+      <section class="snapshot-diff-panel__card">
+        <div class="snapshot-diff-panel__card-head">
+          {{ rt('draftDiffPreview') }}
+        </div>
+        <div class="snapshot-diff-panel__meta">
+          <Tag>{{ draftChecksumShort }}</Tag>
+        </div>
+        <div
+          ref="draftCodeRef"
+          class="snapshot-diff-panel__code"
+          @scroll="handleCodeScroll('normal', 'draft', $event)"
+        >
           <div
             v-for="line in draftTreeLines"
             :key="line.key"
             class="snapshot-diff-panel__line"
-            :class="treeLineClass(line.kind)"
+            :class="[
+              treeLineClass(line.kind),
+              {
+                'snapshot-diff-panel__line--search': isSearchLine(line),
+                'snapshot-diff-panel__line--active-search': isActiveSearchLine(
+                  'draft',
+                  line,
+                ),
+              },
+            ]"
+            :data-search-index="searchLineIndex('draft', line)"
             :style="{ paddingLeft: treeLinePadding(line.depth) }"
           >
             <span class="snapshot-diff-panel__line-marker">
@@ -813,13 +1176,12 @@ function collapseAllSnapshots() {
             </span>
           </div>
         </div>
-      </Card>
+      </section>
 
-      <Card
-        class="snapshot-diff-panel__card"
-        size="small"
-        :title="rt('releaseSnapshotDetail')"
-      >
+      <section class="snapshot-diff-panel__card">
+        <div class="snapshot-diff-panel__card-head">
+          {{ rt('releaseSnapshotDetail') }}
+        </div>
         <div class="snapshot-diff-panel__meta">
           <Tag v-if="releaseSelected">
             {{ rt('version') }} {{ releaseVersion || 0 }}
@@ -828,14 +1190,26 @@ function collapseAllSnapshots() {
         </div>
         <div
           v-if="releaseSelected && releaseTreeLines.length > 0"
+          ref="releaseCodeRef"
           class="snapshot-diff-panel__code"
           :class="{ 'snapshot-diff-panel__code--loading': releaseLoading }"
+          @scroll="handleCodeScroll('normal', 'release', $event)"
         >
           <div
             v-for="line in releaseTreeLines"
             :key="line.key"
             class="snapshot-diff-panel__line"
-            :class="treeLineClass(line.kind)"
+            :class="[
+              treeLineClass(line.kind),
+              {
+                'snapshot-diff-panel__line--search': isSearchLine(line),
+                'snapshot-diff-panel__line--active-search': isActiveSearchLine(
+                  'release',
+                  line,
+                ),
+              },
+            ]"
+            :data-search-index="searchLineIndex('release', line)"
             :style="{ paddingLeft: treeLinePadding(line.depth) }"
           >
             <span class="snapshot-diff-panel__line-marker">
@@ -863,19 +1237,243 @@ function collapseAllSnapshots() {
         </div>
         <pre
           v-else
+          ref="releaseCodeRef"
           class="snapshot-diff-panel__code"
           :class="{ 'snapshot-diff-panel__code--loading': releaseLoading }"
+          @scroll="handleCodeScroll('normal', 'release', $event)"
           v-text="releaseFallbackText || rt('selectReleaseHint')"
         ></pre>
-      </Card>
+      </section>
     </div>
+    <Modal
+      v-model:open="fullscreenOpen"
+      :footer="null"
+      :mask-style="fullscreenMaskStyle"
+      :title="rt('snapshotFullscreen')"
+      width="100vw"
+      wrap-class-name="snapshot-diff-panel__fullscreen-wrap"
+    >
+      <div
+        class="snapshot-diff-panel snapshot-diff-panel__fullscreen-shell"
+        :class="{ 'snapshot-diff-panel--dark': fullscreenDarkTheme }"
+      >
+        <div class="snapshot-diff-panel__fullscreen-toolbar">
+          <Input
+            v-model:value="searchKeyword"
+            allow-clear
+            class="snapshot-diff-panel__search"
+            :placeholder="rt('snapshotSearchPlaceholder')"
+            size="small"
+            @press-enter="submitSearchJump"
+          />
+          <span
+            v-if="searchResultText"
+            class="snapshot-diff-panel__search-count"
+          >
+            {{ searchResultText }}
+          </span>
+          <Button
+            size="small"
+            :disabled="visibleSearchMatches.length === 0"
+            @click="moveSearchMatch(-1)"
+          >
+            {{ rt('snapshotSearchPrev') }}
+          </Button>
+          <Button
+            size="small"
+            :disabled="visibleSearchMatches.length === 0"
+            @click="moveSearchMatch(1)"
+          >
+            {{ rt('snapshotSearchNext') }}
+          </Button>
+          <label class="snapshot-diff-panel__sync-toggle">
+            <Switch v-model:checked="scrollSyncEnabled" size="small" />
+            <span>{{ rt('snapshotScrollSync') }}</span>
+          </label>
+        </div>
+        <div class="snapshot-diff-panel__fullscreen-layout">
+          <section
+            class="snapshot-diff-panel__card snapshot-diff-panel__card--fullscreen"
+          >
+            <div class="snapshot-diff-panel__card-head">
+              {{ rt('currentSnapshot') }}
+            </div>
+            <div class="snapshot-diff-panel__meta">
+              <Tag :color="sourceTone">{{ source || '-' }}</Tag>
+              <Tag>{{ rt('version') }} {{ activeVersion || 0 }}</Tag>
+              <Tag>{{ activeChecksumShort }}</Tag>
+            </div>
+            <div
+              ref="fullscreenCurrentCodeRef"
+              class="snapshot-diff-panel__code"
+              @scroll="handleCodeScroll('fullscreen', 'current', $event)"
+            >
+              <div
+                v-for="line in currentTreeLines"
+                :key="`fullscreen-current-${line.key}`"
+                class="snapshot-diff-panel__line"
+                :class="[
+                  treeLineClass(line.kind),
+                  {
+                    'snapshot-diff-panel__line--search': isSearchLine(line),
+                    'snapshot-diff-panel__line--active-search':
+                      isActiveSearchLine('current', line),
+                  },
+                ]"
+                :data-search-index="searchLineIndex('current', line)"
+                :style="{ paddingLeft: treeLinePadding(line.depth) }"
+              >
+                <span class="snapshot-diff-panel__line-marker">
+                  {{ treeLineMarker(line.kind) }}
+                </span>
+                <button
+                  v-if="line.collapsible"
+                  class="snapshot-diff-panel__node-toggle"
+                  type="button"
+                  @click="toggleCollapsedPath(line.path)"
+                >
+                  {{ line.collapsed ? '›' : '⌄' }}
+                </button>
+                <span
+                  v-else
+                  class="snapshot-diff-panel__node-toggle-spacer"
+                ></span>
+                <span class="snapshot-diff-panel__line-text">
+                  <span
+                    v-for="(token, tokenIndex) in line.tokens"
+                    :key="`fullscreen-current-${line.key}-${tokenIndex}`"
+                    :class="treeTokenClass(token.kind)"
+                  >
+                    {{ token.text }}
+                  </span>
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <section
+            class="snapshot-diff-panel__card snapshot-diff-panel__card--fullscreen"
+          >
+            <div class="snapshot-diff-panel__card-head">
+              {{ rt('draftDiffPreview') }}
+            </div>
+            <div class="snapshot-diff-panel__meta">
+              <Tag>{{ draftChecksumShort }}</Tag>
+            </div>
+            <div
+              ref="fullscreenDraftCodeRef"
+              class="snapshot-diff-panel__code"
+              @scroll="handleCodeScroll('fullscreen', 'draft', $event)"
+            >
+              <div
+                v-for="line in draftTreeLines"
+                :key="`fullscreen-draft-${line.key}`"
+                class="snapshot-diff-panel__line"
+                :class="[
+                  treeLineClass(line.kind),
+                  {
+                    'snapshot-diff-panel__line--search': isSearchLine(line),
+                    'snapshot-diff-panel__line--active-search':
+                      isActiveSearchLine('draft', line),
+                  },
+                ]"
+                :data-search-index="searchLineIndex('draft', line)"
+                :style="{ paddingLeft: treeLinePadding(line.depth) }"
+              >
+                <span class="snapshot-diff-panel__line-marker">
+                  {{ treeLineMarker(line.kind) }}
+                </span>
+                <button
+                  v-if="line.collapsible"
+                  class="snapshot-diff-panel__node-toggle"
+                  type="button"
+                  @click="toggleCollapsedPath(line.path)"
+                >
+                  {{ line.collapsed ? '›' : '⌄' }}
+                </button>
+                <span
+                  v-else
+                  class="snapshot-diff-panel__node-toggle-spacer"
+                ></span>
+                <span class="snapshot-diff-panel__line-text">
+                  <span
+                    v-for="(token, tokenIndex) in line.tokens"
+                    :key="`fullscreen-draft-${line.key}-${tokenIndex}`"
+                    :class="treeTokenClass(token.kind)"
+                  >
+                    {{ token.text }}
+                  </span>
+                </span>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </Modal>
   </div>
 </template>
 
 <style scoped>
 .snapshot-diff-panel {
+  --snapshot-diff-page-bg: var(
+    --vben-background-color,
+    hsl(var(--background, 0 0% 100%))
+  );
+  --snapshot-diff-soft-bg: var(
+    --vben-background-soft,
+    hsl(var(--background-deep, 216 20.11% 95.47%))
+  );
+  --snapshot-diff-panel-bg: hsl(var(--card, 0 0% 100%));
+  --snapshot-diff-text: var(
+    --vben-text-color,
+    hsl(var(--foreground, 210 6% 21%))
+  );
+  --snapshot-diff-text-secondary: var(
+    --vben-text-color-secondary,
+    hsl(var(--muted-foreground, 240 3.8% 46.1%))
+  );
+  --snapshot-diff-border: var(
+    --vben-border-color,
+    hsl(var(--border, 240 5.9% 90%))
+  );
+  --snapshot-diff-primary: var(
+    --ant-color-primary,
+    var(--vben-primary-color, hsl(var(--primary, 212 100% 45%)))
+  );
+  --snapshot-diff-code-bg: hsl(var(--background, 0 0% 100%));
+  --snapshot-diff-code-text: hsl(var(--foreground, 210 6% 21%));
+  --snapshot-diff-token-boolean: #6d28d9;
+  --snapshot-diff-token-key: #0369a1;
+  --snapshot-diff-token-null: #dc2626;
+  --snapshot-diff-token-number: #b45309;
+  --snapshot-diff-token-plain: #334155;
+  --snapshot-diff-token-punctuation: #64748b;
+  --snapshot-diff-token-string: #047857;
+
   display: grid;
   gap: 8px;
+}
+
+:global(.dark) .snapshot-diff-panel,
+.snapshot-diff-panel--dark {
+  --snapshot-diff-page-bg: var(
+    --vben-background-color,
+    hsl(var(--background, 222.34deg 10.43% 12.27%))
+  );
+  --snapshot-diff-soft-bg: var(
+    --vben-background-soft,
+    hsl(var(--background-deep, 220deg 13.06% 9%))
+  );
+  --snapshot-diff-panel-bg: hsl(var(--card, 222.34deg 10.43% 12.27%));
+  --snapshot-diff-code-bg: hsl(var(--background-deep, 220deg 13.06% 9%));
+  --snapshot-diff-code-text: hsl(var(--foreground, 0 0% 95%));
+  --snapshot-diff-token-boolean: #c4b5fd;
+  --snapshot-diff-token-key: #7dd3fc;
+  --snapshot-diff-token-null: #fca5a5;
+  --snapshot-diff-token-number: #fbbf24;
+  --snapshot-diff-token-plain: #cbd5e1;
+  --snapshot-diff-token-punctuation: #94a3b8;
+  --snapshot-diff-token-string: #a7f3d0;
 }
 
 .snapshot-diff-panel__alert {
@@ -900,37 +1498,74 @@ function collapseAllSnapshots() {
   justify-content: space-between;
 }
 
+.snapshot-diff-panel__toolbar-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
 .snapshot-diff-panel__toolbar-actions {
   display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
   gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.snapshot-diff-panel__search {
+  width: min(280px, 100%);
+}
+
+.snapshot-diff-panel__search-count {
+  min-width: 44px;
+  font-size: 12px;
+  line-height: 24px;
+  color: var(--snapshot-diff-text-secondary);
+}
+
+.snapshot-diff-panel__sync-toggle {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  height: 24px;
+  font-size: 12px;
+  color: var(--snapshot-diff-text-secondary);
 }
 
 .snapshot-diff-panel__layout {
   display: grid;
-  grid-template-columns: repeat(3, minmax(360px, 1fr));
-  gap: 8px;
-  align-items: start;
+  grid-template-columns: repeat(3, minmax(320px, 1fr));
+  gap: 6px;
+  align-items: stretch;
+  min-height: 0;
 }
 
 .snapshot-diff-panel__card {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  height: min(66vh, 680px);
+  height: min(74vh, 760px);
   overflow: hidden;
+  color: var(--snapshot-diff-text);
+  background: var(--snapshot-diff-panel-bg);
+  border: 1px solid var(--snapshot-diff-border);
+  border-radius: 6px;
 }
 
-.snapshot-diff-panel__card :deep(.ant-card-head) {
+.snapshot-diff-panel__card-head {
   flex: none;
-}
-
-.snapshot-diff-panel__card :deep(.ant-card-body) {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  height: 0;
-  min-height: 0;
+  padding: 8px 10px 6px;
   overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--snapshot-diff-text);
+  white-space: nowrap;
 }
 
 .snapshot-diff-panel__meta {
@@ -938,23 +1573,26 @@ function collapseAllSnapshots() {
   flex: none;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 8px;
+  min-height: 31px;
+  padding: 0 10px 6px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--snapshot-diff-border);
 }
 
 .snapshot-diff-panel__code {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   max-height: none;
-  padding: 12px;
+  padding: 8px 10px 10px;
   margin: 0;
   overflow: auto;
   font-size: 12px;
   line-height: 1.6;
-  color: var(--vben-text-color);
+  color: var(--snapshot-diff-code-text);
   white-space: pre-wrap;
-  background: var(--vben-background-soft);
-  border: 1px solid var(--vben-border-color);
-  border-radius: 6px;
+  background: var(--snapshot-diff-code-bg);
+  border: 0;
+  border-radius: 0;
 }
 
 .snapshot-diff-panel__code--loading {
@@ -984,10 +1622,20 @@ function collapseAllSnapshots() {
   box-shadow: inset 3px 0 0 hsl(0deg 84% 60% / 72%);
 }
 
+.snapshot-diff-panel__line--search {
+  background: hsl(45deg 93% 47% / 18%);
+}
+
+.snapshot-diff-panel__line--active-search {
+  outline: 1px solid hsl(45deg 93% 47% / 86%);
+  outline-offset: -1px;
+  background: hsl(45deg 93% 47% / 28%);
+}
+
 .snapshot-diff-panel__line-marker {
   overflow: hidden;
   font-weight: 700;
-  color: var(--vben-text-color-secondary);
+  color: var(--snapshot-diff-text-secondary);
   text-align: center;
   user-select: none;
 }
@@ -1011,14 +1659,14 @@ function collapseAllSnapshots() {
 }
 
 .snapshot-diff-panel__node-toggle {
-  color: var(--vben-text-color-secondary);
+  color: var(--snapshot-diff-text-secondary);
   cursor: pointer;
   background: transparent;
   border: 0;
 }
 
 .snapshot-diff-panel__node-toggle:hover {
-  color: var(--vben-text-color);
+  color: var(--snapshot-diff-text);
 }
 
 .snapshot-diff-panel__line-text {
@@ -1028,36 +1676,182 @@ function collapseAllSnapshots() {
 
 .snapshot-diff-panel__token--key {
   font-weight: 600;
-  color: #7dd3fc;
+  color: var(--snapshot-diff-token-key);
 }
 
 .snapshot-diff-panel__token--punctuation {
-  color: #94a3b8;
+  color: var(--snapshot-diff-token-punctuation);
 }
 
 .snapshot-diff-panel__token--string {
-  color: #a7f3d0;
+  color: var(--snapshot-diff-token-string);
 }
 
 .snapshot-diff-panel__token--number {
-  color: #fbbf24;
+  color: var(--snapshot-diff-token-number);
 }
 
 .snapshot-diff-panel__token--boolean {
-  color: #c4b5fd;
+  color: var(--snapshot-diff-token-boolean);
 }
 
 .snapshot-diff-panel__token--null {
-  color: #fca5a5;
+  color: var(--snapshot-diff-token-null);
 }
 
 .snapshot-diff-panel__token--plain {
-  color: #cbd5e1;
+  color: var(--snapshot-diff-token-plain);
+}
+
+.snapshot-diff-panel__fullscreen-layout {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--snapshot-diff-fullscreen-panel-gap);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.snapshot-diff-panel__fullscreen-shell {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--snapshot-diff-page-bg);
+}
+
+.snapshot-diff-panel__fullscreen-toolbar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 0 0 var(--snapshot-diff-fullscreen-toolbar-gap);
+  margin-bottom: var(--snapshot-diff-fullscreen-toolbar-gap);
+  color: var(--snapshot-diff-text);
+  background: transparent;
+  border-bottom: 1px solid var(--snapshot-diff-border);
+  box-shadow: none;
+}
+
+.snapshot-diff-panel__fullscreen-toolbar .snapshot-diff-panel__search {
+  width: min(360px, 100%);
+}
+
+.snapshot-diff-panel__fullscreen-toolbar :deep(.ant-input-affix-wrapper),
+.snapshot-diff-panel__fullscreen-toolbar :deep(.ant-btn) {
+  color: var(--snapshot-diff-text);
+  background: var(--snapshot-diff-page-bg);
+  border-color: var(--snapshot-diff-border);
+}
+
+.snapshot-diff-panel__fullscreen-toolbar
+  :deep(.ant-input-affix-wrapper-focused),
+.snapshot-diff-panel__fullscreen-toolbar :deep(.ant-btn:hover) {
+  border-color: var(--snapshot-diff-primary);
+}
+
+.snapshot-diff-panel__fullscreen-toolbar :deep(.ant-input::placeholder) {
+  color: var(--snapshot-diff-text-secondary);
+}
+
+.snapshot-diff-panel__card--fullscreen {
+  height: 100%;
+}
+
+:global(.snapshot-diff-panel__fullscreen-wrap) {
+  --snapshot-diff-fullscreen-gap: 4px;
+  --snapshot-diff-fullscreen-inset: 8px;
+  --snapshot-diff-fullscreen-panel-gap: 6px;
+  --snapshot-diff-fullscreen-toolbar-gap: 2px;
+
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--vben-background-color, hsl(var(--background, 0 0% 100%)));
+}
+
+:global(.snapshot-diff-panel__fullscreen-wrap .ant-modal) {
+  top: 0;
+  width: 100vw !important;
+  max-width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  padding-bottom: 0;
+  margin: 0;
+}
+
+:global(.snapshot-diff-panel__fullscreen-wrap .ant-modal-content) {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  padding: 0;
+  overflow: hidden;
+  background: var(--vben-background-color, hsl(var(--background, 0 0% 100%)));
+  border-radius: 0;
+  box-shadow: none;
+}
+
+:global(.snapshot-diff-panel__fullscreen-wrap .ant-modal-header) {
+  flex: none;
+  padding: 8px var(--snapshot-diff-fullscreen-inset) 6px;
+  margin-bottom: 0;
+  background: var(--vben-background-color, hsl(var(--background, 0 0% 100%)));
+  border-bottom: 1px solid
+    var(--vben-border-color, hsl(var(--border, 240 5.9% 90%)));
+}
+
+:global(.snapshot-diff-panel__fullscreen-wrap .ant-modal-title) {
+  color: var(--vben-text-color, hsl(var(--foreground, 210 6% 21%)));
+}
+
+:global(.snapshot-diff-panel__fullscreen-wrap .ant-modal-body) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  padding: var(--snapshot-diff-fullscreen-gap)
+    var(--snapshot-diff-fullscreen-inset) var(--snapshot-diff-fullscreen-inset);
+  overflow: hidden;
+  background: var(--vben-background-color, hsl(var(--background, 0 0% 100%)));
+}
+
+:global(.snapshot-diff-panel__fullscreen-wrap .ant-modal-close) {
+  inset-inline-end: 8px;
+  top: 4px;
+  color: var(
+    --vben-text-color-secondary,
+    hsl(var(--muted-foreground, 240 3.8% 46.1%))
+  );
+}
+
+:global(.snapshot-diff-panel__fullscreen-wrap .ant-modal-close:hover) {
+  color: var(--vben-text-color, hsl(var(--foreground, 210 6% 21%)));
+  background: var(
+    --vben-background-soft,
+    hsl(var(--background-deep, 216 20.11% 95.47%))
+  );
 }
 
 @media (max-width: 1200px) {
   .snapshot-diff-panel__layout {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .snapshot-diff-panel__fullscreen-layout {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .snapshot-diff-panel__card--fullscreen {
+    height: min(58vh, 560px);
+    min-height: 320px;
   }
 }
 
@@ -1069,6 +1863,14 @@ function collapseAllSnapshots() {
   .snapshot-diff-panel__toolbar {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .snapshot-diff-panel__toolbar-actions {
+    justify-content: flex-start;
+  }
+
+  .snapshot-diff-panel__search {
+    width: 100%;
   }
 
   .snapshot-diff-panel__card {

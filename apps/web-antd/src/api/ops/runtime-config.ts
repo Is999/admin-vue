@@ -44,6 +44,12 @@ export namespace RuntimeConfigApi {
     draft: DraftCount;
     /** 当前运行态快照 */
     currentSnapshot: Snapshot;
+    /** 当前全量草稿快照 */
+    draftSnapshot: Snapshot;
+    /** 草稿快照 SHA256 */
+    draftChecksum: string;
+    /** 草稿快照是否不同于当前 active 快照 */
+    draftChanged: boolean;
   }
 
   /** 周期任务查询参数 */

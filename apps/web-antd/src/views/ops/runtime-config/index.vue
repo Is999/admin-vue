@@ -74,6 +74,18 @@ type TablePage = {
 };
 type RuntimeActionType = 'import' | 'publish' | 'rollback';
 type RuntimeEnabledFilter = 'all' | 'disabled' | 'enabled';
+type RuntimeStatMetric = {
+  key: string;
+  label: string;
+  value: string;
+};
+type RuntimeStatCard = {
+  description: string;
+  key: string;
+  label: string;
+  metrics?: RuntimeStatMetric[];
+  value?: string;
+};
 
 // RUNTIME_CONFIG_MFA_SCENARIO 与后端 MFAScenarioRuntimeConfigManage 保持一致。
 const RUNTIME_CONFIG_MFA_SCENARIO = 12;
@@ -146,7 +158,7 @@ const activeState = computed(
       publishedAt: '',
     },
 );
-const overviewCards = computed(() => [
+const overviewCards = computed<RuntimeStatCard[]>(() => [
   {
     key: 'source',
     label: rt('source'),
@@ -171,7 +183,18 @@ const overviewCards = computed(() => [
   {
     key: 'draft',
     label: rt('draftCount'),
-    value: `${overview.value?.draft?.periodicTasks || 0}/${overview.value?.draft?.archiveJobs || 0}`,
+    metrics: [
+      {
+        key: 'periodic',
+        label: rt('draftPeriodicTasks'),
+        value: String(overview.value?.draft?.periodicTasks || 0),
+      },
+      {
+        key: 'archive',
+        label: rt('draftArchiveJobs'),
+        value: String(overview.value?.draft?.archiveJobs || 0),
+      },
+    ],
     description: rt('draftCountDesc'),
   },
 ]);
@@ -213,7 +236,14 @@ const periodicPageStats = computed(() => {
     {
       key: 'schedule',
       label: rt('scheduleMode'),
-      value: `${cronCount} / ${intervalCount}`,
+      metrics: [
+        { key: 'cron', label: rt('scheduleCron'), value: String(cronCount) },
+        {
+          key: 'every',
+          label: rt('scheduleEvery'),
+          value: String(intervalCount),
+        },
+      ],
       description: rt('scheduleModeDesc'),
     },
   ];
@@ -225,10 +255,7 @@ const currentSnapshotText = computed(() =>
 );
 const draftSnapshotText = computed(() =>
   safePrettyJson(
-    normalizeSnapshotDiffValue({
-      archiveJobs: archiveRows.value,
-      taskPeriodic: periodicRows.value,
-    }),
+    normalizeSnapshotDiffValue(overview.value?.draftSnapshot || {}),
   ),
 );
 const validateChecksumShort = computed(() =>
@@ -809,14 +836,32 @@ function runtimeActionSuccess(type: RuntimeActionType) {
           :loading="loadingOverview"
           size="small"
         >
-          <div class="runtime-overview-label">{{ item.label }}</div>
-          <div class="runtime-overview-value">
+          <div v-if="item.metrics?.length" class="runtime-stat-heading">
+            <div class="runtime-overview-label">{{ item.label }}</div>
+            <div class="runtime-overview-desc runtime-stat-inline-desc">
+              {{ item.description }}
+            </div>
+          </div>
+          <div v-else class="runtime-overview-label">{{ item.label }}</div>
+          <div v-if="item.metrics?.length" class="runtime-stat-metrics">
+            <div
+              v-for="metric in item.metrics"
+              :key="metric.key"
+              class="runtime-stat-metric"
+            >
+              <div class="runtime-stat-metric-value">{{ metric.value }}</div>
+              <div class="runtime-stat-metric-label">{{ metric.label }}</div>
+            </div>
+          </div>
+          <div v-else class="runtime-overview-value">
             <Tag v-if="item.key === 'source'" :color="sourceTone">
               {{ item.value }}
             </Tag>
             <span v-else>{{ item.value }}</span>
           </div>
-          <div class="runtime-overview-desc">{{ item.description }}</div>
+          <div v-if="!item.metrics?.length" class="runtime-overview-desc">
+            {{ item.description }}
+          </div>
         </Card>
       </div>
 
@@ -829,9 +874,40 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 :key="item.key"
                 class="runtime-periodic-stat"
               >
-                <div class="runtime-periodic-stat-label">{{ item.label }}</div>
-                <div class="runtime-periodic-stat-value">{{ item.value }}</div>
-                <div class="runtime-periodic-stat-desc">
+                <div v-if="item.metrics?.length" class="runtime-stat-heading">
+                  <div class="runtime-periodic-stat-label">
+                    {{ item.label }}
+                  </div>
+                  <div
+                    class="runtime-periodic-stat-desc runtime-stat-inline-desc"
+                  >
+                    {{ item.description }}
+                  </div>
+                </div>
+                <div v-else class="runtime-periodic-stat-label">
+                  {{ item.label }}
+                </div>
+                <div v-if="item.metrics?.length" class="runtime-stat-metrics">
+                  <div
+                    v-for="metric in item.metrics"
+                    :key="metric.key"
+                    class="runtime-stat-metric"
+                  >
+                    <div class="runtime-stat-metric-value">
+                      {{ metric.value }}
+                    </div>
+                    <div class="runtime-stat-metric-label">
+                      {{ metric.label }}
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="runtime-periodic-stat-value">
+                  {{ item.value }}
+                </div>
+                <div
+                  v-if="!item.metrics?.length"
+                  class="runtime-periodic-stat-desc"
+                >
                   {{ item.description }}
                 </div>
               </div>
@@ -1225,6 +1301,8 @@ function runtimeActionSuccess(type: RuntimeActionType) {
             :active-checksum="activeState.activeChecksum"
             :active-version="activeState.activeVersion || 0"
             :current-snapshot-text="currentSnapshotText"
+            :draft-changed="Boolean(overview?.draftChanged)"
+            :draft-checksum="overview?.draftChecksum || ''"
             :draft-snapshot-text="draftSnapshotText"
             :release-checksum="selectedRelease?.checksum || ''"
             :release-loading="releaseDetailLoading"
@@ -1845,6 +1923,55 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   font-size: 20px;
   font-weight: 600;
   color: var(--vben-text-color);
+}
+
+.runtime-stat-heading {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.runtime-stat-inline-desc {
+  flex: 1;
+  min-width: 0;
+}
+
+.runtime-stat-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+  gap: 6px;
+  min-height: 42px;
+  margin: 6px 0 0;
+}
+
+.runtime-stat-metric {
+  min-width: 0;
+  padding: 6px 8px;
+  overflow: hidden;
+  background: hsl(var(--background-deep, var(--background)));
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+}
+
+.runtime-stat-metric-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.15;
+  color: var(--vben-text-color);
+  white-space: nowrap;
+}
+
+.runtime-stat-metric-label {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--vben-text-color-secondary);
+  white-space: nowrap;
 }
 
 .runtime-tabs :deep(.ant-tabs-nav) {
