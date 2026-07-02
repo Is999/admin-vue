@@ -62,7 +62,8 @@ type SnapshotPathInfo = {
   type: string;
 };
 
-type SnapshotSearchMatch = {
+// SnapshotLineMatch 表示搜索或差异跳转命中的快照行。
+type SnapshotLineMatch = {
   index: number;
   key: string;
   panel: SnapshotPanelKey;
@@ -123,6 +124,8 @@ const viewMode = ref<SnapshotViewMode>('json');
 const collapsedPaths = ref(new Set<string>());
 const searchKeyword = ref('');
 const activeSearchIndex = ref(0);
+// diffJumpStarted 避免空搜索时自动高亮第一处差异。
+const diffJumpStarted = ref(false);
 const scrollSyncEnabled = ref(true);
 const fullscreenOpen = ref(false);
 const fullscreenDarkTheme = ref(false);
@@ -206,7 +209,7 @@ const normalizedSearchKeyword = computed(() =>
 );
 const searchMatches = computed(() => {
   const keyword = normalizedSearchKeyword.value;
-  const matches: SnapshotSearchMatch[] = [];
+  const matches: SnapshotLineMatch[] = [];
   if (!keyword) {
     return matches;
   }
@@ -215,21 +218,47 @@ const searchMatches = computed(() => {
   appendSearchMatches(matches, 'release', releaseTreeLines.value, keyword);
   return matches;
 });
+const diffMatches = computed(() => {
+  const matches: SnapshotLineMatch[] = [];
+  appendDiffMatches(matches, 'current', currentTreeLines.value);
+  appendDiffMatches(matches, 'draft', draftTreeLines.value);
+  appendDiffMatches(matches, 'release', releaseTreeLines.value);
+  return matches;
+});
 const visibleSearchMatches = computed(() => {
   const panels = new Set(visibleSearchPanels());
   return searchMatches.value.filter((match) => panels.has(match.panel));
 });
-const activeSearchMatch = computed(
-  () => searchMatches.value[activeSearchIndex.value] || null,
+const visibleDiffMatches = computed(() => {
+  const panels = new Set(visibleSearchPanels());
+  return diffMatches.value.filter((match) => panels.has(match.panel));
+});
+const visibleJumpMatches = computed(() =>
+  normalizedSearchKeyword.value
+    ? visibleSearchMatches.value
+    : visibleDiffMatches.value,
 );
-const searchResultText = computed(() => {
-  const matches = visibleSearchMatches.value;
+const activeJumpMatch = computed(() => {
+  if (normalizedSearchKeyword.value) {
+    return searchMatches.value[activeSearchIndex.value] || null;
+  }
+  if (!diffJumpStarted.value) {
+    return null;
+  }
+  return diffMatches.value[activeSearchIndex.value] || null;
+});
+const jumpResultText = computed(() => {
+  const hasKeyword = Boolean(normalizedSearchKeyword.value);
+  const matches = visibleJumpMatches.value;
   const total = matches.length;
-  if (!normalizedSearchKeyword.value) {
+  if (!hasKeyword && !diffJumpStarted.value) {
     return '';
   }
-  if (total === 0) {
+  if (hasKeyword && total === 0) {
     return rt('snapshotSearchNoMatch');
+  }
+  if (total === 0) {
+    return '';
   }
   const currentIndex = Math.max(
     matches.findIndex((match) => match.index === activeSearchIndex.value),
@@ -238,7 +267,15 @@ const searchResultText = computed(() => {
   return `${currentIndex + 1}/${total}`;
 });
 
+watch(normalizedSearchKeyword, () => {
+  activeSearchIndex.value = 0;
+  diffJumpStarted.value = false;
+});
+
 watch(visibleSearchMatches, (matches) => {
+  if (!normalizedSearchKeyword.value) {
+    return;
+  }
   if (
     matches.length > 0 &&
     !matches.some((match) => match.index === activeSearchIndex.value)
@@ -301,7 +338,7 @@ async function exitBrowserFullscreen() {
 }
 
 function appendSearchMatches(
-  matches: SnapshotSearchMatch[],
+  matches: SnapshotLineMatch[],
   panel: SnapshotPanelKey,
   lines: SnapshotTreeLine[],
   keyword: string,
@@ -318,45 +355,79 @@ function appendSearchMatches(
   });
 }
 
+// appendDiffMatches 收集当前可跳转的新增和删除差异行。
+function appendDiffMatches(
+  matches: SnapshotLineMatch[],
+  panel: SnapshotPanelKey,
+  lines: SnapshotTreeLine[],
+) {
+  lines.forEach((line) => {
+    if (line.kind === 'same') {
+      return;
+    }
+    matches.push({
+      index: matches.length,
+      key: line.key,
+      panel,
+    });
+  });
+}
+
 function isSearchLine(line: SnapshotTreeLine) {
   const keyword = normalizedSearchKeyword.value;
   return Boolean(keyword && line.text.toLowerCase().includes(keyword));
 }
 
-function isActiveSearchLine(panel: SnapshotPanelKey, line: SnapshotTreeLine) {
-  const active = activeSearchMatch.value;
+function isActiveJumpLine(panel: SnapshotPanelKey, line: SnapshotTreeLine) {
+  const active = activeJumpMatch.value;
   return Boolean(active && active.panel === panel && active.key === line.key);
 }
 
-function searchLineIndex(panel: SnapshotPanelKey, line: SnapshotTreeLine) {
-  const match = searchMatches.value.find(
+function jumpLineIndex(panel: SnapshotPanelKey, line: SnapshotTreeLine) {
+  const matches = normalizedSearchKeyword.value
+    ? searchMatches.value
+    : diffMatches.value;
+  const match = matches.find(
     (item) => item.panel === panel && item.key === line.key,
   );
   return match?.index;
 }
 
 function submitSearchJump() {
+  if (!normalizedSearchKeyword.value) {
+    diffJumpStarted.value = false;
+    moveJumpMatch(1);
+    return;
+  }
   activeSearchIndex.value = visibleSearchMatches.value[0]?.index || 0;
   void nextTick(scrollPanelsToFirstSearchMatch);
 }
 
-function moveSearchMatch(step: number) {
-  const matches = visibleSearchMatches.value;
+function moveJumpMatch(step: number) {
+  const matches = visibleJumpMatches.value;
   const total = matches.length;
   if (total === 0) {
     return;
   }
-  const currentIndex = Math.max(
-    matches.findIndex((match) => match.index === activeSearchIndex.value),
-    0,
+  const currentIndex = matches.findIndex(
+    (match) => match.index === activeSearchIndex.value,
   );
-  const nextIndex = (currentIndex + step + total) % total;
-  activeSearchIndex.value = matches[nextIndex]?.index || 0;
+  let nextIndex = 0;
+  if (!normalizedSearchKeyword.value && !diffJumpStarted.value) {
+    nextIndex = step >= 0 ? 0 : total - 1;
+  } else if (currentIndex === -1) {
+    nextIndex = step >= 0 ? 0 : total - 1;
+  } else {
+    nextIndex = (currentIndex + step + total) % total;
+  }
+  const match = matches[nextIndex];
+  if (!match) {
+    return;
+  }
+  activeSearchIndex.value = match.index;
+  diffJumpStarted.value = !normalizedSearchKeyword.value;
   void nextTick(() => {
-    const match = activeSearchMatch.value;
-    if (match) {
-      scrollSearchMatch(match, visibleScrollGroup());
-    }
+    scrollJumpMatch(match, visibleScrollGroup());
   });
 }
 
@@ -379,21 +450,18 @@ function scrollPanelsToFirstSearchMatch() {
   visibleSearchPanels().forEach((panel) => {
     const match = searchMatches.value.find((item) => item.panel === panel);
     if (match) {
-      scrollSearchMatch(match, group);
+      scrollJumpMatch(match, group);
     }
   });
 }
 
-function scrollSearchMatch(
-  match: SnapshotSearchMatch,
-  group: SnapshotScrollGroup,
-) {
+function scrollJumpMatch(match: SnapshotLineMatch, group: SnapshotScrollGroup) {
   const container = codeContainerRef(group, match.panel);
   if (!container) {
     return;
   }
   const target = container.querySelector<HTMLElement>(
-    `[data-search-index="${match.index}"]`,
+    `[data-jump-index="${match.index}"]`,
   );
   target?.scrollIntoView({ block: 'center' });
 }
@@ -508,8 +576,13 @@ function walkPathInfo(
     type: snapshotValueType(value),
   });
   if (Array.isArray(value)) {
+    const keyCounts = new Map<string, number>();
     value.forEach((item, index) => {
-      walkPathInfo(item, `${path}[${index}]`, result);
+      walkPathInfo(
+        item,
+        snapshotArrayItemPath(path, item, index, keyCounts),
+        result,
+      );
     });
     return;
   }
@@ -530,8 +603,13 @@ function collectCollapsiblePaths(
   }
   result.add(path);
   if (Array.isArray(value)) {
+    const keyCounts = new Map<string, number>();
     value.forEach((item, index) => {
-      collectCollapsiblePaths(item, result, `${path}[${index}]`);
+      collectCollapsiblePaths(
+        item,
+        result,
+        snapshotArrayItemPath(path, item, index, keyCounts),
+      );
     });
     return;
   }
@@ -627,12 +705,19 @@ function appendJsonLine(
     }
     const entries = isArray ? value.entries() : Object.entries(value).entries();
     const childItems = [...entries];
+    const arrayKeyCounts = new Map<string, number>();
     childItems.forEach(([index, entry]) => {
       if (isArray) {
-        appendJsonLine(lines, entry as SnapshotValue, compareInfo, changeKind, {
+        const item = entry as SnapshotValue;
+        appendJsonLine(lines, item, compareInfo, changeKind, {
           depth: options.depth + 1,
           isLast: index === childItems.length - 1,
-          path: `${options.path}[${index}]`,
+          path: snapshotArrayItemPath(
+            options.path,
+            item,
+            index,
+            arrayKeyCounts,
+          ),
         });
         return;
       }
@@ -715,10 +800,11 @@ function appendYamlLine(
       return;
     }
     if (Array.isArray(value)) {
+      const keyCounts = new Map<string, number>();
       value.forEach((item, index) => {
         appendYamlArrayItem(lines, item, compareInfo, changeKind, {
           depth: options.depth + 1,
-          path: `${options.path}[${index}]`,
+          path: snapshotArrayItemPath(options.path, item, index, keyCounts),
         });
       });
       return;
@@ -768,10 +854,11 @@ function appendYamlArrayItem(
       return;
     }
     if (Array.isArray(value)) {
+      const keyCounts = new Map<string, number>();
       value.forEach((item, index) => {
         appendYamlArrayItem(lines, item, compareInfo, changeKind, {
           depth: options.depth + 1,
-          path: `${options.path}[${index}]`,
+          path: snapshotArrayItemPath(options.path, item, index, keyCounts),
         });
       });
       return;
@@ -794,6 +881,33 @@ function appendYamlArrayItem(
     path: options.path,
     text: `- ${yamlScalarText(value)}`,
   });
+}
+
+// snapshotArrayItemPath 用业务稳定键匹配数组对象，避免插入项导致后续下标错配。
+function snapshotArrayItemPath(
+  parentPath: string,
+  value: SnapshotValue,
+  index: number,
+  keyCounts: Map<string, number>,
+) {
+  const stableKey = snapshotArrayItemStableKey(value);
+  if (!stableKey) {
+    return `${parentPath}[${index}]`;
+  }
+  const count = keyCounts.get(stableKey) || 0;
+  keyCounts.set(stableKey, count + 1);
+  const suffix = count > 0 ? `#${count}` : '';
+  return `${parentPath}{${encodeURIComponent(stableKey)}${suffix}}`;
+}
+
+// snapshotArrayItemStableKey 提取运行配置列表项的稳定业务身份。
+function snapshotArrayItemStableKey(value: SnapshotValue) {
+  if (!isSnapshotRecord(value)) {
+    return '';
+  }
+  return String(
+    value.name || value.uniqueKey || value.workflow || value.tableName || '',
+  ).trim();
 }
 
 function jsonScalarText(value: SnapshotValue) {
@@ -1033,20 +1147,20 @@ function collapseAllSnapshots() {
           size="small"
           @press-enter="submitSearchJump"
         />
-        <span v-if="searchResultText" class="snapshot-diff-panel__search-count">
-          {{ searchResultText }}
+        <span v-if="jumpResultText" class="snapshot-diff-panel__search-count">
+          {{ jumpResultText }}
         </span>
         <Button
           size="small"
-          :disabled="visibleSearchMatches.length === 0"
-          @click="moveSearchMatch(-1)"
+          :disabled="visibleJumpMatches.length === 0"
+          @click="moveJumpMatch(-1)"
         >
           {{ rt('snapshotSearchPrev') }}
         </Button>
         <Button
           size="small"
-          :disabled="visibleSearchMatches.length === 0"
-          @click="moveSearchMatch(1)"
+          :disabled="visibleJumpMatches.length === 0"
+          @click="moveJumpMatch(1)"
         >
           {{ rt('snapshotSearchNext') }}
         </Button>
@@ -1090,13 +1204,13 @@ function collapseAllSnapshots() {
               treeLineClass(line.kind),
               {
                 'snapshot-diff-panel__line--search': isSearchLine(line),
-                'snapshot-diff-panel__line--active-search': isActiveSearchLine(
+                'snapshot-diff-panel__line--active-search': isActiveJumpLine(
                   'current',
                   line,
                 ),
               },
             ]"
-            :data-search-index="searchLineIndex('current', line)"
+            :data-jump-index="jumpLineIndex('current', line)"
             :style="{ paddingLeft: treeLinePadding(line.depth) }"
           >
             <span class="snapshot-diff-panel__line-marker">
@@ -1144,13 +1258,13 @@ function collapseAllSnapshots() {
               treeLineClass(line.kind),
               {
                 'snapshot-diff-panel__line--search': isSearchLine(line),
-                'snapshot-diff-panel__line--active-search': isActiveSearchLine(
+                'snapshot-diff-panel__line--active-search': isActiveJumpLine(
                   'draft',
                   line,
                 ),
               },
             ]"
-            :data-search-index="searchLineIndex('draft', line)"
+            :data-jump-index="jumpLineIndex('draft', line)"
             :style="{ paddingLeft: treeLinePadding(line.depth) }"
           >
             <span class="snapshot-diff-panel__line-marker">
@@ -1203,13 +1317,13 @@ function collapseAllSnapshots() {
               treeLineClass(line.kind),
               {
                 'snapshot-diff-panel__line--search': isSearchLine(line),
-                'snapshot-diff-panel__line--active-search': isActiveSearchLine(
+                'snapshot-diff-panel__line--active-search': isActiveJumpLine(
                   'release',
                   line,
                 ),
               },
             ]"
-            :data-search-index="searchLineIndex('release', line)"
+            :data-jump-index="jumpLineIndex('release', line)"
             :style="{ paddingLeft: treeLinePadding(line.depth) }"
           >
             <span class="snapshot-diff-panel__line-marker">
@@ -1266,23 +1380,20 @@ function collapseAllSnapshots() {
             size="small"
             @press-enter="submitSearchJump"
           />
-          <span
-            v-if="searchResultText"
-            class="snapshot-diff-panel__search-count"
-          >
-            {{ searchResultText }}
+          <span v-if="jumpResultText" class="snapshot-diff-panel__search-count">
+            {{ jumpResultText }}
           </span>
           <Button
             size="small"
-            :disabled="visibleSearchMatches.length === 0"
-            @click="moveSearchMatch(-1)"
+            :disabled="visibleJumpMatches.length === 0"
+            @click="moveJumpMatch(-1)"
           >
             {{ rt('snapshotSearchPrev') }}
           </Button>
           <Button
             size="small"
-            :disabled="visibleSearchMatches.length === 0"
-            @click="moveSearchMatch(1)"
+            :disabled="visibleJumpMatches.length === 0"
+            @click="moveJumpMatch(1)"
           >
             {{ rt('snapshotSearchNext') }}
           </Button>
@@ -1317,10 +1428,10 @@ function collapseAllSnapshots() {
                   {
                     'snapshot-diff-panel__line--search': isSearchLine(line),
                     'snapshot-diff-panel__line--active-search':
-                      isActiveSearchLine('current', line),
+                      isActiveJumpLine('current', line),
                   },
                 ]"
-                :data-search-index="searchLineIndex('current', line)"
+                :data-jump-index="jumpLineIndex('current', line)"
                 :style="{ paddingLeft: treeLinePadding(line.depth) }"
               >
                 <span class="snapshot-diff-panel__line-marker">
@@ -1374,10 +1485,10 @@ function collapseAllSnapshots() {
                   {
                     'snapshot-diff-panel__line--search': isSearchLine(line),
                     'snapshot-diff-panel__line--active-search':
-                      isActiveSearchLine('draft', line),
+                      isActiveJumpLine('draft', line),
                   },
                 ]"
-                :data-search-index="searchLineIndex('draft', line)"
+                :data-jump-index="jumpLineIndex('draft', line)"
                 :style="{ paddingLeft: treeLinePadding(line.depth) }"
               >
                 <span class="snapshot-diff-panel__line-marker">
