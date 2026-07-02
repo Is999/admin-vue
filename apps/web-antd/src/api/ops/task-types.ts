@@ -445,9 +445,9 @@ export namespace TaskApi {
   export interface TaskTypeRegistryItem {
     /** 任务类型标识 */
     taskType: string;
-    /** 中文说明 */
+    /** 按请求语言返回的说明 */
     description?: string;
-    /** 使用提示 */
+    /** 按请求语言返回的使用提示 */
     usageHint?: string;
     /** 推荐负载 JSON 示例 */
     payloadExample?: string;
@@ -465,13 +465,13 @@ export namespace TaskApi {
   export interface WorkflowRegistryItem {
     /** 工作流名称 */
     name: string;
-    /** 工作流说明 */
+    /** 按请求语言返回的工作流说明 */
     description: string;
     /** 默认执行队列 */
     defaultQueue: string;
     /** 节点数量 */
     nodeCount: number;
-    /** 使用提示 */
+    /** 按请求语言返回的使用提示 */
     usageHint?: string;
     /** 业务目标填写示例 */
     targetsExample?: string;

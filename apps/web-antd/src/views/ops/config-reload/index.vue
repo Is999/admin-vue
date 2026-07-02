@@ -3,12 +3,14 @@
 import type { OpsAPIRuntimeApi } from '#/api/ops/runtime';
 import type { TaskApi } from '#/api/ops/task';
 
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 
 import { Page, VbenButton } from '@vben/common-ui';
 import { useAccessStore } from '@vben/stores';
 
 import {
+  ArrowDownOutlined,
+  ArrowUpOutlined,
   CopyOutlined,
   FileTextOutlined,
   SearchOutlined,
@@ -77,6 +79,8 @@ type ConfigYamlTokenType =
   | 'string';
 // ConfigYamlToken 表示一段可独立着色的 YAML 文本。
 type ConfigYamlToken = {
+  // matchIndex 记录搜索命中序号，undefined 表示普通语法高亮片段。
+  matchIndex?: number;
   // text 保存原始 YAML 片段文本。
   text: string;
   // type 决定片段在只读视图里的高亮样式。
@@ -84,10 +88,19 @@ type ConfigYamlToken = {
 };
 // ConfigYamlLine 表示带行号的一行 YAML。
 type ConfigYamlLine = {
+  // matchIndexes 保存本行所有搜索命中序号，用于标记当前定位行。
+  matchIndexes: number[];
   // no 使用一基行号，便于排障时定位配置位置。
   no: number;
   // tokens 保存该行按 YAML 语义拆分后的高亮片段。
   tokens: ConfigYamlToken[];
+};
+// ConfigYamlSearchMatch 表示当前 YAML 中可跳转的一个搜索命中。
+type ConfigYamlSearchMatch = {
+  // index 是从 0 开始的命中序号，和 DOM data 属性保持一致。
+  index: number;
+  // lineNo 记录命中所在行号，便于后续扩展定位提示。
+  lineNo: number;
 };
 
 // MFA_SCENARIO_API_RUNTIME_MANAGE 表示 API 运行态管理二次校验场景。
@@ -128,6 +141,8 @@ const configItemsLoading = ref(false);
 const configItemsLoaded = ref(false);
 // configItemKeyword 保存配置项搜索关键字，只匹配路径和脱敏展示值。
 const configItemKeyword = ref('');
+// configItemSearchKeyword 保存最近一次查询实际使用的关键字，用于结果高亮。
+const configItemSearchKeyword = ref('');
 // configItemSensitiveOnly 控制是否只查询后端判定的敏感配置项。
 const configItemSensitiveOnly = ref(false);
 // configItemPage 保存配置项表格当前页码。
@@ -140,6 +155,10 @@ const configItemTotal = ref(0);
 const configItemViewMode = ref<ConfigItemViewMode>('yaml');
 // configYamlViewMode 控制 YAML 视图展示完整快照或 runtime.yaml 原结构。
 const configYamlViewMode = ref<ConfigYamlViewMode>('runtime');
+// configYamlViewRef 指向当前 YAML 滚动容器，用于搜索后自动定位命中项。
+const configYamlViewRef = ref<HTMLElement | null>(null);
+// configYamlMatchIndex 保存当前高亮定位到的 YAML 搜索命中序号。
+const configYamlMatchIndex = ref(0);
 // apiRuntimeSubmitting 避免 API 热加载状态查询或触发重复点击。
 const apiRuntimeSubmitting = ref(false);
 // apiRuntimeStatusText 保存 API 热加载接口原始回执，便于复制排障。
@@ -158,6 +177,8 @@ const apiConfigItemsLoading = ref(false);
 const apiConfigItemsLoaded = ref(false);
 // apiConfigItemKeyword 保存 API 配置项搜索关键字。
 const apiConfigItemKeyword = ref('');
+// apiConfigItemSearchKeyword 保存 API 最近一次查询实际使用的关键字。
+const apiConfigItemSearchKeyword = ref('');
 // apiConfigItemSensitiveOnly 控制是否只查询 API 敏感配置项。
 const apiConfigItemSensitiveOnly = ref(false);
 // apiConfigItemPage 保存 API 配置项表格当前页码。
@@ -273,7 +294,7 @@ const activeConfigYaml = computed(() =>
 );
 // activeConfigYamlLines 将当前 YAML 文本拆成带高亮 token 的只读行数据。
 const activeConfigYamlLines = computed(() =>
-  buildConfigYamlLines(activeConfigYaml.value),
+  buildConfigYamlLines(activeConfigYaml.value, configItemSearchKeyword.value),
 );
 
 // apiConfigItemOverviewRows 生成 API 配置项结果总览。
@@ -310,7 +331,10 @@ const activeAPIConfigYaml = computed(() =>
 
 // activeAPIConfigYamlLines 将 API YAML 文本拆成带高亮 token 的只读行数据。
 const activeAPIConfigYamlLines = computed(() =>
-  buildConfigYamlLines(activeAPIConfigYaml.value),
+  buildConfigYamlLines(
+    activeAPIConfigYaml.value,
+    apiConfigItemSearchKeyword.value,
+  ),
 );
 
 // canQueryActiveConfigItems 判断当前 Tab 是否可查看对应进程的运行态配置项。
@@ -445,11 +469,33 @@ const activeConfigYamlText = computed(() =>
     : activeConfigYaml.value,
 );
 
+// activeConfigSearchKeyword 返回当前 Tab 的配置项搜索词。
+const activeConfigSearchKeyword = computed(() =>
+  activeReloadTab.value === 'api'
+    ? apiConfigItemSearchKeyword.value.trim()
+    : configItemSearchKeyword.value.trim(),
+);
+
 // activeConfigYamlLineRows 返回当前 Tab 已选中的 YAML 行数据。
 const activeConfigYamlLineRows = computed(() =>
   activeReloadTab.value === 'api'
     ? activeAPIConfigYamlLines.value
     : activeConfigYamlLines.value,
+);
+
+// activeConfigYamlMatches 汇总当前 YAML 视图内可跳转的搜索命中。
+const activeConfigYamlMatches = computed(() =>
+  collectConfigYamlMatches(activeConfigYamlLineRows.value),
+);
+
+// activeConfigYamlMatchTotal 返回当前 YAML 视图的搜索命中数量。
+const activeConfigYamlMatchTotal = computed(
+  () => activeConfigYamlMatches.value.length,
+);
+
+// activeConfigYamlCurrentMatch 返回当前命中的一基序号，供页面展示。
+const activeConfigYamlCurrentMatch = computed(() =>
+  activeConfigYamlMatchTotal.value > 0 ? configYamlMatchIndex.value + 1 : 0,
 );
 
 // activeConfigTableItems 返回当前 Tab 的配置项表格数据。
@@ -740,18 +786,96 @@ function buildOverflowTooltipProps(text: string): OverflowTooltipProps {
   };
 }
 
-// buildConfigYamlLines 生成 YAML 行号和 token，避免在模板中做字符串解析。
-function buildConfigYamlLines(yamlText: string): ConfigYamlLine[] {
+// buildConfigYamlLines 生成 YAML 行号、语法 token 和搜索命中，避免模板解析字符串。
+function buildConfigYamlLines(
+  yamlText: string,
+  keyword = '',
+): ConfigYamlLine[] {
   const normalized = String(yamlText || '')
     .replaceAll('\r\n', '\n')
     .replace(/\n$/, '');
   if (!normalized) {
     return [];
   }
-  return normalized.split('\n').map((line, index) => ({
-    no: index + 1,
-    tokens: tokenizeConfigYamlLine(line),
-  }));
+  let nextMatchIndex = 0;
+  const normalizedKeyword = keyword.trim();
+  return normalized.split('\n').map((line, index) => {
+    const tokens = markConfigYamlMatches(
+      tokenizeConfigYamlLine(line),
+      normalizedKeyword,
+      () => {
+        const matchIndex = nextMatchIndex;
+        nextMatchIndex += 1;
+        return matchIndex;
+      },
+    );
+    return {
+      matchIndexes: tokens.flatMap((token) =>
+        typeof token.matchIndex === 'number' ? [token.matchIndex] : [],
+      ),
+      no: index + 1,
+      tokens,
+    };
+  });
+}
+
+// markConfigYamlMatches 在保留 YAML 语法高亮的同时拆出搜索命中片段。
+function markConfigYamlMatches(
+  tokens: ConfigYamlToken[],
+  keyword: string,
+  takeMatchIndex: () => number,
+): ConfigYamlToken[] {
+  const normalizedKeyword = keyword.trim().toLowerCase();
+  if (!normalizedKeyword) {
+    return tokens;
+  }
+  return tokens.flatMap((token) =>
+    splitConfigYamlMatchToken(token, normalizedKeyword, takeMatchIndex),
+  );
+}
+
+// splitConfigYamlMatchToken 按不区分大小写的搜索词拆分单个 YAML token。
+function splitConfigYamlMatchToken(
+  token: ConfigYamlToken,
+  normalizedKeyword: string,
+  takeMatchIndex: () => number,
+): ConfigYamlToken[] {
+  const normalizedText = token.text.toLowerCase();
+  const parts: ConfigYamlToken[] = [];
+  let start = 0;
+  while (start < token.text.length) {
+    const matchStart = normalizedText.indexOf(normalizedKeyword, start);
+    if (matchStart === -1) {
+      parts.push({ text: token.text.slice(start), type: token.type });
+      break;
+    }
+    if (matchStart > start) {
+      parts.push({
+        text: token.text.slice(start, matchStart),
+        type: token.type,
+      });
+    }
+    const matchEnd = matchStart + normalizedKeyword.length;
+    parts.push({
+      matchIndex: takeMatchIndex(),
+      text: token.text.slice(matchStart, matchEnd),
+      type: token.type,
+    });
+    start = matchEnd;
+  }
+  return parts.length > 0 ? parts : [token];
+}
+
+// collectConfigYamlMatches 汇总当前 YAML 行中的搜索命中位置。
+function collectConfigYamlMatches(
+  lines: ConfigYamlLine[],
+): ConfigYamlSearchMatch[] {
+  return lines.flatMap((line) =>
+    line.matchIndexes.map((matchIndex) => ({
+      index: matchIndex,
+      lineNo: line.no,
+    })),
+  );
 }
 
 // tokenizeConfigYamlLine 对单行 YAML 做轻量词法拆分，覆盖配置预览常见结构。
@@ -910,6 +1034,78 @@ function configYamlValueType(value: string): ConfigYamlTokenType {
   return 'string';
 }
 
+// configYamlContainsSearch 判断指定 YAML 是否包含当前搜索词。
+function configYamlContainsSearch(yamlText: string, keyword: string) {
+  const normalizedKeyword = keyword.trim().toLowerCase();
+  if (!normalizedKeyword) {
+    return false;
+  }
+  return String(yamlText || '')
+    .toLowerCase()
+    .includes(normalizedKeyword);
+}
+
+// resolveConfigYamlViewMode 搜索后优先停留在含命中的 YAML 视图。
+function resolveConfigYamlViewMode(
+  result: TaskApi.TaskConfigItemQueryResp,
+  keyword: string,
+  currentMode: ConfigYamlViewMode,
+): ConfigYamlViewMode {
+  const currentYaml =
+    currentMode === 'runtime' ? result.runtimeYaml : result.snapshotYaml;
+  if (configYamlContainsSearch(currentYaml, keyword)) {
+    return currentMode;
+  }
+  if (configYamlContainsSearch(result.runtimeYaml, keyword)) {
+    return 'runtime';
+  }
+  if (configYamlContainsSearch(result.snapshotYaml, keyword)) {
+    return 'snapshot';
+  }
+  return result.runtimeYaml ? 'runtime' : 'snapshot';
+}
+
+// activateConfigYamlSearch 定位到当前 YAML 的第一个搜索命中。
+function activateConfigYamlSearch() {
+  configYamlMatchIndex.value = 0;
+  queueScrollToConfigYamlMatch();
+}
+
+// queueScrollToConfigYamlMatch 等待 DOM 刷新后滚动到当前命中。
+function queueScrollToConfigYamlMatch() {
+  void nextTick(scrollToConfigYamlMatch);
+}
+
+// scrollToConfigYamlMatch 将当前命中滚动到 YAML 可视区域中部。
+function scrollToConfigYamlMatch() {
+  if (
+    activeConfigItemViewMode.value !== 'yaml' ||
+    !activeConfigSearchKeyword.value ||
+    activeConfigYamlMatchTotal.value <= 0
+  ) {
+    return;
+  }
+  const matchElement = configYamlViewRef.value?.querySelector<HTMLElement>(
+    `[data-config-match-index="${configYamlMatchIndex.value}"]`,
+  );
+  matchElement?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'center',
+    inline: 'nearest',
+  });
+}
+
+// handleConfigYamlMatchJump 循环切换 YAML 搜索的上一个或下一个命中。
+function handleConfigYamlMatchJump(step: number) {
+  const total = activeConfigYamlMatchTotal.value;
+  if (total <= 0) {
+    return;
+  }
+  configYamlMatchIndex.value =
+    (configYamlMatchIndex.value + step + total) % total;
+  queueScrollToConfigYamlMatch();
+}
+
 // handleFetchConfigReloadStatus 查询配置热加载状态。
 async function handleFetchConfigReloadStatus() {
   submitting.value = true;
@@ -1008,9 +1204,10 @@ async function handleFetchAPIConfigItems(resetPage = true, showToast = true) {
     apiConfigItemPage.value = 1;
   }
   apiConfigItemsLoading.value = true;
+  const searchKeyword = apiConfigItemKeyword.value.trim();
   try {
     const responseData = await fetchAPIRuntimeConfigReloadItems({
-      keyword: apiConfigItemKeyword.value.trim(),
+      keyword: searchKeyword,
       page: apiConfigItemPage.value,
       pageSize: apiConfigItemPageSize.value,
       sensitiveOnly: apiConfigItemSensitiveOnly.value,
@@ -1019,6 +1216,7 @@ async function handleFetchAPIConfigItems(resetPage = true, showToast = true) {
       apiConfigItemResult.value = null;
       apiConfigItems.value = [];
       apiConfigItemTotal.value = 0;
+      apiConfigItemSearchKeyword.value = '';
       apiConfigItemsLoaded.value = true;
       message.warning(responseData.message || '-');
       return;
@@ -1030,17 +1228,32 @@ async function handleFetchAPIConfigItems(resetPage = true, showToast = true) {
     apiConfigItemTotal.value = Number(itemsResult.total || 0);
     apiConfigItemPage.value = Number(itemsResult.page || 1);
     apiConfigItemPageSize.value = Number(itemsResult.pageSize || 20);
+    apiConfigItemSearchKeyword.value = String(
+      itemsResult.keyword || searchKeyword,
+    ).trim();
     apiConfigItemsLoaded.value = true;
     if (firstLoad) {
       apiConfigItemViewMode.value = 'yaml';
-      apiConfigYamlViewMode.value = itemsResult.runtimeYaml
-        ? 'runtime'
-        : 'snapshot';
+      apiConfigYamlViewMode.value = resolveConfigYamlViewMode(
+        itemsResult,
+        apiConfigItemSearchKeyword.value,
+        apiConfigYamlViewMode.value,
+      );
     } else if (
       !itemsResult.runtimeYaml &&
       apiConfigYamlViewMode.value === 'runtime'
     ) {
       apiConfigYamlViewMode.value = 'snapshot';
+    } else if (apiConfigItemSearchKeyword.value) {
+      apiConfigItemViewMode.value = 'yaml';
+      apiConfigYamlViewMode.value = resolveConfigYamlViewMode(
+        itemsResult,
+        apiConfigItemSearchKeyword.value,
+        apiConfigYamlViewMode.value,
+      );
+    }
+    if (apiConfigItemSearchKeyword.value) {
+      activateConfigYamlSearch();
     }
     if (showToast) {
       message.success($t('business.message.configItemsQueried'));
@@ -1050,6 +1263,7 @@ async function handleFetchAPIConfigItems(resetPage = true, showToast = true) {
     apiConfigItemResult.value = null;
     apiConfigItems.value = [];
     apiConfigItemTotal.value = 0;
+    apiConfigItemSearchKeyword.value = '';
     message.error($t('business.message.queryFailed', [errorMessage]));
   } finally {
     apiConfigItemsLoading.value = false;
@@ -1065,9 +1279,10 @@ async function handleFetchConfigItems(resetPage = true, showToast = true) {
     configItemPage.value = 1;
   }
   configItemsLoading.value = true;
+  const searchKeyword = configItemKeyword.value.trim();
   try {
     const responseData = await fetchConfigReloadItems({
-      keyword: configItemKeyword.value.trim(),
+      keyword: searchKeyword,
       page: configItemPage.value,
       pageSize: configItemPageSize.value,
       sensitiveOnly: configItemSensitiveOnly.value,
@@ -1078,17 +1293,32 @@ async function handleFetchConfigItems(resetPage = true, showToast = true) {
     configItemTotal.value = Number(responseData.total || 0);
     configItemPage.value = Number(responseData.page || 1);
     configItemPageSize.value = Number(responseData.pageSize || 20);
+    configItemSearchKeyword.value = String(
+      responseData.keyword || searchKeyword,
+    ).trim();
     configItemsLoaded.value = true;
     if (firstLoad) {
       configItemViewMode.value = 'yaml';
-      configYamlViewMode.value = responseData.runtimeYaml
-        ? 'runtime'
-        : 'snapshot';
+      configYamlViewMode.value = resolveConfigYamlViewMode(
+        responseData,
+        configItemSearchKeyword.value,
+        configYamlViewMode.value,
+      );
     } else if (
       !responseData.runtimeYaml &&
       configYamlViewMode.value === 'runtime'
     ) {
       configYamlViewMode.value = 'snapshot';
+    } else if (configItemSearchKeyword.value) {
+      configItemViewMode.value = 'yaml';
+      configYamlViewMode.value = resolveConfigYamlViewMode(
+        responseData,
+        configItemSearchKeyword.value,
+        configYamlViewMode.value,
+      );
+    }
+    if (configItemSearchKeyword.value) {
+      activateConfigYamlSearch();
     }
     if (showToast) {
       message.success($t('business.message.configItemsQueried'));
@@ -1098,6 +1328,7 @@ async function handleFetchConfigItems(resetPage = true, showToast = true) {
     configItemResult.value = null;
     configItems.value = [];
     configItemTotal.value = 0;
+    configItemSearchKeyword.value = '';
     message.error($t('business.message.queryFailed', [errorMessage]));
   } finally {
     configItemsLoading.value = false;
@@ -1162,6 +1393,24 @@ function handleCopyActiveConfigYaml() {
   }
   return handleCopyConfigYaml();
 }
+
+watch(activeConfigSearchKeyword, () => {
+  configYamlMatchIndex.value = 0;
+});
+
+watch(activeConfigYamlMatchTotal, (total) => {
+  if (total <= 0 || configYamlMatchIndex.value >= total) {
+    configYamlMatchIndex.value = 0;
+  }
+});
+
+watch(
+  [activeReloadTab, activeConfigItemViewMode, activeConfigYamlViewMode],
+  () => {
+    queueScrollToConfigYamlMatch();
+  },
+  { flush: 'post' },
+);
 
 onMounted(() => {
   if (canQueryConfigReloadStatus.value) {
@@ -1544,22 +1793,65 @@ onMounted(() => {
                   </Radio.Button>
                 </Radio.Group>
               </div>
-              <Button
-                v-if="activeConfigItemViewMode === 'yaml'"
-                class="shrink-0"
-                size="small"
-                :disabled="!activeConfigYamlText"
-                @click="handleCopyActiveConfigYaml"
-              >
-                <template #icon>
-                  <CopyOutlined />
-                </template>
-                {{ $t('business.message.copyConfigYaml') }}
-              </Button>
+              <Space class="shrink-0" :size="8" wrap>
+                <Space
+                  v-if="
+                    activeConfigItemViewMode === 'yaml' &&
+                    activeConfigSearchKeyword
+                  "
+                  class="config-yaml-match-nav"
+                  :size="6"
+                >
+                  <span class="config-yaml-match-count">
+                    {{
+                      $t('business.message.configMatchCounter', [
+                        activeConfigYamlCurrentMatch,
+                        activeConfigYamlMatchTotal,
+                      ])
+                    }}
+                  </span>
+                  <Tooltip :title="$t('business.message.previousConfigMatch')">
+                    <Button
+                      :aria-label="$t('business.message.previousConfigMatch')"
+                      :disabled="activeConfigYamlMatchTotal <= 0"
+                      size="small"
+                      @click="handleConfigYamlMatchJump(-1)"
+                    >
+                      <template #icon>
+                        <ArrowUpOutlined />
+                      </template>
+                    </Button>
+                  </Tooltip>
+                  <Tooltip :title="$t('business.message.nextConfigMatch')">
+                    <Button
+                      :aria-label="$t('business.message.nextConfigMatch')"
+                      :disabled="activeConfigYamlMatchTotal <= 0"
+                      size="small"
+                      @click="handleConfigYamlMatchJump(1)"
+                    >
+                      <template #icon>
+                        <ArrowDownOutlined />
+                      </template>
+                    </Button>
+                  </Tooltip>
+                </Space>
+                <Button
+                  v-if="activeConfigItemViewMode === 'yaml'"
+                  size="small"
+                  :disabled="!activeConfigYamlText"
+                  @click="handleCopyActiveConfigYaml"
+                >
+                  <template #icon>
+                    <CopyOutlined />
+                  </template>
+                  {{ $t('business.message.copyConfigYaml') }}
+                </Button>
+              </Space>
             </div>
 
             <div
               v-if="activeConfigItemViewMode === 'yaml'"
+              ref="configYamlViewRef"
               :aria-label="$t('business.message.yamlView')"
               class="config-yaml-view mt-4 max-h-[640px] overflow-auto border border-slate-200 bg-slate-950 font-mono text-[13px] leading-5 shadow-inner dark:border-slate-700"
               role="region"
@@ -1572,6 +1864,10 @@ onMounted(() => {
                   v-for="line in activeConfigYamlLineRows"
                   :key="line.no"
                   class="config-yaml-line grid min-w-max"
+                  :class="{
+                    'config-yaml-line-current':
+                      line.matchIndexes.includes(configYamlMatchIndex),
+                  }"
                 >
                   <span
                     class="config-yaml-line-no sticky left-0 select-none border-r border-slate-800 bg-slate-950 px-3 text-right text-slate-500"
@@ -1582,7 +1878,16 @@ onMounted(() => {
                     <span
                       v-for="(token, tokenIndex) in line.tokens"
                       :key="`${line.no}-${tokenIndex}`"
-                      :class="configYamlTokenClassMap[token.type]"
+                      :class="[
+                        configYamlTokenClassMap[token.type],
+                        typeof token.matchIndex === 'number'
+                          ? 'config-yaml-match'
+                          : '',
+                        token.matchIndex === configYamlMatchIndex
+                          ? 'config-yaml-match-current'
+                          : '',
+                      ]"
+                      :data-config-match-index="token.matchIndex"
                     >
                       {{ token.text }}
                     </span>
@@ -1684,6 +1989,17 @@ onMounted(() => {
   border-radius: 8px;
 }
 
+.config-yaml-match-nav {
+  min-height: 24px;
+}
+
+.config-yaml-match-count {
+  min-width: 72px;
+  font-size: 12px;
+  color: #64748b;
+  text-align: center;
+}
+
 .config-query-button {
   min-width: 136px;
   height: 44px;
@@ -1780,9 +2096,26 @@ onMounted(() => {
   background: rgb(30 64 175 / 16%);
 }
 
+.config-yaml-line-current {
+  background: rgb(30 64 175 / 28%);
+}
+
 .config-yaml-line-no {
   z-index: 1;
   font-variant-numeric: tabular-nums;
+}
+
+.config-yaml-match {
+  padding: 0 2px;
+  color: #fef3c7;
+  background: rgb(180 83 9 / 55%);
+  border-radius: 3px;
+}
+
+.config-yaml-match-current {
+  color: #111827;
+  background: #fde047;
+  box-shadow: 0 0 0 1px rgb(253 224 71 / 60%);
 }
 
 .config-yaml-token-key {
