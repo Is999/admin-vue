@@ -9,11 +9,13 @@ import {
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 
-// USER_STATUS_OPTIONS 定义用户账号状态选项。
-export const USER_STATUS_OPTIONS = [
-  { label: $t('business.message.enabled'), value: 1 },
-  { label: $t('business.message.disabled'), value: 0 },
-];
+// userStatusOptions 返回用户账号状态选项，避免语言切换后沿用模块初始化时的旧文案。
+export function userStatusOptions() {
+  return [
+    { label: $t('business.message.enabled'), value: 1 },
+    { label: $t('business.message.disabled'), value: 0 },
+  ];
+}
 
 // USER_SHARD_NO_MAX 表示用户分片号最大值。
 const USER_SHARD_NO_MAX = 999;
@@ -75,7 +77,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.accountStatus'),
       componentProps: {
         allowClear: true,
-        options: USER_STATUS_OPTIONS,
+        options: userStatusOptions(),
         placeholder: $t('business.message.filterByStatus'),
       },
     },

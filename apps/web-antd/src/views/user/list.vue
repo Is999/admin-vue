@@ -42,7 +42,7 @@ import {
 } from '#/utils/security/password';
 
 import FormTips from '../system/components/form-tips.vue';
-import { USER_STATUS_OPTIONS, useColumns, useGridFormSchema } from './data';
+import { userStatusOptions, useColumns, useGridFormSchema } from './data';
 
 defineOptions({ name: 'UserListPage' });
 
@@ -164,6 +164,8 @@ const formTips = computed(() => [
   $t('business.message.userRuntimeSyncDesc'),
   $t('business.message.userManageMfaTip'),
 ]);
+// statusOptions 返回抽屉表单当前语言下的账号状态选项。
+const statusOptions = computed(() => userStatusOptions());
 
 // EditorDrawer 承载新增和编辑用户表单。
 const [EditorDrawer, editorDrawerApi] = useVbenDrawer({
@@ -607,7 +609,7 @@ function confirm(content: string, title: string) {
                   <Select
                     v-model:value="editorForm.status"
                     :disabled="editorMode === 'edit'"
-                    :options="USER_STATUS_OPTIONS"
+                    :options="statusOptions"
                   />
                 </Form.Item>
                 <Form.Item :label="$t('business.message.nickname')">

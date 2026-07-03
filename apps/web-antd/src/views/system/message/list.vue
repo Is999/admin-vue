@@ -41,7 +41,7 @@ import {
 } from './content';
 import {
   isProcessableMessageType,
-  MESSAGE_LEVEL_OPTIONS,
+  messageLevelOptions,
   resolveMessageTypeLabel,
   useColumns,
   useGridFormSchema,
@@ -338,10 +338,10 @@ function renderDetailOverview(options: {
   ]);
 }
 
-// resolveLevelText 把消息等级转换为中文。
+// resolveLevelText 把消息等级转换为当前语言文案。
 function resolveLevelText(level: number) {
   return (
-    MESSAGE_LEVEL_OPTIONS.find((item) => item.value === level)?.label ||
+    messageLevelOptions().find((item) => item.value === level)?.label ||
     String(level)
   );
 }

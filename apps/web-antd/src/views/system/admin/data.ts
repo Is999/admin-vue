@@ -12,11 +12,13 @@ import { $t } from '#/locales';
 
 import { enabledStatusTagMap } from '../table-tags';
 
-// STATUS_OPTIONS 定义后台账号状态选项。
-export const STATUS_OPTIONS = [
-  { label: $t('business.message.enabled'), value: 1 },
-  { label: $t('business.message.disabled'), value: 0 },
-];
+// statusOptions 返回后台账号状态选项，避免语言切换后沿用模块初始化时的旧文案。
+function statusOptions() {
+  return [
+    { label: $t('business.message.enabled'), value: 1 },
+    { label: $t('business.message.disabled'), value: 0 },
+  ];
+}
 
 // useFormSchema 返回用户新增与编辑表单配置。
 export function useFormSchema(): VbenFormSchema[] {
@@ -61,7 +63,7 @@ export function useFormSchema(): VbenFormSchema[] {
       fieldName: 'status',
       label: $t('business.message.accountStatus'),
       componentProps: {
-        options: STATUS_OPTIONS,
+        options: statusOptions(),
         style: { width: '100%' },
       },
       formItemClass: 'col-span-1',
@@ -131,7 +133,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.accountStatus'),
       componentProps: {
         allowClear: true,
-        options: STATUS_OPTIONS,
+        options: statusOptions(),
         placeholder: $t('business.message.filterByStatus'),
       },
     },

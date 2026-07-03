@@ -16,61 +16,81 @@ import {
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 
-// STATUS_OPTIONS 定义权限状态选项。
-export const STATUS_OPTIONS = [
-  { label: $t('business.message.enable'), value: 1 },
-  { label: $t('business.message.disable'), value: 0 },
-];
+// statusOptions 返回权限状态选项，避免语言切换后沿用模块初始化时的旧文案。
+function statusOptions() {
+  return [
+    { label: $t('business.message.enable'), value: 1 },
+    { label: $t('business.message.disable'), value: 0 },
+  ];
+}
 
-// TYPE_OPTIONS 定义权限类型选项，按 laravel-admin 的 0-8 类型含义展示。
-export const TYPE_OPTIONS = [
+// PERMISSION_TYPE_META 定义权限类型稳定枚举，文案在使用时从语言包读取。
+const PERMISSION_TYPE_META = [
   {
     color: 'geekblue',
-    label: $t('business.message.permissionTypeDirectory'),
+    labelKey: 'business.message.permissionTypeDirectory',
     value: 4,
   },
   {
     color: 'processing',
-    label: $t('business.message.permissionTypeMenu'),
+    labelKey: 'business.message.permissionTypeMenu',
     value: 5,
   },
   {
     color: 'purple',
-    label: $t('business.message.permissionTypeButton'),
+    labelKey: 'business.message.permissionTypeButton',
     value: 7,
   },
   {
     color: 'success',
-    label: $t('business.message.permissionTypeAdd'),
+    labelKey: 'business.message.permissionTypeAdd',
     value: 1,
   },
   {
     color: 'warning',
-    label: $t('business.message.permissionTypeUpdate'),
+    labelKey: 'business.message.permissionTypeUpdate',
     value: 2,
   },
   {
     color: 'red',
-    label: $t('business.message.permissionTypeDelete'),
+    labelKey: 'business.message.permissionTypeDelete',
     value: 3,
   },
-  { color: 'cyan', label: $t('business.message.permissionTypeView'), value: 0 },
+  {
+    color: 'cyan',
+    labelKey: 'business.message.permissionTypeView',
+    value: 0,
+  },
   {
     color: 'blue',
-    label: $t('business.message.permissionTypePage'),
+    labelKey: 'business.message.permissionTypePage',
     value: 6,
   },
   {
     color: 'default',
-    label: $t('business.message.permissionTypeOther'),
+    labelKey: 'business.message.permissionTypeOther',
     value: 8,
   },
 ];
 
-// TYPE_TAG_MAP 定义权限类型在列表中的标签颜色。
-export const TYPE_TAG_MAP: Record<number, any> = {};
-for (const item of TYPE_OPTIONS) {
-  TYPE_TAG_MAP[item.value] = { color: item.color, text: item.label };
+// typeOptions 返回权限类型选项，按 laravel-admin 的 0-8 类型含义展示。
+export function typeOptions() {
+  return PERMISSION_TYPE_META.map((item) => ({
+    color: item.color,
+    label: $t(item.labelKey),
+    value: item.value,
+  }));
+}
+
+// typeTagMeta 返回权限类型标签元信息，列表和角色权限树共用同一套枚举。
+export function typeTagMeta(value: number) {
+  const item =
+    PERMISSION_TYPE_META.find((option) => option.value === value) ||
+    PERMISSION_TYPE_META[PERMISSION_TYPE_META.length - 1]!;
+  return {
+    color: item.color,
+    text: $t(item.labelKey),
+  };
 }
 
 type PermissionTreeTitleRow = {
@@ -161,7 +181,7 @@ function renderPermissionTitle<T extends PermissionTreeTitleRow>(
 // renderPermissionType 使用稳定 key 渲染类型标签，避免虚拟滚动复用相邻行旧节点。
 function renderPermissionType<T extends PermissionTreeTitleRow>(row: T) {
   const type = Number(row.type);
-  const tagMeta = TYPE_TAG_MAP[type] || TYPE_TAG_MAP[8];
+  const tagMeta = typeTagMeta(type);
   return h(
     Tag,
     {
@@ -217,18 +237,20 @@ function renderPermissionStatus<T extends PermissionTreeTitleRow>(
   });
 }
 
-// ROOT_PERMISSION_OPTION 定义权限树顶级节点选项。
-const ROOT_PERMISSION_OPTION: Array<Record<string, any>> = [
-  {
-    children: [] as Array<Record<string, any>>,
-    id: 0,
-    title: $t('business.message.rootPermission'),
-  },
-];
+// rootPermissionOption 返回权限树顶级节点选项，避免模块初始化时缓存旧文案。
+function rootPermissionOption(): Array<Record<string, any>> {
+  return [
+    {
+      children: [] as Array<Record<string, any>>,
+      id: 0,
+      title: $t('business.message.rootPermission'),
+    },
+  ];
+}
 
 // useFormSchema 返回权限新增与编辑表单配置。
 export function useFormSchema(
-  permissionTree: Array<Record<string, any>> = ROOT_PERMISSION_OPTION,
+  permissionTree: Array<Record<string, any>> = rootPermissionOption(),
 ): VbenFormSchema[] {
   return [
     {
@@ -276,7 +298,7 @@ export function useFormSchema(
       rules: 'required',
       componentProps: {
         buttonStyle: 'solid',
-        options: TYPE_OPTIONS,
+        options: typeOptions(),
         optionType: 'button',
       },
       formItemClass: 'col-span-2',
@@ -288,7 +310,7 @@ export function useFormSchema(
       label: $t('business.message.permissionStatus'),
       componentProps: {
         buttonStyle: 'solid',
-        options: STATUS_OPTIONS,
+        options: statusOptions(),
         optionType: 'button',
       },
       formItemClass: 'col-span-1',
@@ -343,7 +365,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.permissionType'),
       componentProps: {
         allowClear: true,
-        options: TYPE_OPTIONS,
+        options: typeOptions(),
         placeholder: $t('business.message.filterByType'),
       },
     },
@@ -353,7 +375,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.permissionStatus'),
       componentProps: {
         allowClear: true,
-        options: STATUS_OPTIONS,
+        options: statusOptions(),
         placeholder: $t('business.message.filterByStatus'),
       },
     },

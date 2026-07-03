@@ -36,11 +36,13 @@ function absolutePathRule() {
     );
 }
 
-// STATUS_OPTIONS 定义秘钥启用状态选项。
-export const STATUS_OPTIONS = [
-  { label: $t('business.message.enable'), value: 1 },
-  { label: $t('business.message.disable'), value: 0 },
-];
+// statusOptions 返回秘钥启用状态选项，避免语言切换后沿用模块初始化时的旧文案。
+function statusOptions() {
+  return [
+    { label: $t('business.message.enable'), value: 1 },
+    { label: $t('business.message.disable'), value: 0 },
+  ];
+}
 
 // useFormSchema 返回秘钥新增与编辑表单配置。
 export function useFormSchema(disabledUUID = false): VbenFormSchema[] {
@@ -81,7 +83,7 @@ export function useFormSchema(disabledUUID = false): VbenFormSchema[] {
       label: $t('business.message.secretStatus'),
       componentProps: {
         buttonStyle: 'solid',
-        options: STATUS_OPTIONS,
+        options: statusOptions(),
         optionType: 'button',
       },
       formItemClass: 'col-span-1',
@@ -94,7 +96,7 @@ export function useFormSchema(disabledUUID = false): VbenFormSchema[] {
       label: $t('business.message.secretSignStatus'),
       componentProps: {
         buttonStyle: 'solid',
-        options: STATUS_OPTIONS,
+        options: statusOptions(),
         optionType: 'button',
       },
       formItemClass: 'col-span-1',
@@ -107,7 +109,7 @@ export function useFormSchema(disabledUUID = false): VbenFormSchema[] {
       label: $t('business.message.secretCryptoStatus'),
       componentProps: {
         buttonStyle: 'solid',
-        options: STATUS_OPTIONS,
+        options: statusOptions(),
         optionType: 'button',
       },
       formItemClass: 'col-span-1',
@@ -119,7 +121,7 @@ export function useFormSchema(disabledUUID = false): VbenFormSchema[] {
       label: $t('business.message.secretVersionStatus'),
       componentProps: {
         buttonStyle: 'solid',
-        options: STATUS_OPTIONS,
+        options: statusOptions(),
         optionType: 'button',
       },
       formItemClass: 'col-span-1',
@@ -251,7 +253,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.secretStatus'),
       componentProps: {
         allowClear: true,
-        options: STATUS_OPTIONS,
+        options: statusOptions(),
         placeholder: $t('business.message.filterByStatus'),
       },
     },
@@ -261,7 +263,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.secretSignStatus'),
       componentProps: {
         allowClear: true,
-        options: STATUS_OPTIONS,
+        options: statusOptions(),
         placeholder: $t('business.message.filterBySignStatus'),
       },
     },
@@ -271,7 +273,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.secretCryptoStatus'),
       componentProps: {
         allowClear: true,
-        options: STATUS_OPTIONS,
+        options: statusOptions(),
         placeholder: $t('business.message.filterByCryptoStatus'),
       },
     },

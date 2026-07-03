@@ -19,42 +19,50 @@ import {
 } from '../table-tags';
 import { messageContentText, sanitizeMessageContentHtml } from './content';
 
-// MESSAGE_TYPE_OPTIONS 定义常用消息类型选项。
-export const MESSAGE_TYPE_OPTIONS = [
-  { label: $t('business.message.messageTypeAdminLogin'), value: 'admin_login' },
+// MESSAGE_TYPE_META 定义常用消息类型稳定枚举，文案在使用时从语言包读取。
+const MESSAGE_TYPE_META = [
+  { labelKey: 'business.message.messageTypeAdminLogin', value: 'admin_login' },
   {
-    label: $t('business.message.messageTypeMemberOnline'),
+    labelKey: 'business.message.messageTypeMemberOnline',
     value: 'member_online',
   },
   {
-    label: $t('business.message.messageTypeMemberOffline'),
+    labelKey: 'business.message.messageTypeMemberOffline',
     value: 'member_offline',
   },
   {
-    label: $t('business.message.messageTypeRechargeLarge'),
+    labelKey: 'business.message.messageTypeRechargeLarge',
     value: 'recharge_large',
   },
   {
-    label: $t('business.message.messageTypeWithdrawRiskAudit'),
+    labelKey: 'business.message.messageTypeWithdrawRiskAudit',
     value: 'withdraw_risk_audit',
   },
   {
-    label: $t('business.message.messageTypeRechargeOrderException'),
+    labelKey: 'business.message.messageTypeRechargeOrderException',
     value: 'recharge_order_exception',
   },
   {
-    label: $t('business.message.messageTypeWithdrawOrderException'),
+    labelKey: 'business.message.messageTypeWithdrawOrderException',
     value: 'withdraw_order_exception',
   },
   {
-    label: $t('business.message.messageTypeLeaveMessage'),
+    labelKey: 'business.message.messageTypeLeaveMessage',
     value: 'leave_message',
   },
   {
-    label: $t('business.message.messageTypeWorkHandover'),
+    labelKey: 'business.message.messageTypeWorkHandover',
     value: 'work_handover',
   },
 ];
+
+// messageTypeOptions 返回消息类型选项，避免语言切换后沿用模块初始化时的旧文案。
+export function messageTypeOptions() {
+  return MESSAGE_TYPE_META.map((item) => ({
+    label: $t(item.labelKey),
+    value: item.value,
+  }));
+}
 
 export const PROCESSABLE_MESSAGE_TYPES = new Set([
   'recharge_order_exception',
@@ -79,18 +87,22 @@ const MESSAGE_TYPE_COLOR_MAP: Record<string, string> = {
   work_handover: 'geekblue',
 };
 
-// MESSAGE_LEVEL_OPTIONS 定义消息等级选项。
-export const MESSAGE_LEVEL_OPTIONS = [
-  { label: $t('business.message.messageLevelInfo'), value: 1 },
-  { label: $t('business.message.messageLevelWarning'), value: 2 },
-  { label: $t('business.message.messageLevelError'), value: 3 },
-];
+// messageLevelOptions 返回消息等级选项，避免语言切换后沿用模块初始化时的旧文案。
+export function messageLevelOptions() {
+  return [
+    { label: $t('business.message.messageLevelInfo'), value: 1 },
+    { label: $t('business.message.messageLevelWarning'), value: 2 },
+    { label: $t('business.message.messageLevelError'), value: 3 },
+  ];
+}
 
-// READ_STATUS_OPTIONS 定义已读状态筛选选项。
-export const READ_STATUS_OPTIONS = [
-  { label: $t('business.message.unread'), value: 0 },
-  { label: $t('business.message.read'), value: 1 },
-];
+// readStatusOptions 返回已读状态筛选选项，避免语言切换后沿用模块初始化时的旧文案。
+function readStatusOptions() {
+  return [
+    { label: $t('business.message.unread'), value: 0 },
+    { label: $t('business.message.read'), value: 1 },
+  ];
+}
 
 // fetchAdminReceiverOptions 拉取管理员下拉列表（用于收件人选择）。
 export async function fetchAdminReceiverOptions() {
@@ -127,7 +139,7 @@ export function useSendFormSchema(): VbenFormSchema[] {
       rules: 'selectRequired',
       formItemClass: 'col-span-1',
       componentProps: {
-        options: MESSAGE_TYPE_OPTIONS,
+        options: messageTypeOptions(),
         placeholder: $t('business.message.selectMessageType'),
         style: { width: '100%' },
       },
@@ -140,7 +152,7 @@ export function useSendFormSchema(): VbenFormSchema[] {
       rules: 'selectRequired',
       formItemClass: 'col-span-1',
       componentProps: {
-        options: MESSAGE_LEVEL_OPTIONS,
+        options: messageLevelOptions(),
         placeholder: $t('business.message.selectMessageLevel'),
         style: { width: '100%' },
       },
@@ -203,7 +215,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.readStatus'),
       componentProps: {
         allowClear: true,
-        options: READ_STATUS_OPTIONS,
+        options: readStatusOptions(),
         placeholder: $t('business.message.filterByReadStatus'),
       },
     },
@@ -213,7 +225,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.messageType'),
       componentProps: {
         allowClear: true,
-        options: MESSAGE_TYPE_OPTIONS,
+        options: messageTypeOptions(),
         placeholder: $t('business.message.filterByMessageType'),
       },
     },
@@ -223,7 +235,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.messageLevel'),
       componentProps: {
         allowClear: true,
-        options: MESSAGE_LEVEL_OPTIONS,
+        options: messageLevelOptions(),
         placeholder: $t('business.message.filterByMessageLevel'),
       },
     },
@@ -247,7 +259,7 @@ export function useSentGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.messageType'),
       componentProps: {
         allowClear: true,
-        options: MESSAGE_TYPE_OPTIONS,
+        options: messageTypeOptions(),
         placeholder: $t('business.message.filterByMessageType'),
       },
     },
@@ -257,7 +269,7 @@ export function useSentGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.messageLevel'),
       componentProps: {
         allowClear: true,
-        options: MESSAGE_LEVEL_OPTIONS,
+        options: messageLevelOptions(),
         placeholder: $t('business.message.filterByMessageLevel'),
       },
     },
@@ -273,10 +285,10 @@ export function useSentGridFormSchema(): VbenFormSchema[] {
   ];
 }
 
-// resolveMessageTypeLabel 把消息类型编码转换为中文展示文本。
+// resolveMessageTypeLabel 把消息类型编码转换为当前语言展示文本。
 export function resolveMessageTypeLabel(type: string) {
   return (
-    MESSAGE_TYPE_OPTIONS.find((item) => item.value === type)?.label ||
+    messageTypeOptions().find((item) => item.value === type)?.label ||
     type ||
     '-'
   );
@@ -285,7 +297,7 @@ export function resolveMessageTypeLabel(type: string) {
 // messageTypeTagMap 返回消息类型标签样式。
 function messageTypeTagMap() {
   return Object.fromEntries(
-    MESSAGE_TYPE_OPTIONS.map((item) => [
+    messageTypeOptions().map((item) => [
       item.value,
       {
         color: MESSAGE_TYPE_COLOR_MAP[item.value] || 'default',

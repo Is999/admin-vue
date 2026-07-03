@@ -14,20 +14,20 @@ import JsonEditor from '#/components/json-editor/index.vue';
 import { $t } from '#/locales';
 import { copyTextToClipboard } from '#/utils/security/password';
 
-// cacheCategoryTextMap 定义缓存分类文案。
-const cacheCategoryTextMap: Record<string, string> = {
-  auth: $t('business.message.cacheCategoryAuth'),
-  config: $t('business.message.cacheCategoryConfig'),
-  secret: $t('business.message.cacheCategorySecret'),
-  session: $t('business.message.cacheCategorySession'),
-  system: $t('business.message.cacheCategorySystem'),
+// cacheCategoryKeyMap 定义缓存分类到多语言 key 的映射。
+const cacheCategoryKeyMap: Record<string, string> = {
+  auth: 'business.message.cacheCategoryAuth',
+  config: 'business.message.cacheCategoryConfig',
+  secret: 'business.message.cacheCategorySecret',
+  session: 'business.message.cacheCategorySession',
+  system: 'business.message.cacheCategorySystem',
 };
 
-// refreshScopeTextMap 定义缓存刷新粒度文案。
-const refreshScopeTextMap: Record<string, string> = {
-  all: $t('business.message.refreshScopeAll'),
-  prefix: $t('business.message.refreshScopePrefix'),
-  single: $t('business.message.refreshScopeSingle'),
+// refreshScopeKeyMap 定义缓存刷新粒度到多语言 key 的映射。
+const refreshScopeKeyMap: Record<string, string> = {
+  all: 'business.message.refreshScopeAll',
+  prefix: 'business.message.refreshScopePrefix',
+  single: 'business.message.refreshScopeSingle',
 };
 
 // formatInfoValue 统一格式化 Redis 服务信息展示值。
@@ -38,14 +38,16 @@ export function formatInfoValue(value: any) {
   return String(value);
 }
 
-// formatCacheCategory 把缓存分类编码转换成中文。
+// formatCacheCategory 把缓存分类编码转换成当前语言文案。
 export function formatCacheCategory(value?: string) {
-  return cacheCategoryTextMap[value || ''] || value || '-';
+  const key = cacheCategoryKeyMap[value || ''];
+  return key ? $t(key) : value || '-';
 }
 
-// formatRefreshScope 把缓存刷新粒度编码转换成中文。
+// formatRefreshScope 把缓存刷新粒度编码转换成当前语言文案。
 export function formatRefreshScope(value?: string) {
-  return refreshScopeTextMap[value || ''] || value || '-';
+  const key = refreshScopeKeyMap[value || ''];
+  return key ? $t(key) : value || '-';
 }
 
 // formatTTLValue 统一格式化 TTL 展示。

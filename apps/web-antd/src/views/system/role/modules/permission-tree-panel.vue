@@ -16,7 +16,7 @@ import {
 
 import { $t, $te } from '#/locales';
 
-import { TYPE_OPTIONS, TYPE_TAG_MAP } from '../../permission/data';
+import { typeOptions, typeTagMeta } from '../../permission/data';
 import {
   buildDisplayedPermissionCheckedIds,
   buildPermissionRelationMaps,
@@ -41,12 +41,6 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   'update:modelValue': [value: number[]];
 }>();
-
-// PERMISSION_KIND_LABEL_MAP 定义数值类模块/类型到中文名称的映射。
-const PERMISSION_KIND_LABEL_MAP: Record<number, string> = {};
-for (const [value, item] of Object.entries(TYPE_TAG_MAP)) {
-  PERMISSION_KIND_LABEL_MAP[Number(value)] = item.text;
-}
 
 // PERMISSION_KIND_I18N_KEY_MAP 定义权限类型到多语言 key 的映射，避免新增筛选文案只支持中文。
 const PERMISSION_KIND_I18N_KEY_MAP: Record<number, string> = {
@@ -91,14 +85,16 @@ function resolvePermissionKindLabel(value?: number | string) {
     return '';
   }
   const numericValue = Number(text);
-  const matched = PERMISSION_KIND_LABEL_MAP[numericValue];
   const i18nKey = PERMISSION_KIND_I18N_KEY_MAP[numericValue];
-  return translateOptionLabel(i18nKey || '', matched || text);
+  const fallback = Number.isFinite(numericValue)
+    ? String(typeTagMeta(numericValue).text)
+    : text;
+  return translateOptionLabel(i18nKey || '', fallback || text);
 }
 
 // permissionTypeOptions 返回角色权限树的类型筛选选项，直接复用权限管理页维护的类型枚举。
 const permissionTypeOptions = computed(() =>
-  TYPE_OPTIONS.map((item) => ({
+  typeOptions().map((item) => ({
     label: translateOptionLabel(
       PERMISSION_KIND_I18N_KEY_MAP[item.value] || '',
       item.label,
@@ -171,7 +167,7 @@ function buildPermissionTitle(item: SystemPermissionApi.Item) {
             Tag,
             {
               bordered: false,
-              color: TYPE_TAG_MAP[item.type]?.color || 'purple',
+              color: typeTagMeta(Number(item.type)).color || 'purple',
             },
             { default: () => typeLabel },
           )
