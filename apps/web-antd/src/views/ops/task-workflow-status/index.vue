@@ -808,8 +808,54 @@ function toggleWorkflowTopologyExpanded() {
 
 // parseWorkflowNodeTime 把节点时间转成可排序数值，缺失时间排在同阶段后面。
 function parseWorkflowNodeTime(value?: string) {
+  const timestamp = parseOptionalWorkflowNodeTime(value);
+  return timestamp === undefined ? Number.MAX_SAFE_INTEGER : timestamp;
+}
+
+// parseOptionalWorkflowNodeTime 把可选节点时间转成时间戳，保留调用方对空值的不同处理。
+function parseOptionalWorkflowNodeTime(value?: string) {
   const timestamp = Date.parse(String(value || ''));
-  return Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER;
+  return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
+// normalizeWorkflowNodeDurationMs 识别有效毫秒耗时，避免把空值误当成 0ms。
+function normalizeWorkflowNodeDurationMs(value: unknown) {
+  if (value === null || value === undefined || value === '') {
+    return undefined;
+  }
+  const durationMs = Number(value);
+  return Number.isFinite(durationMs) && durationMs >= 0
+    ? durationMs
+    : undefined;
+}
+
+// resolveWorkflowNodeDurationMs 兼容节点耗时、执行追踪耗时和起止时间差三种来源。
+function resolveWorkflowNodeDurationMs(node: TaskApi.WorkflowNodeItem) {
+  const nodeDurationMs = normalizeWorkflowNodeDurationMs(node.durationMs);
+  if (nodeDurationMs !== undefined) {
+    return nodeDurationMs;
+  }
+  const traceDurationMs = normalizeWorkflowNodeDurationMs(
+    node.executionTrace?.durationMs,
+  );
+  if (traceDurationMs !== undefined) {
+    return traceDurationMs;
+  }
+  const startedAt = parseOptionalWorkflowNodeTime(node.startedAt);
+  const finishedAt = parseOptionalWorkflowNodeTime(node.finishedAt);
+  if (startedAt === undefined || finishedAt === undefined) {
+    return undefined;
+  }
+  return Math.max(0, finishedAt - startedAt);
+}
+
+// formatWorkflowNodeDuration 展示节点耗时；后端 durationMs 为 omitempty，0ms 节点需用追踪或起止时间兜底。
+function formatWorkflowNodeDuration(node: TaskApi.WorkflowNodeItem) {
+  const durationMs = resolveWorkflowNodeDurationMs(node);
+  if (durationMs === undefined) {
+    return '-';
+  }
+  return durationMs === 0 ? '0ms' : formatDurationMs(durationMs);
 }
 
 // getWorkflowNodeStatus 返回节点状态，集中供颜色、类名和进度判断复用。
@@ -1313,7 +1359,7 @@ watch(
                               {{ $t('business.message.duration') }}
                             </span>
                             <span class="workflow-node-relation__value">
-                              {{ formatDurationMs(node.durationMs) }}
+                              {{ formatWorkflowNodeDuration(node) }}
                             </span>
                           </div>
                         </div>
@@ -2788,12 +2834,13 @@ watch(
 
 .workflow-node-relation {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-columns: minmax(72px, max-content) minmax(0, 1fr);
   gap: 8px;
 }
 
 .workflow-node-relation__label {
   color: var(--workflow-muted-color);
+  white-space: nowrap;
 }
 
 .workflow-node-relation__value {
@@ -2814,13 +2861,14 @@ watch(
 
 .workflow-node-time {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-columns: minmax(72px, max-content) minmax(0, 1fr);
   gap: 8px;
   font-size: 12px;
 }
 
 .workflow-node-time__label {
   color: var(--workflow-muted-color);
+  white-space: nowrap;
 }
 
 .workflow-node-time__value {
