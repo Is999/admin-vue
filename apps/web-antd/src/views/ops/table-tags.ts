@@ -20,21 +20,6 @@ export function taskQueueTagMap() {
   };
 }
 
-// collectorTransportTagMap 定义 Collector 投递通道标签颜色。
-export function collectorTransportTagMap() {
-  return {
-    db: { color: 'blue', text: $t('business.message.collectorTransportDb') },
-    kafka: {
-      color: 'orange',
-      text: $t('business.message.collectorTransportKafka'),
-    },
-    redis: {
-      color: 'red',
-      text: $t('business.message.collectorTransportRedis'),
-    },
-  };
-}
-
 // countRiskTagMeta 根据数量是否大于 0 返回风险提示标签。
 export function countRiskTagMeta(value: unknown, riskColor = 'warning') {
   const count = Number(value || 0);

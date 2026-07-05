@@ -7,12 +7,10 @@ import { Tag } from 'ant-design-vue';
 
 import { $t } from '#/locales';
 
-import { collectorTransportTagMap } from '../table-tags';
-
-// getCollectorStateOptions 生成任务状态下拉选项，确保语言切换后文案来自当前语言包。
+// getCollectorStateOptions 生成失败事件状态下拉选项，确保语言切换后文案来自当前语言包。
 export function getCollectorStateOptions(): Array<{
   label: string;
-  value: CollectorApi.TaskState;
+  value: CollectorApi.FailureState;
 }> {
   return [
     { label: $t('business.message.collectorStatePending'), value: 0 },
@@ -23,14 +21,7 @@ export function getCollectorStateOptions(): Array<{
   ];
 }
 
-// COLLECTOR_TRANSPORT_OPTIONS 统一维护事件投递通道下拉选项。
-export const COLLECTOR_TRANSPORT_OPTIONS = [
-  { label: 'db', value: 'db' },
-  { label: 'kafka', value: 'kafka' },
-  { label: 'redis', value: 'redis' },
-];
-
-export function renderCollectorState(state: CollectorApi.TaskState) {
+export function renderCollectorState(state: CollectorApi.FailureState) {
   switch (state) {
     case 0: {
       return h(Tag, { color: 'processing' }, () =>
@@ -63,8 +54,8 @@ export function renderCollectorState(state: CollectorApi.TaskState) {
   }
 }
 
-// useColumns 构造 Collector任务表格列定义。
-export function useColumns(): VxeGridPropTypes.Columns<CollectorApi.TaskItem> {
+// useColumns 构造 Collector 失败事件表格列定义。
+export function useColumns(): VxeGridPropTypes.Columns<CollectorApi.FailureItem> {
   return [
     { type: 'checkbox', width: 50 },
     { field: 'id', title: 'ID', width: 90 },
@@ -80,21 +71,11 @@ export function useColumns(): VxeGridPropTypes.Columns<CollectorApi.TaskItem> {
       minWidth: 160,
     },
     {
-      align: 'center',
-      cellRender: {
-        attrs: { tagMap: collectorTransportTagMap() },
-        name: 'CellTag',
-      },
-      field: 'transport',
-      title: $t('business.message.channel'),
-      width: 100,
-    },
-    {
       field: 'state',
       title: $t('business.message.status'),
       width: 100,
       slots: {
-        default: ({ row }: { row: CollectorApi.TaskItem }) =>
+        default: ({ row }: { row: CollectorApi.FailureItem }) =>
           renderCollectorState(row.state),
       },
     },

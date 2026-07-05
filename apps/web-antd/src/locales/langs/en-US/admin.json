@@ -1,7 +1,7 @@
 {
   "route": {
     "workbench": "Task Operations",
-    "collector": "Collector Jobs",
+    "collector": "Collector Observability",
     "taskConsole": "Task Console",
     "taskWorkflowStatus": "Workflow Status",
     "configReload": "Config Reload",

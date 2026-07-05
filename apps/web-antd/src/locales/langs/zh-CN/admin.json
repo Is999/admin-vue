@@ -1,7 +1,7 @@
 {
   "route": {
     "workbench": "任务运维",
-    "collector": "Collector任务",
+    "collector": "Collector观测",
     "taskConsole": "任务总控台",
     "taskWorkflowStatus": "工作流状态",
     "configReload": "配置热加载",

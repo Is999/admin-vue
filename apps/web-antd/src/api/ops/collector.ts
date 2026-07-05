@@ -2,8 +2,7 @@ import { requestClient } from '#/api/request';
 
 // CollectorApi 定义 Collector管理接口的请求与响应结构。
 export namespace CollectorApi {
-  export type TaskState = 0 | 1 | 2 | 3 | 4;
-  export type Transport = 'db' | 'kafka' | 'redis';
+  export type FailureState = 0 | 1 | 2 | 3 | 4;
 
   export interface WindowStat {
     windowMinutes: number;
@@ -25,14 +24,46 @@ export namespace CollectorApi {
     recentMaxCostMs: number;
   }
 
-  export interface TransportStat {
-    transport: string | Transport;
-    totalCount: number;
-    readyCount: number;
-    runningCount: number;
-    retryCount: number;
-    deadCount: number;
-    doneCount: number;
+  export interface RuntimeTotals {
+    published: number;
+    publishFailed: number;
+    consumed: number;
+    invalid: number;
+    duplicate: number;
+    processed: number;
+    succeeded: number;
+    failed: number;
+    batches: number;
+    failedBatches: number;
+    dead: number;
+  }
+
+  export interface RuntimeWindow extends RuntimeTotals {
+    windowMinutes: number;
+    avgBatchSize: number;
+    avgCostMs: number;
+    maxCostMs: number;
+    lastEventAt: string;
+  }
+
+  export interface RuntimeBizType extends RuntimeTotals {
+    bizType: string;
+    avgBatchSize: number;
+    avgCostMs: number;
+    maxCostMs: number;
+    lastEventAt: string;
+  }
+
+  export interface RuntimeMetrics {
+    enabled: boolean;
+    scope: string;
+    startedAt: string;
+    generatedAt: string;
+    totals: RuntimeTotals;
+    recent1m: RuntimeWindow;
+    recent5m: RuntimeWindow;
+    recent15m: RuntimeWindow;
+    bizTypeTop15m: RuntimeBizType[];
   }
 
   export interface OverviewResp {
@@ -45,9 +76,8 @@ export namespace CollectorApi {
     runningTimeoutCount: number;
     oldestReadyAgeSeconds: number;
     kafkaBatchSize: number;
-    redisReadCount: number;
-    dbRunnerBatchSize: number;
-    dbRunnerIntervalSecs: number;
+    failureRunnerBatchSize: number;
+    failureRunnerIntervalSecs: number;
     runningLeaseSeconds: number;
     maxRetryTimes: number;
     overviewGeneratedAt: string;
@@ -58,17 +88,16 @@ export namespace CollectorApi {
     recent5m: WindowStat;
     recent15m: WindowStat;
     bizTypeTop15m: BizTypeStat[];
-    transportStats: TransportStat[];
+    runtimeMetrics: RuntimeMetrics;
   }
 
-  export interface TaskItem {
+  export interface FailureItem {
     id: number;
     eventId: string;
     bizType: string;
     partitionKey: string;
     payload: string;
-    transport: Transport;
-    state: TaskState;
+    state: FailureState;
     attempt: number;
     nextRunAt: string;
     startedAt?: string;
@@ -78,16 +107,15 @@ export namespace CollectorApi {
     updatedAt: string;
   }
 
-  export interface ListTasksReq {
+  export interface ListFailuresReq {
     page?: number;
     pageSize?: number;
     bizType?: string;
-    transport?: Transport;
-    state?: TaskState;
+    state?: FailureState;
   }
 
-  export interface ListTasksResp {
-    list: TaskItem[];
+  export interface ListFailuresResp {
+    list: FailureItem[];
     total: number;
   }
 
@@ -117,22 +145,30 @@ export async function fetchCollectorOverview() {
   return requestClient.get<CollectorApi.OverviewResp>('/collector/overview');
 }
 
-// fetchCollectorTasks 查询 Collector任务列表。
-export async function fetchCollectorTasks(params: CollectorApi.ListTasksReq) {
-  return requestClient.get<CollectorApi.ListTasksResp>('/collector/tasks', {
-    params,
-  });
+// fetchCollectorFailures 查询 Collector 失败事件列表。
+export async function fetchCollectorFailures(
+  params: CollectorApi.ListFailuresReq,
+) {
+  return requestClient.get<CollectorApi.ListFailuresResp>(
+    '/collector/failures',
+    {
+      params,
+    },
+  );
 }
 
-// runCollector 手动触发执行一轮 Collector任务。
+// runCollector 手动触发执行一轮 Collector 失败账本重试。
 export async function runCollector(payload: CollectorApi.RunReq) {
-  return requestClient.post<CollectorApi.RunResp>('/collector/run', payload);
+  return requestClient.post<CollectorApi.RunResp>(
+    '/collector/failures/run',
+    payload,
+  );
 }
 
-// retryCollectorTasks 对指定任务发起人工重试/延迟重试。
-export async function retryCollectorTasks(payload: CollectorApi.RetryReq) {
+// retryCollectorFailures 对指定失败事件发起人工重试/延迟重试。
+export async function retryCollectorFailures(payload: CollectorApi.RetryReq) {
   return requestClient.post<CollectorApi.RetryResp>(
-    '/collector/tasks/retry',
+    '/collector/failures/retry',
     payload,
   );
 }

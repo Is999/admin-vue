@@ -21,9 +21,9 @@ import {
 
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
 import {
+  fetchCollectorFailures,
   fetchCollectorOverview,
-  fetchCollectorTasks,
-  retryCollectorTasks,
+  retryCollectorFailures,
   runCollector,
 } from '#/api/ops/collector';
 import {
@@ -33,30 +33,24 @@ import {
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 
-import {
-  COLLECTOR_TRANSPORT_OPTIONS,
-  getCollectorStateOptions,
-  useColumns,
-} from './data';
+import { getCollectorStateOptions, useColumns } from './data';
 
 // ================= 页面状态 =================
 // accessStore 保存当前账号的 uuid 权限码集合。
 const accessStore = useAccessStore();
 // submitting 用于统一控制“运行/重试”等高风险操作的重复点击。
 const submitting = ref(false);
-// currentRows 保存当前页任务快照，用于统计与批量重试。
-const currentRows = ref<CollectorApi.TaskItem[]>([]);
-// currentTotal 保存当前筛选条件下的任务总数。
+// currentRows 保存当前页失败事件快照，用于统计与批量重试。
+const currentRows = ref<CollectorApi.FailureItem[]>([]);
+// currentTotal 保存当前筛选条件下的失败事件总数。
 const currentTotal = ref(0);
 // overview 保存 collector 当前积压、配置与近窗口处理统计。
 const overview = ref<CollectorApi.OverviewResp | null>(null);
 
 // 查询条件：业务类型。
 const searchBizType = ref('');
-// 查询条件：投递通道。
-const searchTransport = ref<'' | CollectorApi.Transport>('');
-// 查询条件：任务状态。
-const searchState = ref<'' | CollectorApi.TaskState>('');
+// 查询条件：失败事件状态。
+const searchState = ref<'' | CollectorApi.FailureState>('');
 
 // runLimit 控制“手动执行一轮”最大处理数量，避免误操作造成过大冲击。
 const runLimit = ref(200);
@@ -70,14 +64,14 @@ const resetAttempt = ref(true);
 // canRunCollector 控制“执行一轮”按钮展示。
 const canRunCollector = computed(() =>
   hasAnyPermission(accessStore.accessCodes, [
-    OPS_ACTION_PERMISSION_CODES.COLLECTOR_RUN,
+    OPS_ACTION_PERMISSION_CODES.COLLECTOR_FAILURE_RUN,
   ]),
 );
 
 // canRetryCollector 控制“批量重试”按钮展示。
 const canRetryCollector = computed(() =>
   hasAnyPermission(accessStore.accessCodes, [
-    OPS_ACTION_PERMISSION_CODES.COLLECTOR_RETRY,
+    OPS_ACTION_PERMISSION_CODES.COLLECTOR_FAILURE_RETRY,
   ]),
 );
 
@@ -87,12 +81,12 @@ const collectorStateOptions = computed(() => getCollectorStateOptions());
 // stateSummaryCards 生成当前页的状态统计卡片，便于快速判断当前积压/失败分布。
 const stateSummaryCards = computed(() => {
   const rows = currentRows.value;
-  const countByState: Record<CollectorApi.TaskState, number> = {} as Record<
-    CollectorApi.TaskState,
+  const countByState: Record<CollectorApi.FailureState, number> = {} as Record<
+    CollectorApi.FailureState,
     number
   >;
   for (const item of rows) {
-    const state = Number(item.state) as CollectorApi.TaskState;
+    const state = Number(item.state) as CollectorApi.FailureState;
     countByState[state] = (countByState[state] || 0) + 1;
   }
   return collectorStateOptions.value.map((item) => ({
@@ -191,22 +185,92 @@ const overviewWindowCards = computed(() => {
   }));
 });
 
+// runtimeMetricCards 汇总当前进程正常链路运行态吞吐。
+const runtimeMetricCards = computed(() => {
+  const totals = overview.value?.runtimeMetrics?.totals;
+  return [
+    {
+      label: $t('business.message.collectorKafkaPublished'),
+      value: formatCount(totals?.published || 0),
+      description: $t('business.message.collectorKafkaPublishFailed', [
+        formatCount(totals?.publishFailed || 0),
+      ]),
+    },
+    {
+      label: $t('business.message.collectorKafkaConsumed'),
+      value: formatCount(totals?.consumed || 0),
+      description: $t('business.message.collectorKafkaInvalidDuplicate', [
+        formatCount(totals?.invalid || 0),
+        formatCount(totals?.duplicate || 0),
+      ]),
+    },
+    {
+      label: $t('business.message.collectorProcessorSucceeded'),
+      value: formatCount(totals?.succeeded || 0),
+      description: $t('business.message.collectorProcessorProcessedFailed', [
+        formatCount(totals?.processed || 0),
+        formatCount(totals?.failed || 0),
+      ]),
+    },
+    {
+      label: $t('business.message.collectorProcessorBatches'),
+      value: formatCount(totals?.batches || 0),
+      description: $t('business.message.collectorFailedBatchDead', [
+        formatCount(totals?.failedBatches || 0),
+        formatCount(totals?.dead || 0),
+      ]),
+    },
+  ];
+});
+
+// runtimeWindowCards 汇总当前进程最近 1/5/15 分钟正常处理窗口。
+const runtimeWindowCards = computed(() => {
+  const metrics = overview.value?.runtimeMetrics;
+  const windows = [
+    metrics?.recent1m,
+    metrics?.recent5m,
+    metrics?.recent15m,
+  ].filter((item) => item && item.windowMinutes > 0);
+  return windows.map((item) => ({
+    label: $t('business.message.collectorRecentMinutes', [item!.windowMinutes]),
+    value: $t('business.message.collectorRuntimeWindowValue', [
+      formatCount(item!.processed || 0),
+      formatCount(item!.succeeded || 0),
+      formatCount(item!.failed || 0),
+      formatCount(item!.duplicate || 0),
+    ]),
+    description: $t('business.message.collectorRuntimeWindowDesc', [
+      formatDecimal(item!.avgBatchSize || 0),
+      formatMilliseconds(item!.avgCostMs || 0),
+      formatMilliseconds(item!.maxCostMs || 0),
+    ]),
+    lastEventAt: item!.lastEventAt || '-',
+  }));
+});
+
 // bizTypeTopRows 汇总最近 15 分钟最需要关注的业务类型排行。
 const bizTypeTopRows = computed(() => overview.value?.bizTypeTop15m || []);
 
-// transportStatCards 汇总当前不同 transport 的来源分布。
-const transportStatCards = computed(() => {
-  const rows = overview.value?.transportStats || [];
-  return rows.map((item) => ({
-    label: item.transport || 'unknown',
-    value: String(item.totalCount || 0),
-    description: $t('business.message.collectorTransportStatDesc', [
-      item.readyCount || 0,
-      item.runningCount || 0,
-      item.retryCount || 0,
-      item.deadCount || 0,
+// runtimeBizTypeRows 汇总最近 15 分钟处理量最高的业务类型排行。
+const runtimeBizTypeRows = computed(
+  () => overview.value?.runtimeMetrics?.bizTypeTop15m || [],
+);
+
+// runtimeFreshnessText 展示当前进程运行态指标更新时间。
+const runtimeFreshnessText = computed(() => {
+  const metrics = overview.value?.runtimeMetrics;
+  if (!metrics) {
+    return $t('business.message.collectorOverviewLoading');
+  }
+  return [
+    $t('business.message.collectorRuntimeScope', [metrics.scope || '-']),
+    $t('business.message.collectorRuntimeStartedAt', [
+      metrics.startedAt || '-',
     ]),
-  }));
+    $t('business.message.collectorRuntimeGeneratedAt', [
+      metrics.generatedAt || '-',
+    ]),
+  ].join(' | ');
 });
 
 // collectorConfigSummary 汇总当前生效的重要 Collector 参数，便于判断是否需要继续调参。
@@ -219,12 +283,11 @@ const collectorConfigSummary = computed(() => {
     $t('business.message.collectorKafkaBatch', [
       currentOverview.kafkaBatchSize,
     ]),
-    $t('business.message.collectorRedisRead', [currentOverview.redisReadCount]),
-    $t('business.message.collectorDbBatch', [
-      currentOverview.dbRunnerBatchSize,
+    $t('business.message.collectorFailureRetryBatch', [
+      currentOverview.failureRunnerBatchSize,
     ]),
     $t('business.message.collectorPollInterval', [
-      currentOverview.dbRunnerIntervalSecs,
+      currentOverview.failureRunnerIntervalSecs,
     ]),
     $t('business.message.collectorLeaseSeconds', [
       currentOverview.runningLeaseSeconds,
@@ -270,13 +333,10 @@ const [Grid, gridApi] = useVbenVxeGrid({
         }: {
           page: { currentPage: number; pageSize: number };
         }) => {
-          const transport =
-            searchTransport.value === '' ? undefined : searchTransport.value;
           const state =
             searchState.value === '' ? undefined : searchState.value;
-          const responseData = await fetchCollectorTasks({
+          const responseData = await fetchCollectorFailures({
             bizType: searchBizType.value.trim() || undefined,
-            transport,
             state,
             page: page.currentPage,
             pageSize: page.pageSize,
@@ -315,7 +375,6 @@ function handleQuery() {
 // handleReset 清空筛选条件并刷新列表。
 function handleReset() {
   searchBizType.value = '';
-  searchTransport.value = '';
   searchState.value = '';
   void Promise.all([gridApi.query(), loadOverview()]);
 }
@@ -325,7 +384,7 @@ async function loadOverview() {
   overview.value = await fetchCollectorOverview();
 }
 
-// handleRunCollector 执行一轮 collector outbox 任务。
+// handleRunCollector 执行一轮 Collector 失败账本重试。
 function handleRunCollector() {
   if (submitting.value) {
     return;
@@ -358,7 +417,7 @@ function handleRunCollector() {
   });
 }
 
-// resolveRetryCandidates 根据当前列表筛选出可重试任务 ID（优先 state=待重试/死信）。
+// resolveRetryCandidates 根据当前列表筛选出可重试失败事件 ID（优先 state=待重试/死信）。
 function resolveRetryCandidates() {
   const ids = currentRows.value
     .filter((item) => item.state === 3 || item.state === 4)
@@ -368,14 +427,14 @@ function resolveRetryCandidates() {
   return limitValue > 0 ? ids.slice(0, limitValue) : ids;
 }
 
-// handleRetryBatch 对当前筛选结果中可重试任务执行批量重试。
+// handleRetryBatch 对当前筛选结果中可重试失败事件执行批量重试。
 function handleRetryBatch() {
   if (submitting.value) {
     return;
   }
   const ids = resolveRetryCandidates();
   if (ids.length === 0) {
-    message.warning($t('business.message.noRetryableTasksOnPage'));
+    message.warning($t('business.message.noRetryableFailuresOnPage'));
     return;
   }
   Modal.confirm({
@@ -386,7 +445,7 @@ function handleRetryBatch() {
     async onOk() {
       submitting.value = true;
       try {
-        await retryCollectorTasks({
+        await retryCollectorFailures({
           delaySeconds: Number(retryDelaySeconds.value || 0) || undefined,
           ids,
           resetAttempt: !!resetAttempt.value,
@@ -432,10 +491,26 @@ function formatMilliseconds(ms: number) {
   }
   return `${(ms / 1000).toFixed(ms >= 10_000 ? 0 : 2)}s`;
 }
+
+// formatDecimal 格式化小数指标，避免卡片数值过长。
+function formatDecimal(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '0';
+  }
+  return value.toFixed(value >= 100 ? 0 : 1);
+}
+
+// formatCount 格式化数量指标，保证大数展示稳定。
+function formatCount(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '0';
+  }
+  return Math.floor(value).toLocaleString();
+}
 </script>
 
 <template>
-  <Page :title="$t('business.message.collectorTask')">
+  <Page :title="$t('business.message.collectorFailure')">
     <div class="grid min-w-0 gap-2">
       <section
         class="min-w-0 overflow-hidden rounded-2xl border border-cyan-500/20 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.16),_transparent_34%),linear-gradient(135deg,_rgba(15,23,42,0.98),_rgba(15,23,42,0.9))] px-5 py-4 text-slate-100 shadow-[0_16px_44px_rgba(15,23,42,0.3)]"
@@ -486,6 +561,72 @@ function formatMilliseconds(ms: number) {
         show-icon
         :type="pageGuideText.type"
       />
+
+      <div class="grid min-w-0 gap-2 xl:grid-cols-2">
+        <Card
+          class="min-w-0 border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+          :title="$t('business.message.collectorRuntimeThroughput')"
+        >
+          <div class="grid min-w-0 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+            <div
+              v-for="item in runtimeMetricCards"
+              :key="item.label"
+              class="min-w-0 rounded-xl border border-slate-200/70 bg-slate-50/90 px-4 py-3 dark:border-slate-700/60 dark:bg-slate-800/60"
+            >
+              <div class="text-xs text-slate-500 dark:text-slate-300">
+                {{ item.label }}
+              </div>
+              <div
+                class="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100"
+              >
+                {{ item.value }}
+              </div>
+              <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                {{ item.description }}
+              </div>
+            </div>
+          </div>
+          <div
+            class="mt-3 break-words text-xs text-slate-500 dark:text-slate-400"
+          >
+            {{ runtimeFreshnessText }}
+          </div>
+        </Card>
+
+        <Card
+          class="min-w-0 border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+          :title="$t('business.message.collectorRuntimeRecentWindows')"
+        >
+          <div class="grid min-w-0 gap-3 md:grid-cols-3">
+            <div
+              v-for="item in runtimeWindowCards"
+              :key="item.label"
+              class="min-w-0 rounded-xl border border-slate-200/70 bg-slate-50/90 px-4 py-3 dark:border-slate-700/60 dark:bg-slate-800/60"
+            >
+              <div class="text-xs text-slate-500 dark:text-slate-300">
+                {{ item.label }}
+              </div>
+              <div
+                class="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100"
+              >
+                {{ item.value }}
+              </div>
+              <div
+                class="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400"
+              >
+                {{ item.description }}
+              </div>
+              <div class="mt-1 truncate text-xs text-slate-400">
+                {{
+                  $t('business.message.collectorLastEventAt', [
+                    item.lastEventAt,
+                  ])
+                }}
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
 
       <div class="grid min-w-0 gap-2 xl:grid-cols-2">
         <Card
@@ -556,6 +697,69 @@ function formatMilliseconds(ms: number) {
       <div class="grid min-w-0 gap-2 xl:grid-cols-2">
         <Card
           class="min-w-0 border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+          :title="$t('business.message.collectorRuntimeBizTypeRank')"
+        >
+          <div v-if="runtimeBizTypeRows.length > 0" class="space-y-3">
+            <div
+              v-for="item in runtimeBizTypeRows"
+              :key="item.bizType"
+              class="min-w-0 rounded-xl border border-slate-200/70 bg-slate-50/90 px-4 py-3 dark:border-slate-700/60 dark:bg-slate-800/60"
+            >
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div
+                    class="truncate text-sm font-semibold text-slate-900 dark:text-slate-100"
+                  >
+                    {{ item.bizType }}
+                  </div>
+                  <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    {{
+                      $t('business.message.collectorRuntimeBizTypeStatDesc', [
+                        formatCount(item.processed),
+                        formatCount(item.succeeded),
+                        formatCount(item.failed),
+                        formatCount(item.duplicate),
+                      ])
+                    }}
+                  </div>
+                </div>
+                <div
+                  class="text-right text-xs text-slate-500 dark:text-slate-400"
+                >
+                  <div>
+                    {{
+                      $t('business.message.collectorRuntimeBizTypeBatchDesc', [
+                        formatCount(item.batches),
+                        formatDecimal(item.avgBatchSize),
+                      ])
+                    }}
+                  </div>
+                  <div class="mt-1">
+                    {{
+                      $t('business.message.collectorAvgMaxCostSlash', [
+                        formatMilliseconds(item.avgCostMs),
+                        formatMilliseconds(item.maxCostMs),
+                      ])
+                    }}
+                  </div>
+                  <div class="mt-1">
+                    {{
+                      $t('business.message.collectorLastEventAt', [
+                        item.lastEventAt || '-',
+                      ])
+                    }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="text-sm text-slate-500 dark:text-slate-300">
+            {{ $t('business.message.collectorNoRuntimeBizTypeRank') }}
+          </div>
+        </Card>
+
+        <Card
+          class="min-w-0 border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
           :title="$t('business.message.collectorBizTypeHotRank')"
         >
           <div v-if="bizTypeTopRows.length > 0" class="space-y-3">
@@ -609,45 +813,6 @@ function formatMilliseconds(ms: number) {
             {{ $t('business.message.collectorNoBizTypeRank') }}
           </div>
         </Card>
-
-        <Card
-          class="min-w-0 border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
-          :title="$t('business.message.collectorTransportDistribution')"
-        >
-          <div v-if="transportStatCards.length > 0" class="space-y-3">
-            <div
-              v-for="item in transportStatCards"
-              :key="item.label"
-              class="min-w-0 rounded-xl border border-slate-200/70 bg-slate-50/90 px-4 py-3 dark:border-slate-700/60 dark:bg-slate-800/60"
-            >
-              <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <div
-                    class="text-sm font-semibold uppercase text-slate-900 dark:text-slate-100"
-                  >
-                    {{ item.label }}
-                  </div>
-                  <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    {{ item.description }}
-                  </div>
-                </div>
-                <div class="text-right">
-                  <div
-                    class="text-2xl font-semibold text-slate-900 dark:text-slate-100"
-                  >
-                    {{ item.value }}
-                  </div>
-                  <div class="text-xs text-slate-500 dark:text-slate-400">
-                    {{ $t('business.message.totalTaskCount') }}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div v-else class="text-sm text-slate-500 dark:text-slate-300">
-            {{ $t('business.message.collectorNoTransportDistribution') }}
-          </div>
-        </Card>
       </div>
 
       <div
@@ -671,7 +836,9 @@ function formatMilliseconds(ms: number) {
             <VbenButton
               v-if="canRunCollector"
               v-access="
-                asActionPermission(OPS_ACTION_PERMISSION_CODES.COLLECTOR_RUN)
+                asActionPermission(
+                  OPS_ACTION_PERMISSION_CODES.COLLECTOR_FAILURE_RUN,
+                )
               "
               type="primary"
               :disabled="submitting"
@@ -686,7 +853,9 @@ function formatMilliseconds(ms: number) {
             <VbenButton
               v-if="canRetryCollector"
               v-access="
-                asActionPermission(OPS_ACTION_PERMISSION_CODES.COLLECTOR_RETRY)
+                asActionPermission(
+                  OPS_ACTION_PERMISSION_CODES.COLLECTOR_FAILURE_RETRY,
+                )
               "
               type="primary"
               :disabled="submitting"
@@ -701,7 +870,7 @@ function formatMilliseconds(ms: number) {
           </Space>
         </div>
 
-        <div class="grid min-w-0 gap-3 px-4 py-3 md:grid-cols-2 xl:grid-cols-4">
+        <div class="grid min-w-0 gap-3 px-4 py-3 md:grid-cols-2 xl:grid-cols-3">
           <div class="min-w-0">
             <div class="mb-1 text-xs text-slate-500 dark:text-slate-300">
               {{ $t('business.message.eventCategoryBizType') }}
@@ -714,19 +883,7 @@ function formatMilliseconds(ms: number) {
           </div>
           <div class="min-w-0">
             <div class="mb-1 text-xs text-slate-500 dark:text-slate-300">
-              {{ $t('business.message.transportChannel') }}
-            </div>
-            <Select
-              v-model:value="searchTransport"
-              allow-clear
-              class="w-full"
-              :placeholder="$t('business.message.allTransportChannels')"
-              :options="COLLECTOR_TRANSPORT_OPTIONS"
-            />
-          </div>
-          <div class="min-w-0">
-            <div class="mb-1 text-xs text-slate-500 dark:text-slate-300">
-              {{ $t('business.message.taskState') }}
+              {{ $t('business.message.collectorFailureState') }}
             </div>
             <Select
               v-model:value="searchState"
@@ -811,7 +968,7 @@ function formatMilliseconds(ms: number) {
 
       <Grid
         class="min-w-0"
-        :table-title="$t('business.message.collectorTaskList')"
+        :table-title="$t('business.message.collectorFailureList')"
       />
     </div>
   </Page>
