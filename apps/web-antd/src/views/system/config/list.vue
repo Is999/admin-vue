@@ -244,10 +244,6 @@ function onActionClick(e: OnActionClickParams<SystemConfigApi.Item>) {
       onRenew(e.row);
       break;
     }
-    case 'specialEdit': {
-      void onOpenSpecialEditor(e.row);
-      break;
-    }
     case 'viewCache': {
       onViewCache(e.row);
       break;
@@ -268,16 +264,6 @@ function onCreate() {
 // onEdit 打开编辑配置抽屉。
 function onEdit(row: SystemConfigApi.Item) {
   formDrawerApi.setData(row).open();
-}
-
-// onOpenSpecialEditor 打开复杂字典项的隐藏路由编辑页面。
-async function onOpenSpecialEditor(row: SystemConfigApi.Item) {
-  const editor = resolveConfigHiddenEditor(row.uuid);
-  if (!editor) {
-    message.warning($t('business.message.noSpecialConfigEditor'));
-    return;
-  }
-  await router.push(editor.path);
 }
 
 // onRefresh 刷新配置列表。

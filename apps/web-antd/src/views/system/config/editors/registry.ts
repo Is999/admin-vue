@@ -34,8 +34,3 @@ export const CONFIG_HIDDEN_EDITORS: Record<string, ConfigHiddenEditor> = {
 export function resolveConfigHiddenEditor(uuid?: string) {
   return CONFIG_HIDDEN_EDITORS[String(uuid || '').trim()];
 }
-
-// hasConfigHiddenEditor 判断当前字典项是否存在隐藏编辑页。
-export function hasConfigHiddenEditor(row?: { uuid?: string }) {
-  return Boolean(resolveConfigHiddenEditor(row?.uuid));
-}

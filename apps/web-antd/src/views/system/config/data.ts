@@ -14,7 +14,6 @@ import {
   configTypeTagMap,
   countTagMeta,
 } from '../table-tags';
-import { hasConfigHiddenEditor } from './editors/registry';
 
 // configTypeOptions 返回字典配置类型，避免语言切换后沿用模块初始化时的旧文案。
 function configTypeOptions() {
@@ -300,16 +299,6 @@ export function useColumns<T = SystemConfigApi.Item>(
             ),
           },
           {
-            code: 'specialEdit',
-            icon: 'setting',
-            iconOnly: true,
-            text: $t('business.message.specialConfigEditor'),
-            visible: (row: SystemConfigApi.Item) => hasConfigHiddenEditor(row),
-            auth: asActionPermission(
-              SYSTEM_ACTION_PERMISSION_CODES.SYSTEM_CONFIG_UPDATE,
-            ),
-          },
-          {
             code: 'cache',
             icon: 'search',
             iconOnly: true,
@@ -343,7 +332,7 @@ export function useColumns<T = SystemConfigApi.Item>(
       headerAlign: 'center',
       showOverflow: false,
       title: $t('business.message.operation'),
-      width: 128,
+      width: 76,
     },
   ];
 }

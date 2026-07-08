@@ -566,24 +566,25 @@ setupVbenVxeTable({
           (item: any) => typeof item !== 'string' && Boolean(item?.iconOnly),
         );
         const shouldWrap = visibleOptions.length > 3;
-        const columnCount = visibleOptions.length === 4 ? 2 : 3;
-        const itemStyle = shouldWrap
-          ? {
-              width: allIconOnly
-                ? `${100 / columnCount}%`
-                : `calc(${100 / columnCount}% - 4px)`,
-            }
-          : undefined;
-        const containerClass = shouldWrap
-          ? [
-              'flex w-full flex-wrap items-center gap-y-1',
-              allIconOnly ? 'justify-center' : '',
-            ]
-              .filter(Boolean)
-              .join(' ')
-          : 'flex flex-wrap items-center gap-x-1 gap-y-1';
+        const useIconGrid = shouldWrap && allIconOnly;
+        const columnCount = 3;
+        const itemStyle =
+          shouldWrap && !allIconOnly
+            ? {
+                width: `calc(${100 / columnCount}% - 4px)`,
+              }
+            : undefined;
+        let containerClass = 'flex flex-wrap items-center gap-x-1 gap-y-1';
+        if (useIconGrid) {
+          containerClass =
+            'mx-auto grid w-fit grid-cols-2 justify-items-center gap-x-1 gap-y-0.5';
+        } else if (shouldWrap) {
+          containerClass = 'flex w-full flex-wrap items-center gap-x-2 gap-y-1';
+        }
         let itemClass: string | undefined;
-        if (shouldWrap) {
+        if (useIconGrid) {
+          itemClass = 'flex h-6 w-6 items-center justify-center';
+        } else if (shouldWrap) {
           itemClass = allIconOnly ? 'flex justify-center' : 'pr-1';
         }
         return h(
@@ -610,7 +611,7 @@ setupVbenVxeTable({
                 // buttonClass 按操作按钮展示方式计算样式，避免模板中出现嵌套三元表达式。
                 let buttonClass = 'px-0';
                 if (iconOnly) {
-                  buttonClass = 'px-1';
+                  buttonClass = 'h-6 w-6 px-0 text-sm leading-none';
                 } else if (shouldWrap) {
                   buttonClass = 'w-full justify-start px-0 text-left';
                 }
