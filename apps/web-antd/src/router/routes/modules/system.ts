@@ -5,6 +5,12 @@ import {
   SYSTEM_ROUTE_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
+import {
+  ADMIN_IP_WHITELIST_PATH,
+  ADMIN_IP_WHITELIST_ROUTE,
+  ADMIN_DISABLE_MFA_CHECK_SCENARIO_PATH,
+  ADMIN_DISABLE_MFA_CHECK_SCENARIO_ROUTE,
+} from '#/views/system/config/editors/registry';
 
 // routes 定义后台系统管理路由，权限码由后端 /auth/codes 控制。
 const routes: RouteRecordRaw[] = [
@@ -62,6 +68,32 @@ const routes: RouteRecordRaw[] = [
           title: $t('admin.route.config'),
         },
         component: () => import('#/views/system/config/list.vue'),
+      },
+      {
+        path: ADMIN_IP_WHITELIST_PATH,
+        name: ADMIN_IP_WHITELIST_ROUTE,
+        meta: {
+          authority: asRouteAuthority(
+            SYSTEM_ROUTE_PERMISSION_CODES.SYSTEM_CONFIG_LIST,
+          ),
+          hideInMenu: true,
+          title: $t('business.message.adminIpWhitelistEditorTitle'),
+        },
+        component: () =>
+          import('#/views/system/config/editors/admin-ip-whitelist.vue'),
+      },
+      {
+        path: ADMIN_DISABLE_MFA_CHECK_SCENARIO_PATH,
+        name: ADMIN_DISABLE_MFA_CHECK_SCENARIO_ROUTE,
+        meta: {
+          authority: asRouteAuthority(
+            SYSTEM_ROUTE_PERMISSION_CODES.SYSTEM_CONFIG_LIST,
+          ),
+          hideInMenu: true,
+          title: $t('business.message.mfaScenarioEditorTitle'),
+        },
+        component: () =>
+          import('#/views/system/config/editors/admin-disable-mfa-check-scenario.vue'),
       },
       {
         path: '/system/cache',

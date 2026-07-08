@@ -39,12 +39,15 @@ import { showStructuredValueModal } from '../cache/helper';
 import TreeExpandToolbar from '../components/tree-expand-toolbar.vue';
 import { resolveBackendMessage } from '../shared';
 import { useColumns, useGridFormSchema } from './data';
+import { resolveConfigHiddenEditor } from './editors/registry';
 import Form from './modules/form.vue';
 
 type SystemConfigTreeItem = SystemConfigApi.Item & {
   children?: SystemConfigTreeItem[];
   groupPath?: string;
   levelText?: string;
+  pageLink?: string;
+  pageLinkLabel?: string;
   parentTitle?: string;
 };
 
@@ -94,7 +97,7 @@ function matchConfigNode(
       .includes(title);
   const matchedPage =
     pagePath === '' ||
-    String(item.page || '')
+    String(item.pageLink || item.page || '')
       .toLowerCase()
       .includes(pagePath);
 
@@ -120,11 +123,17 @@ function buildConfigTree(
       .toSorted((left, right) => left.id - right.id)
       .map((item) => {
         const nextAncestors = [...ancestors, item];
+        const hiddenEditor = resolveConfigHiddenEditor(item.uuid);
+        const pageLink = item.page || hiddenEditor?.path || '';
         return {
           ...item,
           children: walk(item.id, nextAncestors, item.title),
           groupPath: nextAncestors.map((node) => node.title).join(' / '),
           levelText: `L${ancestors.length + 1}`,
+          pageLink,
+          pageLinkLabel: hiddenEditor
+            ? $t('business.message.configEditorPageEntry')
+            : '',
           parentTitle,
         };
       });
@@ -235,6 +244,10 @@ function onActionClick(e: OnActionClickParams<SystemConfigApi.Item>) {
       onRenew(e.row);
       break;
     }
+    case 'specialEdit': {
+      void onOpenSpecialEditor(e.row);
+      break;
+    }
     case 'viewCache': {
       onViewCache(e.row);
       break;
@@ -255,6 +268,16 @@ function onCreate() {
 // onEdit 打开编辑配置抽屉。
 function onEdit(row: SystemConfigApi.Item) {
   formDrawerApi.setData(row).open();
+}
+
+// onOpenSpecialEditor 打开复杂字典项的隐藏路由编辑页面。
+async function onOpenSpecialEditor(row: SystemConfigApi.Item) {
+  const editor = resolveConfigHiddenEditor(row.uuid);
+  if (!editor) {
+    message.warning($t('business.message.noSpecialConfigEditor'));
+    return;
+  }
+  await router.push(editor.path);
 }
 
 // onRefresh 刷新配置列表。

@@ -14,6 +14,7 @@ import {
   configTypeTagMap,
   countTagMeta,
 } from '../table-tags';
+import { hasConfigHiddenEditor } from './editors/registry';
 
 // configTypeOptions 返回字典配置类型，避免语言切换后沿用模块初始化时的旧文案。
 function configTypeOptions() {
@@ -217,11 +218,21 @@ export function useColumns<T = SystemConfigApi.Item>(
       title: $t('business.message.level'),
       width: 90,
     },
-    buildClampTextColumn({
-      field: 'page',
-      minWidth: 160,
+    {
+      field: 'pageLink',
+      align: 'center',
+      cellRender: {
+        attrs: {
+          copyButtonText: $t('business.message.copyPagePath'),
+          copySuccessMessage: $t('business.message.pagePathCopied'),
+          labelField: 'pageLinkLabel',
+        },
+        name: 'CellRoutePathLink',
+      },
+      minWidth: 140,
+      showOverflow: false,
       title: $t('business.message.pagePath'),
-    }),
+    },
     buildClampTextColumn({
       field: 'groupPath',
       minWidth: 220,
@@ -289,6 +300,16 @@ export function useColumns<T = SystemConfigApi.Item>(
             ),
           },
           {
+            code: 'specialEdit',
+            icon: 'setting',
+            iconOnly: true,
+            text: $t('business.message.specialConfigEditor'),
+            visible: (row: SystemConfigApi.Item) => hasConfigHiddenEditor(row),
+            auth: asActionPermission(
+              SYSTEM_ACTION_PERMISSION_CODES.SYSTEM_CONFIG_UPDATE,
+            ),
+          },
+          {
             code: 'cache',
             icon: 'search',
             iconOnly: true,
@@ -322,7 +343,7 @@ export function useColumns<T = SystemConfigApi.Item>(
       headerAlign: 'center',
       showOverflow: false,
       title: $t('business.message.operation'),
-      width: 108,
+      width: 128,
     },
   ];
 }

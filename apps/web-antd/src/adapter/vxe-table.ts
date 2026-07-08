@@ -66,6 +66,16 @@ export interface ClampTextRenderAttrs {
   placeholder?: string; // 空值占位文案
 }
 
+// RoutePathLinkAttrs 定义前端路由链接单元格的展示与复制配置。
+export interface RoutePathLinkAttrs {
+  labelField?: string; // labelField 指向行数据中的短展示文案字段。
+  copyButtonText?: string; // Tooltip 内复制按钮文案。
+  copiedButtonText?: string; // 复制成功后的按钮文案。
+  copySuccessMessage?: string; // 复制成功提示文案。
+  copyEmptyMessage?: string; // 无内容可复制提示文案。
+  placeholder?: string; // 空值占位文案。
+}
+
 // buildClampTextColumn 为列表页长文本列统一补齐“多行省略 + 悬浮查看全文”渲染配置。
 export function buildClampTextColumn<T extends Record<string, any>>(
   column: T,
@@ -174,6 +184,19 @@ function resolveRoutePathText(params: Record<string, any>) {
   const row = (params?.row || {}) as Record<string, any>;
   const column = (params?.column || {}) as Record<string, any>;
   return String(row[String(column.field || '')] ?? '').trim();
+}
+
+// resolveRoutePathLabel 解析路由链接短文案，避免长路径撑开表格。
+function resolveRoutePathLabel(
+  renderOpts: Record<string, any>,
+  params: Record<string, any>,
+  path: string,
+) {
+  const attrs = (renderOpts?.attrs || {}) as RoutePathLinkAttrs;
+  const row = (params?.row || {}) as Record<string, any>;
+  const labelField = String(attrs.labelField || '').trim();
+  const label = labelField ? String(row[labelField] ?? '').trim() : '';
+  return label || path;
 }
 
 // resolveRoutablePath 校验当前文本是否为可跳转的前端路由路径。
@@ -324,34 +347,67 @@ setupVbenVxeTable({
 
     // 表格配置项可以用 cellRender: { name: 'CellRoutePathLink' }，仅对真实前端路由渲染跳转链接。
     vxeUI.renderer.add('CellRoutePathLink', {
-      renderTableDefault(_renderOpts, params) {
+      renderTableDefault(renderOpts, params) {
+        const attrs = (renderOpts?.attrs || {}) as RoutePathLinkAttrs;
         const text = resolveRoutePathText(params);
         if (!text) {
-          return '-';
+          return attrs.placeholder || '-';
         }
         const routablePath = resolveRoutablePath(text);
+        const label = resolveRoutePathLabel(renderOpts, params, text);
+        const tooltipAttrs: ClampTextRenderAttrs = {
+          copiedButtonText: attrs.copiedButtonText,
+          copyButtonText: attrs.copyButtonText,
+          copyEmptyMessage: attrs.copyEmptyMessage,
+          copySuccessMessage: attrs.copySuccessMessage,
+        };
+        const title = () =>
+          h(ClampTextTooltipContent, {
+            attrs: tooltipAttrs,
+            text,
+          });
         if (!routablePath) {
           return h(
-            'span',
+            Tooltip,
             {
-              class: 'whitespace-pre-wrap break-all text-left',
+              placement: 'topLeft',
             },
-            text,
+            {
+              default: () =>
+                h(
+                  'span',
+                  {
+                    class: 'block max-w-full truncate text-left',
+                  },
+                  label,
+                ),
+              title,
+            },
           );
         }
+        const routeHref = router.resolve(routablePath).href;
         return h(
-          Button,
+          Tooltip,
           {
-            class: 'h-auto px-0 text-left whitespace-pre-wrap break-all',
-            size: 'small',
-            type: 'link',
-            onClick: (event: MouseEvent) => {
-              event.stopPropagation();
-              void router.push(routablePath);
-            },
+            placement: 'topLeft',
           },
           {
-            default: () => text,
+            default: () =>
+              h(
+                'a',
+                {
+                  class:
+                    'inline-block max-w-full truncate text-left text-primary hover:underline',
+                  href: routeHref,
+                  onClick: (event: MouseEvent) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void router.push(routablePath);
+                  },
+                },
+                label,
+              ),
+            title,
           },
         );
       },
