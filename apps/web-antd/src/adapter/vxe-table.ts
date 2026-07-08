@@ -567,6 +567,7 @@ setupVbenVxeTable({
         );
         const shouldWrap = visibleOptions.length > 3;
         const useIconGrid = shouldWrap && allIconOnly;
+        const iconGridColumns = Number(attrs?.iconGridColumns) === 3 ? 3 : 2;
         const columnCount = 3;
         const itemStyle =
           shouldWrap && !allIconOnly
@@ -577,7 +578,9 @@ setupVbenVxeTable({
         let containerClass = 'flex flex-wrap items-center gap-x-1 gap-y-1';
         if (useIconGrid) {
           containerClass =
-            'mx-auto grid w-fit grid-cols-2 justify-items-center gap-x-1 gap-y-0.5';
+            iconGridColumns === 3
+              ? 'mx-auto grid w-fit grid-cols-3 justify-items-center gap-x-1 gap-y-0.5'
+              : 'mx-auto grid w-fit grid-cols-2 justify-items-center gap-x-1 gap-y-0.5';
         } else if (shouldWrap) {
           containerClass = 'flex w-full flex-wrap items-center gap-x-2 gap-y-1';
         }

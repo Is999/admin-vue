@@ -18,7 +18,7 @@ export function userStatusOptions() {
 }
 
 // USER_SHARD_NO_MAX 表示用户分片号最大值。
-const USER_SHARD_NO_MAX = 999;
+const USER_SHARD_NO_MAX = 1023;
 
 // useGridFormSchema 返回用户列表筛选表单配置。
 export function useGridFormSchema(): VbenFormSchema[] {
@@ -59,7 +59,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.email'),
       componentProps: {
         allowClear: true,
-        placeholder: $t('business.message.filterByEmail'),
+        placeholder: $t('business.message.filterByEmailExact'),
       },
     },
     {
@@ -68,7 +68,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.phone'),
       componentProps: {
         allowClear: true,
-        placeholder: $t('business.message.filterByPhone'),
+        placeholder: $t('business.message.filterByPhoneExact'),
       },
     },
     {
@@ -107,16 +107,27 @@ export function useColumns<T = UserApi.Item>(
       minWidth: 140,
       title: $t('business.message.nickname'),
     }),
-    buildClampTextColumn({
-      field: 'email',
-      minWidth: 180,
-      title: $t('business.message.email'),
-    }),
-    buildClampTextColumn({
-      field: 'phone',
-      minWidth: 140,
-      title: $t('business.message.phone'),
-    }),
+    // field 保持稳定列标识，实际展示只读取后端脱敏字段。
+    buildClampTextColumn(
+      {
+        field: 'email',
+        minWidth: 180,
+        title: $t('business.message.email'),
+      },
+      {
+        getText: ({ row }) => row.emailMasked,
+      },
+    ),
+    buildClampTextColumn(
+      {
+        field: 'phone',
+        minWidth: 140,
+        title: $t('business.message.phone'),
+      },
+      {
+        getText: ({ row }) => row.phoneMasked,
+      },
+    ),
     {
       cellRender: {
         attrs: {

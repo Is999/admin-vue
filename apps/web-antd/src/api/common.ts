@@ -24,6 +24,7 @@ export namespace CommonApi {
   // ListResult 表示标准分页响应结构。
   export interface ListResult<T = Recordable<any>> {
     list: T[]; // 当前页数据
+    meta?: Recordable<any>; // 附加分页或统计口径
     total: number; // 总记录数
   }
 }

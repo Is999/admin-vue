@@ -309,7 +309,7 @@ const periodicColumns = computed(() => [
     key: 'updatedAt',
     width: 180,
   },
-  { title: rt('action'), key: 'action', width: 112 },
+  { title: rt('action'), key: 'action', width: 76 },
 ]);
 const archiveColumns = computed(() => [
   { title: rt('name'), dataIndex: 'name', key: 'name', width: 220 },
@@ -335,7 +335,7 @@ const archiveColumns = computed(() => [
     key: 'updatedAt',
     width: 180,
   },
-  { title: rt('action'), key: 'action', width: 112 },
+  { title: rt('action'), key: 'action', width: 76 },
 ]);
 const releaseColumns = computed(() => [
   {
@@ -996,7 +996,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     </Tag>
                   </template>
                   <template v-else-if="column.key === 'action'">
-                    <Space>
+                    <Space :size="4">
                       <Tooltip :title="rt('edit')">
                         <Button
                           v-access="
@@ -1107,7 +1107,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   </Tag>
                 </template>
                 <template v-else-if="column.key === 'action'">
-                  <Space>
+                  <Space :size="4">
                     <Tooltip :title="rt('edit')">
                       <Button
                         v-access="

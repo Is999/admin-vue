@@ -173,6 +173,7 @@ export function useColumns<T = SystemRoleApi.Item>(
       align: 'center',
       cellRender: {
         attrs: {
+          iconGridColumns: 3,
           nameField: 'title',
           onClick: onActionClick,
         },
@@ -230,7 +231,7 @@ export function useColumns<T = SystemRoleApi.Item>(
       headerAlign: 'center',
       showOverflow: false,
       title: $t('business.message.operation'),
-      width: 120,
+      width: 104,
     },
   ];
 }

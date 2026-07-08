@@ -218,6 +218,7 @@ export function useColumns<T = SystemAdminApi.Item>(
       align: 'center',
       cellRender: {
         attrs: {
+          iconGridColumns: 3,
           nameField: 'username',
           onClick: onActionClick,
         },
@@ -233,6 +234,7 @@ export function useColumns<T = SystemAdminApi.Item>(
           },
           {
             code: 'cache',
+            icon: 'search',
             iconOnly: true,
             text: $t('business.message.cacheManagement'),
             auth: asActionPermission(
@@ -279,7 +281,7 @@ export function useColumns<T = SystemAdminApi.Item>(
       headerAlign: 'center',
       showOverflow: false,
       title: $t('business.message.operation'),
-      width: 112,
+      width: 104,
     },
   ];
 }

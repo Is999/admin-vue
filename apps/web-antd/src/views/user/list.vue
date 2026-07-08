@@ -1,8 +1,17 @@
 <script lang="ts" setup>
+import type { Ref } from 'vue';
+
 import type { OnActionClickParams } from '#/adapter/vxe-table';
 import type { UserApi } from '#/api/user';
 
-import { computed, defineComponent, h, reactive, ref } from 'vue';
+import {
+  computed,
+  defineComponent,
+  h,
+  onBeforeUnmount,
+  reactive,
+  ref,
+} from 'vue';
 
 import { Page, useVbenDrawer, VbenButton } from '@vben/common-ui';
 import { Plus } from '@vben/icons';
@@ -18,15 +27,19 @@ import {
   Select,
   Space,
   Switch,
+  Tag,
 } from 'ant-design-vue';
 
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
 import {
   createUser,
+  downloadUserExport,
+  fetchUserExportStatus,
   fetchUserDetail,
   fetchUserList,
   resetUserPassword,
   syncUserRuntime,
+  triggerUserExport,
   updateUser,
   updateUserStatus,
 } from '#/api/user';
@@ -35,6 +48,12 @@ import {
   USER_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
+import {
+  downloadBlobFile,
+  ensureDownloadBlobSuccess,
+  resolveRequestErrorMessage,
+} from '#/utils/file/download';
+import { createAsyncJobPoller } from '#/utils/imex/job';
 import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
 import {
   copyTextToClipboard,
@@ -42,6 +61,7 @@ import {
 } from '#/utils/security/password';
 
 import FormTips from '../system/components/form-tips.vue';
+import { resolveBackendMessage } from '../system/shared';
 import { userStatusOptions, useColumns, useGridFormSchema } from './data';
 
 defineOptions({ name: 'UserListPage' });
@@ -53,7 +73,18 @@ const USER_PASSWORD_MIN_LENGTH = 8;
 // USER_PASSWORD_MAX_LENGTH 表示后台设置用户密码的最大长度。
 const USER_PASSWORD_MAX_LENGTH = 64;
 // USER_SHARD_NO_MOD 表示用户固定取模分片上限。
-const USER_SHARD_NO_MOD = 1000;
+const USER_SHARD_NO_MOD = 1024;
+// USER_EXPORT_POLL_INTERVAL_MS 表示用户导出状态轮询间隔。
+const USER_EXPORT_POLL_INTERVAL_MS = 2000;
+
+// UserExportStatusMap 把导出状态映射成易读文案。
+const UserExportStatusMap: Record<UserApi.ExportStatusResp['status'], string> =
+  {
+    failed: $t('business.message.failed'),
+    queued: $t('business.message.queued'),
+    running: $t('business.message.exporting'),
+    succeeded: $t('business.message.completed'),
+  };
 
 // UserFormState 保存新增和编辑抽屉中的表单字段。
 interface UserFormState {
@@ -133,6 +164,27 @@ const editorMode = ref<'create' | 'edit'>('create');
 const editorSubmitting = ref(false);
 // currentUser 保存当前正在编辑或操作的用户。
 const currentUser = ref<null | UserApi.Item>(null);
+// lastUserQuery 保存当前列表筛选条件，供异步导出复用。
+const lastUserQuery = ref<UserApi.ExportParams>({});
+// exportSubmitting 避免重复提交用户导出任务。
+const exportSubmitting = ref(false);
+// exportDownloading 标记导出文件下载中。
+const exportDownloading = ref(false);
+// exportStatus 保存当前用户导出任务轮询状态。
+const exportStatus = ref<null | UserApi.ExportStatusResp>(null);
+// downloadedUserExportParts 记录当前页面已成功触发下载的文件编号。
+const downloadedUserExportParts = ref<Set<number>>(new Set());
+// downloadingUserExportParts 记录当前正在下载的文件编号，避免重复请求。
+const downloadingUserExportParts = ref<Set<number>>(new Set());
+// userExportPoller 统一轮询用户导出任务状态。
+const userExportPoller = createAsyncJobPoller<UserApi.ExportStatusResp>({
+  fetchStatus: fetchUserExportStatus,
+  intervalMs: USER_EXPORT_POLL_INTERVAL_MS,
+  onStatusChange: async (status) => {
+    exportStatus.value = status;
+    await downloadReadyUserExportFiles(status, false);
+  },
+});
 // editorForm 保存新增/编辑抽屉字段。
 const editorForm = reactive<UserFormState>({
   avatar: '',
@@ -190,6 +242,7 @@ const [Grid, gridApi] = useVbenVxeGrid({
       ajax: {
         // 查询用户列表，只传后端支持的索引筛选字段。
         query: async ({ page }: { page: any }, formValues: any) => {
+          lastUserQuery.value = normalizeListParams(formValues);
           return await fetchUserList({
             page: page.currentPage,
             pageSize: page.pageSize,
@@ -247,10 +300,10 @@ function resetEditorForm() {
 // fillEditorForm 使用现有用户资料填充编辑表单。
 function fillEditorForm(row: UserApi.Item) {
   editorForm.avatar = row.avatar || '';
-  editorForm.email = row.email || '';
+  editorForm.email = '';
   editorForm.nickname = row.nickname || '';
   editorForm.password = '';
-  editorForm.phone = row.phone || '';
+  editorForm.phone = '';
   editorForm.status = row.status;
   editorForm.username = row.username || '';
 }
@@ -304,13 +357,20 @@ function buildCreatePayload(ticket?: Parameters<typeof ticketPayload>[0]) {
 
 // buildUpdatePayload 构造编辑用户请求。
 function buildUpdatePayload(ticket?: Parameters<typeof ticketPayload>[0]) {
-  return {
+  const payload: UserApi.SaveParams = {
     avatar: editorForm.avatar.trim(),
-    email: editorForm.email.trim(),
     nickname: editorForm.nickname.trim(),
-    phone: editorForm.phone.trim(),
     ...ticketPayload(ticket),
-  } satisfies UserApi.SaveParams;
+  };
+  const email = editorForm.email.trim();
+  const phone = editorForm.phone.trim();
+  if (email) {
+    payload.email = email;
+  }
+  if (phone) {
+    payload.phone = phone;
+  }
+  return payload;
 }
 
 // showRuntimeSyncResult 展示 API 运行态同步结果。
@@ -329,6 +389,251 @@ function showRuntimeSyncResult(sync?: UserApi.RuntimeSyncResp) {
 function refreshGrid() {
   gridApi.query();
 }
+
+// onTriggerExport 提交用户列表异步导出任务，并启动轮询。
+async function onTriggerExport() {
+  exportSubmitting.value = true;
+  stopUserExportPolling();
+  resetUserExportDownloadState();
+  try {
+    const response = await triggerUserExport(lastUserQuery.value);
+    exportStatus.value = {
+      averageRowsPerSec: 0,
+      createdAt: '',
+      downloadReady: false,
+      downloadUrl: '',
+      errorMessage: '',
+      estimatedSeconds: 0,
+      fileName: '',
+      files: [],
+      finishedAt: '',
+      jobId: response.jobId,
+      lastProcessedAt: '',
+      partCount: 0,
+      processAt: '',
+      processed: 0,
+      progress: 0,
+      queue: response.queue,
+      splitRows: 0,
+      startedAt: '',
+      status: response.status as UserApi.ExportStatusResp['status'],
+      taskId: response.taskId,
+      total: 0,
+      updatedAt: '',
+    };
+    message.success($t('business.message.userExportSubmitted'));
+    await refreshUserExportStatus(false);
+  } finally {
+    exportSubmitting.value = false;
+  }
+}
+
+// onDownloadExport 下载已完成但当前页面尚未下载的用户导出文件。
+async function onDownloadExport() {
+  if (!exportStatus.value?.jobId) {
+    message.warning($t('business.message.noExportFile'));
+    return;
+  }
+  await downloadReadyUserExportFiles(exportStatus.value, true);
+}
+
+// downloadReadyUserExportFiles 串行下载状态中已生成且当前页面未下载的文件分片。
+async function downloadReadyUserExportFiles(
+  status: UserApi.ExportStatusResp,
+  manual: boolean,
+) {
+  const files = readyUserExportFiles(status).filter(
+    (file) => !downloadedUserExportParts.value.has(file.partNo),
+  );
+  if (files.length === 0) {
+    if (manual) {
+      message.warning($t('business.message.noExportFile'));
+    }
+    return;
+  }
+  exportDownloading.value = true;
+  try {
+    for (const file of files) {
+      await downloadUserExportFile(status.jobId, file, manual);
+    }
+  } finally {
+    exportDownloading.value = false;
+  }
+}
+
+// downloadUserExportFile 下载单个用户导出文件分片。
+async function downloadUserExportFile(
+  jobId: string,
+  file: UserApi.ExportFileItem,
+  manual: boolean,
+) {
+  if (
+    downloadedUserExportParts.value.has(file.partNo) ||
+    downloadingUserExportParts.value.has(file.partNo)
+  ) {
+    return;
+  }
+  setUserExportPartSet(downloadingUserExportParts, file.partNo, true);
+  try {
+    const blob = await ensureDownloadBlobSuccess(
+      await downloadUserExport(jobId, file.partNo),
+      $t('business.message.userExportDownloadFailed'),
+    );
+    const fileName = file.fileName || `user_export_part_${file.partNo}.xlsx`;
+    downloadBlobFile(blob, fileName);
+    setUserExportPartSet(downloadedUserExportParts, file.partNo, true);
+    message.success(
+      $t('business.message.userExportPartDownloadSucceeded', [fileName]),
+    );
+  } catch (error) {
+    const errorMessage = await resolveRequestErrorMessage(
+      error,
+      $t('business.message.userExportDownloadApiUnavailable'),
+    );
+    if (manual) {
+      message.error(
+        $t('business.message.userExportDownloadFailedWithReason', [
+          errorMessage,
+        ]),
+      );
+    }
+  } finally {
+    setUserExportPartSet(downloadingUserExportParts, file.partNo, false);
+  }
+}
+
+// readyUserExportFiles 返回按编号排序的可下载文件。
+function readyUserExportFiles(status?: null | UserApi.ExportStatusResp) {
+  return [...(status?.files || [])]
+    .filter((file) => file.downloadReady)
+    .toSorted((left, right) => left.partNo - right.partNo);
+}
+
+// setUserExportPartSet 更新分片编号集合并保持 Vue 响应式。
+function setUserExportPartSet(
+  target: Ref<Set<number>>,
+  partNo: number,
+  enabled: boolean,
+) {
+  const next = new Set(target.value);
+  if (enabled) {
+    next.add(partNo);
+  } else {
+    next.delete(partNo);
+  }
+  target.value = next;
+}
+
+// resetUserExportDownloadState 重置当前导出任务的本地下载记录。
+function resetUserExportDownloadState() {
+  downloadedUserExportParts.value = new Set();
+  downloadingUserExportParts.value = new Set();
+}
+
+// refreshUserExportStatus 查询用户导出进度，并在未完成时继续轮询。
+async function refreshUserExportStatus(manual: boolean) {
+  if (!exportStatus.value?.jobId) {
+    return;
+  }
+  try {
+    const latestStatus = await userExportPoller.refresh(
+      exportStatus.value.jobId,
+    );
+    if (latestStatus.status === 'succeeded') {
+      message.success($t('business.message.userExportCompleted'));
+      return;
+    }
+    if (latestStatus.status === 'failed') {
+      message.error(
+        resolveBackendMessage(
+          latestStatus.errorMessage,
+          'business.message.userExportFailed',
+        ),
+      );
+      return;
+    }
+    if (manual) {
+      message.success($t('business.message.userExportStatusRefreshed'));
+    }
+  } catch (error) {
+    if (manual) {
+      const errorMessage = await resolveRequestErrorMessage(
+        error,
+        $t('business.message.userExportStatusApiUnavailable'),
+      );
+      message.error(
+        $t('business.message.userExportStatusRefreshFailed', [errorMessage]),
+      );
+    }
+  }
+}
+
+// stopUserExportPolling 停止用户导出状态轮询。
+function stopUserExportPolling() {
+  userExportPoller.stop();
+}
+
+// exportStatusLabel 返回当前用户导出状态中文文案。
+const exportStatusLabel = computed(() => {
+  const currentStatus = exportStatus.value?.status;
+  if (!currentStatus) {
+    return '';
+  }
+  return UserExportStatusMap[currentStatus] || currentStatus;
+});
+
+// pendingUserExportDownloadCount 返回当前页面尚未下载的已生成文件数。
+const pendingUserExportDownloadCount = computed(
+  () =>
+    readyUserExportFiles(exportStatus.value).filter(
+      (file) => !downloadedUserExportParts.value.has(file.partNo),
+    ).length,
+);
+
+// exportProgressSummary 返回当前用户导出进度摘要。
+const exportProgressSummary = computed(() => {
+  if (!exportStatus.value) {
+    return '';
+  }
+  const status = exportStatus.value;
+  const readyCount = readyUserExportFiles(status).length;
+  const downloadedCount = Math.min(
+    downloadedUserExportParts.value.size,
+    readyCount,
+  );
+  const summaryParts = [
+    `${status.progress || 0}%`,
+    status.total > 0
+      ? $t('business.message.processedCount', [
+          status.processed || 0,
+          status.total,
+        ])
+      : $t('business.message.processedOnly', [status.processed || 0]),
+  ];
+  if (readyCount > 0) {
+    summaryParts.push(
+      $t('business.message.exportFileDownloadProgress', [
+        downloadedCount,
+        readyCount,
+      ]),
+    );
+  }
+  if (status.averageRowsPerSec > 0) {
+    summaryParts.push(
+      $t('business.message.rowsPerSecond', [status.averageRowsPerSec]),
+    );
+  }
+  if (status.estimatedSeconds > 0) {
+    summaryParts.push(
+      $t('business.message.estimatedSecondsLeft', [status.estimatedSeconds]),
+    );
+  }
+  return summaryParts.join($t('business.message.commaSeparator'));
+});
+
+onBeforeUnmount(() => {
+  stopUserExportPolling();
+});
 
 // onActionClick 统一处理行操作。
 function onActionClick(e: OnActionClickParams<UserApi.Item>) {
@@ -558,13 +863,51 @@ function confirm(content: string, title: string) {
   <Page auto-content-height>
     <Grid :table-title="$t('admin.route.userList')">
       <template #toolbar-tools>
-        <VbenButton
-          v-access="asActionPermission(USER_ACTION_PERMISSION_CODES.USER_ADD)"
-          type="primary"
-          @click="onCreate"
-        >
-          <Plus class="size-5" /> {{ $t('business.message.addUser') }}
-        </VbenButton>
+        <Space wrap>
+          <Tag v-if="exportStatus" color="processing">
+            {{ $t('business.message.exportStatusLabel', [exportStatusLabel]) }}
+          </Tag>
+          <span
+            v-if="exportStatus"
+            class="text-xs text-[var(--ant-color-text-description)]"
+          >
+            {{ exportProgressSummary }}
+          </span>
+          <VbenButton
+            v-if="exportStatus?.jobId"
+            :disabled="exportSubmitting"
+            @click="refreshUserExportStatus(true)"
+          >
+            {{ $t('business.message.refreshProgress') }}
+          </VbenButton>
+          <VbenButton
+            v-if="pendingUserExportDownloadCount > 0"
+            :loading="exportDownloading"
+            @click="onDownloadExport"
+          >
+            {{
+              $t('business.message.downloadPendingExportFiles', [
+                pendingUserExportDownloadCount,
+              ])
+            }}
+          </VbenButton>
+          <VbenButton
+            v-access="
+              asActionPermission(USER_ACTION_PERMISSION_CODES.USER_EXPORT)
+            "
+            :loading="exportSubmitting"
+            @click="onTriggerExport"
+          >
+            {{ $t('business.message.asyncExportExcel') }}
+          </VbenButton>
+          <VbenButton
+            v-access="asActionPermission(USER_ACTION_PERMISSION_CODES.USER_ADD)"
+            type="primary"
+            @click="onCreate"
+          >
+            <Plus class="size-5" /> {{ $t('business.message.addUser') }}
+          </VbenButton>
+        </Space>
       </template>
     </Grid>
 
@@ -583,7 +926,13 @@ function confirm(content: string, title: string) {
         />
         <Form :model="editorForm" layout="vertical">
           <div class="user-editor__layout">
-            <section class="user-editor__section">
+            <section
+              class="user-editor__section"
+              :class="{
+                'user-editor__section--edit-account': editorMode === 'edit',
+                'user-editor__section--wide': editorMode === 'edit',
+              }"
+            >
               <div class="user-editor__section-head">
                 <div>
                   <div class="user-editor__section-title">
@@ -664,14 +1013,42 @@ function confirm(content: string, title: string) {
                 <Form.Item :label="$t('business.message.email')">
                   <Input
                     v-model:value="editorForm.email"
-                    :placeholder="$t('business.message.email')"
+                    :placeholder="
+                      editorMode === 'edit'
+                        ? $t('business.message.userContactEditPlaceholder')
+                        : $t('business.message.email')
+                    "
                   />
+                  <div
+                    v-if="editorMode === 'edit' && currentUser?.emailMasked"
+                    class="user-editor__masked-value"
+                  >
+                    {{
+                      $t('business.message.currentMaskedContact', [
+                        currentUser.emailMasked,
+                      ])
+                    }}
+                  </div>
                 </Form.Item>
                 <Form.Item :label="$t('business.message.phone')">
                   <Input
                     v-model:value="editorForm.phone"
-                    :placeholder="$t('business.message.phone')"
+                    :placeholder="
+                      editorMode === 'edit'
+                        ? $t('business.message.userContactEditPlaceholder')
+                        : $t('business.message.phone')
+                    "
                   />
+                  <div
+                    v-if="editorMode === 'edit' && currentUser?.phoneMasked"
+                    class="user-editor__masked-value"
+                  >
+                    {{
+                      $t('business.message.currentMaskedContact', [
+                        currentUser.phoneMasked,
+                      ])
+                    }}
+                  </div>
                 </Form.Item>
                 <Form.Item
                   class="user-editor__field-wide"
@@ -768,8 +1145,20 @@ function confirm(content: string, title: string) {
   gap: 12px 14px;
 }
 
+.user-editor__section--edit-account .user-editor__grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .user-editor__field-wide {
   grid-column: 1 / -1;
+}
+
+.user-editor__masked-value {
+  min-height: 18px;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--vben-text-color-secondary);
 }
 
 .user-editor :deep(.ant-form-item) {
@@ -816,7 +1205,8 @@ function confirm(content: string, title: string) {
   }
 
   .user-editor__layout,
-  .user-editor__grid {
+  .user-editor__grid,
+  .user-editor__section--edit-account .user-editor__grid {
     grid-template-columns: 1fr;
   }
 
