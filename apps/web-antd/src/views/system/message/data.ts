@@ -1,16 +1,16 @@
 import type { VbenFormSchema } from '#/adapter/form';
 import type { OnActionClickFn, VxeTableGridOptions } from '#/adapter/vxe-table';
 import type { AdminMessageApi } from '#/api/message';
-import type { SystemAdminApi } from '#/api/system';
 
-import { h } from 'vue';
+import { h, markRaw } from 'vue';
 
 import { VbenTiptapPreview } from '@vben/plugins/tiptap';
 
 import { Popover } from 'ant-design-vue';
 
-import { fetchAdminList } from '#/api/system';
+import { fetchAdminMessageReceiverOptions } from '#/api/message';
 import { $t } from '#/locales';
+import { fetchBoundedPages } from '#/utils/request/bounded-pagination';
 
 import {
   countTagMeta,
@@ -18,6 +18,7 @@ import {
   readStatusTagMap,
 } from '../table-tags';
 import { messageContentText, sanitizeMessageContentHtml } from './content';
+import MessageContentEditor from './message-content-editor.vue';
 
 // MESSAGE_TYPE_META 定义常用消息类型稳定枚举，文案在使用时从语言包读取。
 const MESSAGE_TYPE_META = [
@@ -104,11 +105,19 @@ function readStatusOptions() {
   ];
 }
 
-// fetchAdminReceiverOptions 拉取管理员下拉列表（用于收件人选择）。
+// fetchAdminReceiverOptions 拉取当前账号可用的消息收件人，避免依赖管理员列表权限。
 export async function fetchAdminReceiverOptions() {
-  const resp = await fetchAdminList({ page: 1, pageSize: 200 });
-  return (resp?.list || []).map((item: SystemAdminApi.Item) => ({
-    label: `${item.realName || item.username}（${item.username}）`,
+  const items = await fetchBoundedPages<AdminMessageApi.ReceiverOptionItem>({
+    fetchPage: (page, pageSize) =>
+      fetchAdminMessageReceiverOptions({ page, pageSize }),
+    getItemKey: (item) => item.id,
+    maxItems: 500,
+    maxPages: 5,
+  });
+  return items.map((item) => ({
+    label: item.realName
+      ? `${item.realName}（${item.username}）`
+      : item.username,
     value: item.id,
   }));
 }
@@ -171,12 +180,14 @@ export function useSendFormSchema(): VbenFormSchema[] {
       },
     },
     {
-      component: 'Tiptap',
+      component: markRaw(MessageContentEditor),
       fieldName: 'content',
+      hideLabel: true,
       label: $t('business.message.content'),
       rules: 'required',
       formItemClass: 'col-span-2 message-send-content-item',
       componentProps: {
+        label: $t('business.message.content'),
         maxHeight: 260,
         minHeight: 150,
         placeholder: $t('business.message.messageContentPlaceholder'),
@@ -198,9 +209,9 @@ export function useSendFormSchema(): VbenFormSchema[] {
       label: $t('business.message.messageExtraData'),
       formItemClass: 'col-span-2',
       componentProps: {
-        autoSize: { minRows: 3, maxRows: 8 },
         class: 'font-mono text-xs',
         placeholder: $t('business.message.messageExtraDataPlaceholder'),
+        rows: 4,
       },
     },
   ];

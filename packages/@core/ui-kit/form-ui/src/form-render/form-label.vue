@@ -12,6 +12,7 @@ interface Props {
   class?: string;
   colon?: boolean;
   help?: CustomRenderType;
+  isControlGroup?: boolean;
   label?: CustomRenderType;
   required?: boolean;
 }
@@ -20,7 +21,10 @@ const props = defineProps<Props>();
 </script>
 
 <template>
-  <FormLabel :class="cn('flex items-center', props.class)">
+  <FormLabel
+    :class="cn('flex items-center', props.class)"
+    :is-control-group="isControlGroup"
+  >
     <span v-if="required" class="mr-0.5 text-destructive">*</span>
     <slot></slot>
     <VbenHelpTooltip v-if="help" trigger-class="size-3.5 ml-1">

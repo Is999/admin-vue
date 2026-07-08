@@ -31,6 +31,7 @@ import {
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 
+import JsonDetailViewer from '../../system/components/json-detail-viewer.vue';
 import {
   buildSchedulerStatusLabel,
   buildSchedulerSyncStatusLabel,
@@ -378,6 +379,14 @@ const schedulerConfigRows = computed(() => {
         status.heartbeatIntervalSeconds || 0,
       ]),
       description: $t('business.message.heartbeatIntervalDesc'),
+    },
+    {
+      label: $t('business.message.schedulerMaxQueueBacklog'),
+      value:
+        status.maxQueueBacklog > 0
+          ? String(status.maxQueueBacklog)
+          : $t('business.message.disabled'),
+      description: $t('business.message.schedulerMaxQueueBacklogDesc'),
     },
   ];
 });
@@ -1214,11 +1223,14 @@ onMounted(() => {
               </div>
             </div>
           </div>
-          <pre
+          <JsonDetailViewer
             v-if="showSchedulerRaw && schedulerStatusText"
-            class="mt-4 overflow-auto rounded-2xl border border-sky-500/20 bg-slate-950 px-4 py-4 text-sm text-sky-100 shadow-inner"
-            v-text="schedulerStatusText"
-          ></pre>
+            class="mt-4"
+            :search-placeholder="
+              $t('business.message.jsonDataSearchPlaceholder')
+            "
+            :value="schedulerStatusText"
+          />
         </Card>
 
         <Card
@@ -1392,11 +1404,14 @@ onMounted(() => {
               </Button>
             </Space>
           </div>
-          <pre
+          <JsonDetailViewer
             v-if="showWorkflowTriggerRaw && workflowTriggerResultText"
-            class="mt-4 overflow-auto rounded-2xl border border-cyan-500/20 bg-slate-950 px-4 py-4 text-sm text-cyan-100 shadow-inner"
-            v-text="workflowTriggerResultText"
-          ></pre>
+            class="mt-4"
+            :search-placeholder="
+              $t('business.message.jsonDataSearchPlaceholder')
+            "
+            :value="workflowTriggerResultText"
+          />
         </Card>
 
         <Card
@@ -1559,11 +1574,14 @@ onMounted(() => {
               </Button>
             </Space>
           </div>
-          <pre
+          <JsonDetailViewer
             v-if="showEnqueueTaskRaw && enqueueTaskResultText"
-            class="mt-4 overflow-auto rounded-2xl border border-emerald-500/20 bg-slate-950 px-4 py-4 text-sm text-emerald-100 shadow-inner"
-            v-text="enqueueTaskResultText"
-          ></pre>
+            class="mt-4"
+            :search-placeholder="
+              $t('business.message.jsonDataSearchPlaceholder')
+            "
+            :value="enqueueTaskResultText"
+          />
         </Card>
       </div>
     </div>

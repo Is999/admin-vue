@@ -65,10 +65,6 @@ interface AuthenticationProps {
    * @zh_CN 提交按钮文本
    */
   submitButtonText?: string;
-  /**
-   * @zh_CN 是否禁用提交按钮
-   */
-  submitButtonDisabled?: boolean;
 }
 
 export type { AuthenticationProps };

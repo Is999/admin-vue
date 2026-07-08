@@ -18,11 +18,29 @@ function statusOptions() {
   ];
 }
 
+// findDefaultParentRoleID 递归返回新增角色时首个可选父级角色 ID。
+export function findDefaultParentRoleID(
+  items: Array<Record<string, any>>,
+): number {
+  for (const item of items) {
+    if (!item.disabled && item.selectable !== false) {
+      return Number(item.id || 0);
+    }
+    const childID = findDefaultParentRoleID(
+      Array.isArray(item.children) ? item.children : [],
+    );
+    if (childID > 0) {
+      return childID;
+    }
+  }
+  return 0;
+}
+
 // useFormSchema 返回角色新增与编辑表单配置。
 export function useFormSchema(
   roleTree: Array<Record<string, any>> = [],
-  onPidChange?: (value: number) => Promise<void> | void,
-  disableStatusEdit = false,
+  disableProtectedFields = false,
+  disableStatus = false,
 ): VbenFormSchema[] {
   return [
     {
@@ -38,12 +56,12 @@ export function useFormSchema(
       label: $t('business.message.parentRole'),
       componentProps: {
         allowClear: false,
+        disabled: disableProtectedFields,
         fieldNames: {
           children: 'children',
           label: 'title',
           value: 'id',
         },
-        onChange: onPidChange,
         placeholder: $t('business.message.selectParentRole'),
         style: { width: '100%' },
         treeData: roleTree,
@@ -58,7 +76,7 @@ export function useFormSchema(
       label: $t('business.message.roleStatus'),
       componentProps: {
         buttonStyle: 'solid',
-        disabled: disableStatusEdit,
+        disabled: disableProtectedFields || disableStatus,
         options: statusOptions(),
         optionType: 'button',
       },
@@ -69,7 +87,7 @@ export function useFormSchema(
       fieldName: 'description',
       label: $t('business.message.roleDescription'),
       componentProps: {
-        autoSize: { minRows: 3, maxRows: 5 },
+        rows: 3,
         maxlength: 255,
         showCount: true,
       },
@@ -146,7 +164,8 @@ export function useColumns<T = SystemRoleApi.Item>(
             SYSTEM_ACTION_PERMISSION_CODES.ROLE_STATUS_UPDATE,
           ),
           beforeChange: onStatusChange,
-          disabled: (row: SystemRoleApi.Item) => Number(row.id) === 1,
+          disabled: (row: SystemRoleApi.Item) =>
+            Number(row.id) === 1 || row.manageable !== true,
         },
         name: onStatusChange ? 'CellSwitch' : 'CellTag',
       },
@@ -173,6 +192,7 @@ export function useColumns<T = SystemRoleApi.Item>(
       align: 'center',
       cellRender: {
         attrs: {
+          iconGridColumns: 3,
           nameField: 'title',
           onClick: onActionClick,
         },
@@ -184,6 +204,7 @@ export function useColumns<T = SystemRoleApi.Item>(
             iconOnly: true,
             text: $t('business.message.addChild'),
             auth: asActionPermission(SYSTEM_ACTION_PERMISSION_CODES.ROLE_ADD),
+            visible: (row: SystemRoleApi.Item) => row.canCreateChild === true,
           },
           {
             code: 'edit',
@@ -193,16 +214,16 @@ export function useColumns<T = SystemRoleApi.Item>(
             auth: asActionPermission(
               SYSTEM_ACTION_PERMISSION_CODES.ROLE_UPDATE,
             ),
+            visible: (row: SystemRoleApi.Item) => row.manageable === true,
           },
           {
             code: 'permission',
             icon: 'setting',
             iconOnly: true,
             text: $t('business.message.permissionConfig'),
-            auth: asActionPermission([
+            auth: asActionPermission(
               SYSTEM_ACTION_PERMISSION_CODES.ROLE_PERMISSION_TREE,
-              SYSTEM_ACTION_PERMISSION_CODES.ROLE_PERMISSION_UPDATE,
-            ]),
+            ),
           },
           {
             code: 'cache',
@@ -222,6 +243,8 @@ export function useColumns<T = SystemRoleApi.Item>(
             auth: asActionPermission(
               SYSTEM_ACTION_PERMISSION_CODES.ROLE_DELETE,
             ),
+            visible: (row: SystemRoleApi.Item) =>
+              row.manageable === true && Number(row.id) !== 1,
           },
         ],
       },
@@ -230,7 +253,7 @@ export function useColumns<T = SystemRoleApi.Item>(
       headerAlign: 'center',
       showOverflow: false,
       title: $t('business.message.operation'),
-      width: 120,
+      width: 104,
     },
   ];
 }

@@ -10,11 +10,14 @@ import '@vben/styles/antd';
 import { useTitle } from '@vueuse/core';
 
 import { $t, setupI18n } from '#/locales';
+import { setupAccessTokenSync } from '#/utils/access-token-sync';
 
 import { initComponentAdapter } from './adapter/component';
 import { initSetupVbenForm } from './adapter/form';
 import App from './app.vue';
 import { router } from './router';
+
+import './styles/preferences.css';
 
 async function bootstrap(namespace: string) {
   // 初始化组件适配器
@@ -36,6 +39,7 @@ async function bootstrap(namespace: string) {
 
   // 配置 pinia-tore
   await initStores(app, { namespace });
+  setupAccessTokenSync();
 
   // 安装权限指令
   registerAccessDirective(app);

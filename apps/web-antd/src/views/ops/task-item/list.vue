@@ -3,12 +3,21 @@ import type { Dayjs } from 'dayjs';
 
 import type { TaskApi } from '#/api/ops/task';
 
-import { computed, h, nextTick, onMounted, ref, watch } from 'vue';
+import {
+  computed,
+  h,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { Page, VbenButton } from '@vben/common-ui';
 import { useAccessStore } from '@vben/stores';
 
+import { QuestionCircleOutlined } from '@ant-design/icons-vue';
 import {
   Alert,
   Button,
@@ -39,11 +48,16 @@ import {
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 import { copyTextToClipboard } from '#/utils/security/password';
-
 import {
+  currentSessionStateIdentity,
+  registerSessionStateCleanup,
+} from '#/utils/session-state-gate';
+
+import JsonDetailViewer from '../../system/components/json-detail-viewer.vue';
+import {
+  getTaskQueueOptions,
   getTaskQueueDescription,
   safePrettyJson,
-  TASK_QUEUE_OPTIONS,
 } from '../shared';
 import {
   buildTaskTraceDetailRows,
@@ -71,11 +85,23 @@ type TaskStateTotals = Partial<
 >;
 type TaskTimeRangeValue = [Dayjs, Dayjs] | undefined;
 
+// TASK_LIST_AUTO_REFRESH_INTERVAL_MS 表示任务运行态列表和详情的自动刷新间隔。
+const TASK_LIST_AUTO_REFRESH_INTERVAL_MS = 5000;
+// TASK_LIVE_STATES 表示仍可能发生状态或执行指标变化的任务状态。
+const TASK_LIVE_STATES = new Set<TaskApi.ListTaskItemsReq['state']>([
+  'active',
+  'aggregating',
+  'pending',
+]);
+
 const route = useRoute();
 const router = useRouter();
 const accessStore = useAccessStore();
 const queueOptions = ref<Array<{ label: string; value: string }>>(
-  TASK_QUEUE_OPTIONS.map((item) => ({ label: item.label, value: item.value })),
+  getTaskQueueOptions().map((item) => ({
+    label: item.label,
+    value: item.value,
+  })),
 );
 const searchQueue = ref('');
 const searchState = ref<TaskStateFilterValue>('');
@@ -87,6 +113,17 @@ const searchTaskName = ref('');
 const searchWorkflowId = ref('');
 // searchTimeRange 保存任务活动时间范围；scheduled 状态对应 nextProcessAt。
 const searchTimeRange = ref<TaskTimeRangeValue>();
+// vTaskTimeRangeIdentifiers 为 RangePicker 的开始、结束输入补充独立表单标识。
+const vTaskTimeRangeIdentifiers = {
+  mounted(element: HTMLElement) {
+    const [startInput, endInput] =
+      element.querySelectorAll<HTMLInputElement>('input');
+    startInput?.setAttribute('id', 'task-item-time-range-start');
+    startInput?.setAttribute('name', 'task-item-time-range-start');
+    endInput?.setAttribute('id', 'task-item-time-range-end');
+    endInput?.setAttribute('name', 'task-item-time-range-end');
+  },
+};
 // routeWorkflowNode 保存工作流状态页带入的节点名称，用于提示当前列表正在定位哪个节点。
 const routeWorkflowNode = ref('');
 const routeSource = ref('');
@@ -103,12 +140,13 @@ const currentQueryWorkflowId = ref('');
 const currentQueryStartTime = ref('');
 const currentQueryEndTime = ref('');
 const currentTaskRows = ref<TaskApi.TaskItem[]>([]);
+// currentTaskTotal 保存最近一次有效查询总数，旧请求失效时保持当前表格分页不变。
+const currentTaskTotal = ref(0);
 // currentStateTotals 保存后端返回的状态总数快照，用于空状态聚合时显示其它可切换状态。
 const currentStateTotals = ref<TaskStateTotals>({});
 const autoOpenedTaskSignature = ref('');
 const initializing = ref(true);
 const suppressRouteQueryWatch = ref(false);
-const showQueueHint = ref(false);
 
 type HandleSearchOptions = {
   // clearTaskDetailQuery 表示是否清理任务详情深链参数，手动查询时避免重复弹出旧详情。
@@ -122,10 +160,26 @@ type ClearTaskDetailRouteQueryOptions = {
 
 type OverflowTooltipProps = InstanceType<typeof Tooltip>['$props'];
 // TaskDetailModalHandle 保存当前任务详情弹框实例，便于打开新详情前只关闭旧详情，不影响其它确认弹窗。
-type TaskDetailModalHandle = { destroy: () => void };
+type TaskDetailModalHandle = ReturnType<typeof Modal.info>;
+// TaskDetailTarget 保存当前详情弹框对应的任务，用于运行中静默刷新。
+type TaskDetailTarget = Pick<TaskApi.TaskItem, 'id' | 'queue' | 'state'>;
 
 // taskDetailModalHandle 指向当前任务详情弹框；遮罩点击或操作按钮关闭后会重置。
 let taskDetailModalHandle: null | TaskDetailModalHandle = null;
+// taskDetailModalIdentity 标识当前详情弹框，避免其它弹框关闭回调清理新实例。
+let taskDetailModalIdentity = '';
+// taskDetailTarget 保存当前详情任务及状态，终态后停止无效详情请求。
+const taskDetailTarget = ref<null | TaskDetailTarget>(null);
+// taskListAutoRefreshTimer 保存任务运行态自动刷新定时器。
+const taskListAutoRefreshTimer = ref<null | number>(null);
+// taskListAutoRefreshing 防止自动刷新请求重入。
+const taskListAutoRefreshing = ref(false);
+// taskListRequestSeq 标记最近一次列表请求，避免旧筛选或旧账号响应覆盖当前页面。
+const taskListRequestSeq = ref(0);
+// unregisterTaskListSessionCleanup 在账号切换时停止旧账号轮询并清理任务详情。
+const unregisterTaskListSessionCleanup = registerSessionStateCleanup(
+  resetTaskListSessionState,
+);
 
 const canBatchRun = computed(() =>
   hasAnyPermission(accessStore.accessCodes, [
@@ -448,15 +502,38 @@ const [Grid, gridApi] = useVbenVxeGrid({
       autoLoad: false,
       ajax: {
         query: async ({ page }: { page: any }) => {
+          const sourceSessionIdentity = currentSessionStateIdentity();
+          const currentRequestSeq = taskListRequestSeq.value + 1;
+          taskListRequestSeq.value = currentRequestSeq;
           const timeRange = buildTaskTimeRangeParams();
-          const result = await queryTasksByFilters({
-            endTime: timeRange.endTime,
-            group: searchGroup.value || undefined,
-            page: page.currentPage,
-            pageSize: page.pageSize,
-            stateValue: searchState.value,
-            startTime: timeRange.startTime,
-          });
+          const requestIsCurrent = () =>
+            currentRequestSeq === taskListRequestSeq.value &&
+            sourceSessionIdentity === currentSessionStateIdentity();
+          let result: Awaited<ReturnType<typeof queryTasksByFilters>>;
+          try {
+            result = await queryTasksByFilters({
+              endTime: timeRange.endTime,
+              group: searchGroup.value || undefined,
+              page: page.currentPage,
+              pageSize: page.pageSize,
+              stateValue: searchState.value,
+              startTime: timeRange.startTime,
+            });
+          } catch (error) {
+            if (!requestIsCurrent()) {
+              return {
+                list: currentTaskRows.value,
+                total: currentTaskTotal.value,
+              };
+            }
+            throw error;
+          }
+          if (!requestIsCurrent()) {
+            return {
+              list: currentTaskRows.value,
+              total: currentTaskTotal.value,
+            };
+          }
           aggregateMode.value = result.aggregateMode;
           currentQueryQueue.value = searchQueue.value;
           currentQueryState.value = result.effectiveState;
@@ -467,7 +544,9 @@ const [Grid, gridApi] = useVbenVxeGrid({
           currentQueryStartTime.value = timeRange.startTime || '';
           currentQueryEndTime.value = timeRange.endTime || '';
           currentTaskRows.value = result.list;
+          currentTaskTotal.value = result.total;
           currentStateTotals.value = result.stateTotals;
+          syncTaskListAutoRefresh();
           await tryAutoOpenTaskDetail();
           return {
             list: result.list,
@@ -1014,8 +1093,113 @@ function renderTaskDetailGuideAlert(
 
 // closeTaskDetailModal 仅关闭任务详情弹框，避免 Modal.destroyAll 误关正在确认的删除/立即执行弹框。
 function closeTaskDetailModal() {
-  taskDetailModalHandle?.destroy();
+  const currentHandle = taskDetailModalHandle;
   taskDetailModalHandle = null;
+  taskDetailModalIdentity = '';
+  taskDetailTarget.value = null;
+  currentHandle?.destroy();
+  syncTaskListAutoRefresh();
+}
+
+// stopTaskListAutoRefresh 停止任务运行态自动刷新。
+function stopTaskListAutoRefresh() {
+  if (taskListAutoRefreshTimer.value === null) {
+    return;
+  }
+  window.clearInterval(taskListAutoRefreshTimer.value);
+  taskListAutoRefreshTimer.value = null;
+}
+
+// resetTaskListSessionState 清理旧账号遗留的轮询、列表快照和任务详情。
+function resetTaskListSessionState() {
+  taskListRequestSeq.value += 1;
+  taskListAutoRefreshing.value = false;
+  currentQueryState.value = '';
+  currentTaskRows.value = [];
+  currentTaskTotal.value = 0;
+  currentStateTotals.value = {};
+  closeTaskDetailModal();
+  stopTaskListAutoRefresh();
+}
+
+// hasLiveTask 判断任务是否仍可能更新状态或执行指标。
+function hasLiveTask(task?: null | TaskDetailTarget) {
+  return TASK_LIVE_STATES.has(
+    String(task?.state || '')
+      .trim()
+      .toLowerCase() as TaskApi.ListTaskItemsReq['state'],
+  );
+}
+
+// shouldAutoRefreshTaskList 判断当前查询结果或详情是否仍包含运行态任务。
+function shouldAutoRefreshTaskList() {
+  if (hasLiveTask(taskDetailTarget.value)) {
+    return true;
+  }
+  return currentTaskRows.value.some((item) => hasLiveTask(item));
+}
+
+// syncTaskListAutoRefresh 按当前可见运行态内容启停五秒自动刷新。
+function syncTaskListAutoRefresh() {
+  if (!shouldAutoRefreshTaskList()) {
+    stopTaskListAutoRefresh();
+    return;
+  }
+  if (taskListAutoRefreshTimer.value !== null) {
+    return;
+  }
+  taskListAutoRefreshTimer.value = window.setInterval(() => {
+    void refreshTaskListSilently();
+  }, TASK_LIST_AUTO_REFRESH_INTERVAL_MS);
+}
+
+// refreshOpenTaskDetailSilently 刷新当前运行中任务详情，终态回执仍会最后更新一次。
+async function refreshOpenTaskDetailSilently() {
+  const target = taskDetailTarget.value;
+  if (!target || !hasLiveTask(target)) {
+    return;
+  }
+  const sourceSessionIdentity = currentSessionStateIdentity();
+  const expectedIdentity = `${target.queue}\u0000${target.id}`;
+  try {
+    const responseData = await getTaskInfo({
+      queue: target.queue,
+      taskId: target.id,
+    });
+    if (
+      taskDetailModalIdentity !== expectedIdentity ||
+      sourceSessionIdentity !== currentSessionStateIdentity() ||
+      !taskDetailModalHandle
+    ) {
+      return;
+    }
+    showTaskDetailModal(responseData);
+  } catch {
+    // 静默刷新失败时保留当前详情，下一轮继续尝试。
+  }
+}
+
+// refreshTaskListSilently 按当前可见内容刷新列表或运行中详情，避免后台标签和重复请求增加服务端负载。
+async function refreshTaskListSilently() {
+  if (
+    document.visibilityState !== 'visible' ||
+    taskListAutoRefreshing.value ||
+    initializing.value
+  ) {
+    return;
+  }
+  const sourceSessionIdentity = currentSessionStateIdentity();
+  taskListAutoRefreshing.value = true;
+  try {
+    await (hasLiveTask(taskDetailTarget.value)
+      ? refreshOpenTaskDetailSilently()
+      : gridApi.query());
+    syncTaskListAutoRefresh();
+  } finally {
+    if (sourceSessionIdentity === currentSessionStateIdentity()) {
+      taskListAutoRefreshing.value = false;
+    }
+  }
 }
 
 // openWorkflowStatusFromTask 按任务头里的 workflowId 跳转到独立工作流状态页。
@@ -1035,7 +1219,7 @@ async function openWorkflowStatusFromTask(task: TaskApi.TaskItem) {
 }
 
 function showTaskDetailModal(task: TaskApi.TaskItem) {
-  closeTaskDetailModal();
+  const detailIdentity = `${task.queue}\u0000${task.id}`;
   const workflowId = getTaskWorkflowId(task);
   const workflowName = getTaskHeaderValue(task, 'x-app-workflow-name');
   const workflowNode = getTaskHeaderValue(task, 'x-app-workflow-node');
@@ -1098,9 +1282,16 @@ function showTaskDetailModal(task: TaskApi.TaskItem) {
         ],
       ]
     : [];
-  taskDetailModalHandle = Modal.info({
+  let nextModalHandle: null | TaskDetailModalHandle = null;
+  const modalConfig = {
     afterClose: () => {
+      if (taskDetailModalHandle !== nextModalHandle) {
+        return;
+      }
       taskDetailModalHandle = null;
+      taskDetailModalIdentity = '';
+      taskDetailTarget.value = null;
+      syncTaskListAutoRefresh();
     },
     closable: true,
     footer: null,
@@ -1279,98 +1470,85 @@ function showTaskDetailModal(task: TaskApi.TaskItem) {
       renderTaskExecutionTraceSection(executionTrace),
       h('div', { class: 'space-y-4' }, [
         h('div', {}, [
-          h('div', { class: 'mb-2 flex items-center justify-between gap-2' }, [
-            h(
-              'div',
-              { class: 'text-sm font-semibold' },
-              $t('business.message.taskHeaders'),
-            ),
-            h(
-              Button,
-              {
-                size: 'small',
-                onClick: () =>
-                  copyTextToClipboard(
-                    safePrettyJson(task.headers || {}),
-                    $t('business.message.taskHeadersCopied'),
-                    $t('business.message.noTaskHeadersToCopy'),
-                  ),
-              },
-              () => $t('business.message.copyHeaders'),
-            ),
-          ]),
           h(
-            'pre',
-            {
-              class:
-                'overflow-auto rounded bg-[#0f172a] p-4 text-sm text-white',
-            },
-            safePrettyJson(task.headers || {}),
+            'div',
+            { class: 'mb-2 text-sm font-semibold' },
+            $t('business.message.taskHeaders'),
           ),
+          h(JsonDetailViewer, {
+            copyLabel: $t('business.message.copyHeaders'),
+            searchPlaceholder: $t('business.message.jsonDataSearchPlaceholder'),
+            value: task.headers || {},
+            onCopy: () =>
+              copyTextToClipboard(
+                safePrettyJson(task.headers || {}),
+                $t('business.message.taskHeadersCopied'),
+                $t('business.message.noTaskHeadersToCopy'),
+              ),
+          }),
         ]),
         h('div', {}, [
-          h('div', { class: 'mb-2 flex items-center justify-between gap-2' }, [
-            h(
-              'div',
-              { class: 'text-sm font-semibold' },
-              $t('business.message.taskPayload'),
-            ),
-            h(
-              Button,
-              {
-                size: 'small',
-                onClick: () =>
-                  copyTextToClipboard(
-                    safePrettyJson(task.payload || {}),
-                    $t('business.message.taskPayloadCopied'),
-                    $t('business.message.noTaskPayloadToCopy'),
-                  ),
-              },
-              () => $t('business.message.copyPayload'),
-            ),
-          ]),
           h(
-            'pre',
-            {
-              class:
-                'overflow-auto rounded bg-[#0f172a] p-4 text-sm text-white',
-            },
-            safePrettyJson(task.payload || {}),
+            'div',
+            { class: 'mb-2 text-sm font-semibold' },
+            $t('business.message.taskPayload'),
           ),
+          h(JsonDetailViewer, {
+            copyLabel: $t('business.message.copyPayload'),
+            searchPlaceholder: $t('business.message.jsonDataSearchPlaceholder'),
+            value: task.payload || {},
+            onCopy: () =>
+              copyTextToClipboard(
+                safePrettyJson(task.payload || {}),
+                $t('business.message.taskPayloadCopied'),
+                $t('business.message.noTaskPayloadToCopy'),
+              ),
+          }),
         ]),
         h('div', {}, [
-          h('div', { class: 'mb-2 flex items-center justify-between gap-2' }, [
-            h(
-              'div',
-              { class: 'text-sm font-semibold' },
-              $t('business.message.taskResult'),
-            ),
-            h(
-              Button,
-              {
-                size: 'small',
-                onClick: () =>
-                  copyTextToClipboard(
-                    formatTaskResultText(task),
-                    $t('business.message.taskResultCopied'),
-                    $t('business.message.noTaskResultToCopy'),
-                  ),
-              },
-              () => $t('business.message.copyResult'),
-            ),
-          ]),
           h(
-            'pre',
-            {
-              class:
-                'overflow-auto rounded bg-[#0f172a] p-4 text-sm text-white',
-            },
-            formatTaskResultText(task),
+            'div',
+            { class: 'mb-2 text-sm font-semibold' },
+            $t('business.message.taskResult'),
           ),
+          h(JsonDetailViewer, {
+            copyLabel: $t('business.message.copyResult'),
+            searchPlaceholder: $t('business.message.jsonDataSearchPlaceholder'),
+            value: formatTaskResultText(task),
+            onCopy: () =>
+              copyTextToClipboard(
+                formatTaskResultText(task),
+                $t('business.message.taskResultCopied'),
+                $t('business.message.noTaskResultToCopy'),
+              ),
+          }),
         ]),
       ]),
     ]),
-  });
+  };
+  if (taskDetailModalHandle && taskDetailModalIdentity === detailIdentity) {
+    taskDetailTarget.value = {
+      id: task.id,
+      queue: task.queue,
+      state: task.state,
+    };
+    taskDetailModalHandle.update({
+      content: modalConfig.content,
+      title: modalConfig.title,
+    });
+    syncTaskListAutoRefresh();
+    return;
+  }
+  closeTaskDetailModal();
+  nextModalHandle = Modal.info(modalConfig);
+  taskDetailModalHandle = nextModalHandle;
+  taskDetailModalIdentity = detailIdentity;
+  taskDetailTarget.value = {
+    id: task.id,
+    queue: task.queue,
+    state: task.state,
+  };
+  syncTaskListAutoRefresh();
 }
 
 async function queryTaskDetail(
@@ -1712,6 +1890,7 @@ async function handleReset() {
   currentQueryStartTime.value = '';
   currentQueryEndTime.value = '';
   currentTaskRows.value = [];
+  currentTaskTotal.value = 0;
   currentStateTotals.value = {};
   autoOpenedTaskSignature.value = '';
   await clearTaskDetailRouteQuery({ clearSource: true });
@@ -1723,6 +1902,11 @@ onMounted(async () => {
   applyRouteQueryToFilters();
   initializing.value = false;
   await handleSearch({ clearTaskDetailQuery: false });
+});
+
+onBeforeUnmount(() => {
+  unregisterTaskListSessionCleanup();
+  resetTaskListSessionState();
 });
 
 watch(
@@ -1837,6 +2021,9 @@ watch(
                 </div>
                 <Input
                   v-model:value="searchWorkflowId"
+                  id="task-item-workflow-id-filter"
+                  name="task-item-workflow-id-filter"
+                  autocomplete="off"
                   allow-clear
                   class="w-full"
                   :placeholder="
@@ -1850,6 +2037,9 @@ watch(
                 </div>
                 <Input
                   v-model:value="searchTaskName"
+                  id="task-item-name-filter"
+                  name="task-item-name-filter"
+                  autocomplete="off"
                   allow-clear
                   class="w-full"
                   :placeholder="
@@ -1863,6 +2053,9 @@ watch(
                 </div>
                 <Input
                   v-model:value="searchTaskId"
+                  id="task-item-id-filter"
+                  name="task-item-id-filter"
+                  autocomplete="off"
                   allow-clear
                   class="w-full"
                   :placeholder="$t('business.message.taskIdFilterPlaceholder')"
@@ -1874,6 +2067,9 @@ watch(
                 </div>
                 <Input
                   v-model:value="searchGroup"
+                  id="task-item-group-filter"
+                  name="task-item-group-filter"
+                  autocomplete="off"
                   allow-clear
                   class="w-full"
                   :placeholder="
@@ -1881,7 +2077,7 @@ watch(
                   "
                 />
               </div>
-              <div class="min-w-0">
+              <div v-task-time-range-identifiers class="min-w-0">
                 <div class="mb-2 text-sm font-medium">
                   {{ $t('business.message.timeRange') }}
                 </div>
@@ -1897,8 +2093,15 @@ watch(
                 />
               </div>
               <div class="min-w-0">
-                <div class="mb-2 text-sm font-medium">
-                  {{ $t('business.message.queueName') }}
+                <div class="mb-2 flex items-center gap-2 text-sm font-medium">
+                  <span>{{ $t('business.message.queueName') }}</span>
+                  <Tooltip v-bind="buildOverflowTooltipProps(queueHintText)">
+                    <QuestionCircleOutlined
+                      class="cursor-help text-[var(--vben-text-color-secondary)]"
+                      tabindex="0"
+                      :aria-label="$t('business.message.queueNameGuide')"
+                    />
+                  </Tooltip>
                 </div>
                 <Select
                   v-model:value="searchQueue"
@@ -1993,118 +2196,6 @@ watch(
       </Card>
 
       <div
-        v-if="
-          quickSummaryActionButtons.length > 0 ||
-          currentPageFailedTasks.length > 0 ||
-          canBatchRun ||
-          canBatchDelete
-        "
-        class="min-w-0 rounded-2xl border border-slate-200/70 bg-white/95 px-4 py-3 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
-      >
-        <div
-          class="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] xl:items-start"
-        >
-          <div v-if="quickSummaryActionButtons.length > 0" class="space-y-2">
-            <div
-              class="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400"
-            >
-              {{ $t('business.message.viewSwitch') }}
-            </div>
-            <Space :size="[8, 8]" wrap>
-              <Button
-                v-for="item in quickSummaryActionButtons"
-                :key="item.label"
-                size="middle"
-                @click="handleQuickStateFilter(item.state)"
-              >
-                {{ item.label }}（{{ item.count }}）
-              </Button>
-            </Space>
-          </div>
-
-          <div v-if="currentPageFailedTasks.length > 0" class="space-y-2">
-            <div
-              class="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400"
-            >
-              {{ $t('business.message.failureTools') }}
-            </div>
-            <Space :size="[8, 8]" wrap>
-              <Button
-                size="middle"
-                @click="handleCopyFailedTaskIds(currentPageFailedTasks)"
-              >
-                {{
-                  $t('business.message.copyFailedTaskIds', [
-                    currentPageFailedTasks.length,
-                  ])
-                }}
-              </Button>
-              <Button
-                size="middle"
-                @click="handleCopyFailedTaskQueuePairs(currentPageFailedTasks)"
-              >
-                {{ $t('business.message.copyQueueTaskIds') }}
-              </Button>
-              <Button
-                v-if="currentPageFailedRunnableTasks.length > 0"
-                size="middle"
-                @click="handleCopyFailedTaskIds(currentPageFailedRunnableTasks)"
-              >
-                {{
-                  $t('business.message.copyRunnableTaskIds', [
-                    currentPageFailedRunnableTasks.length,
-                  ])
-                }}
-              </Button>
-            </Space>
-          </div>
-
-          <div
-            v-if="canBatchRun || canBatchDelete"
-            class="space-y-2 xl:justify-self-end"
-          >
-            <div
-              class="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400 xl:text-right"
-            >
-              {{ $t('business.message.batchProcess') }}
-            </div>
-            <Space :size="[8, 8]" wrap>
-              <Button
-                v-if="canBatchRun"
-                v-access="
-                  asActionPermission(OPS_ACTION_PERMISSION_CODES.TASK_RUN)
-                "
-                size="middle"
-                type="primary"
-                @click="handleBatchRunCurrentPage"
-              >
-                {{
-                  $t('business.message.batchRunNowCount', [
-                    currentPageRunnableTasks.length,
-                  ])
-                }}
-              </Button>
-              <Button
-                v-if="canBatchDelete"
-                v-access="
-                  asActionPermission(OPS_ACTION_PERMISSION_CODES.TASK_DELETE)
-                "
-                danger
-                size="middle"
-                @click="handleBatchDeleteCurrentPage"
-              >
-                {{
-                  $t('business.message.batchDeleteCount', [
-                    currentPageDeletableTasks.length,
-                  ])
-                }}
-              </Button>
-            </Space>
-          </div>
-        </div>
-      </div>
-
-      <div
         class="min-w-0 rounded-2xl border border-slate-200/70 bg-white/95 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
       >
         <div
@@ -2120,32 +2211,90 @@ watch(
               {{ $t('business.message.taskListGridDesc') }}
             </div>
           </div>
+          <div
+            v-if="
+              quickSummaryActionButtons.length > 0 ||
+              currentPageFailedTasks.length > 0 ||
+              canBatchRun ||
+              canBatchDelete
+            "
+            class="flex min-w-0 flex-wrap items-center justify-end gap-2"
+          >
+            <Space v-if="quickSummaryActionButtons.length > 0" :size="8" wrap>
+              <Button
+                v-for="item in quickSummaryActionButtons"
+                :key="item.label"
+                size="small"
+                @click="handleQuickStateFilter(item.state)"
+              >
+                {{ item.label }}（{{ item.count }}）
+              </Button>
+            </Space>
+            <Space v-if="currentPageFailedTasks.length > 0" :size="8" wrap>
+              <Button
+                size="small"
+                @click="handleCopyFailedTaskIds(currentPageFailedTasks)"
+              >
+                {{
+                  $t('business.message.copyFailedTaskIds', [
+                    currentPageFailedTasks.length,
+                  ])
+                }}
+              </Button>
+              <Button
+                size="small"
+                @click="handleCopyFailedTaskQueuePairs(currentPageFailedTasks)"
+              >
+                {{ $t('business.message.copyQueueTaskIds') }}
+              </Button>
+              <Button
+                v-if="currentPageFailedRunnableTasks.length > 0"
+                size="small"
+                @click="handleCopyFailedTaskIds(currentPageFailedRunnableTasks)"
+              >
+                {{
+                  $t('business.message.copyRunnableTaskIds', [
+                    currentPageFailedRunnableTasks.length,
+                  ])
+                }}
+              </Button>
+            </Space>
+            <Space v-if="canBatchRun || canBatchDelete" :size="8" wrap>
+              <Button
+                v-if="canBatchRun"
+                v-access="
+                  asActionPermission(OPS_ACTION_PERMISSION_CODES.TASK_RUN)
+                "
+                size="small"
+                type="primary"
+                @click="handleBatchRunCurrentPage"
+              >
+                {{
+                  $t('business.message.batchRunNowCount', [
+                    currentPageRunnableTasks.length,
+                  ])
+                }}
+              </Button>
+              <Button
+                v-if="canBatchDelete"
+                v-access="
+                  asActionPermission(OPS_ACTION_PERMISSION_CODES.TASK_DELETE)
+                "
+                danger
+                size="small"
+                @click="handleBatchDeleteCurrentPage"
+              >
+                {{
+                  $t('business.message.batchDeleteCount', [
+                    currentPageDeletableTasks.length,
+                  ])
+                }}
+              </Button>
+            </Space>
+          </div>
         </div>
         <Grid :table-title="$t('business.message.taskList')" />
       </div>
-
-      <Card
-        class="min-w-0 border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
-        :title="$t('business.message.queueNameGuide')"
-      >
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div class="text-sm leading-6 text-slate-500 dark:text-slate-300">
-            {{ $t('business.message.queueNameGuideDesc') }}
-          </div>
-          <Button size="small" @click="showQueueHint = !showQueueHint">
-            {{
-              showQueueHint
-                ? $t('business.message.collapseDescription')
-                : $t('business.message.viewDescription')
-            }}
-          </Button>
-        </div>
-        <pre
-          v-if="showQueueHint"
-          class="mt-4 overflow-auto rounded-2xl border border-cyan-500/20 bg-slate-950 p-4 text-sm text-cyan-100 shadow-inner"
-          v-text="queueHintText"
-        ></pre>
-      </Card>
     </div>
   </Page>
 </template>

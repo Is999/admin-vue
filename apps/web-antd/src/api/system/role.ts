@@ -21,7 +21,8 @@ export namespace SystemRoleApi {
     disabled: boolean; // 是否禁用
     disableCheckbox: boolean; // 是否禁止勾选
     selectable: boolean; // 是否允许选择
-    permissions: number[]; // 权限ID列表
+    manageable: boolean; // 当前管理员是否有权管理该角色
+    canCreateChild: boolean; // 当前管理员是否可在该角色下新增子角色
     children?: Item[]; // 子角色列表
     createdAt: string; // 创建时间
     updatedAt: string; // 更新时间
@@ -36,13 +37,46 @@ export namespace SystemRoleApi {
     status?: Status; // 状态筛选
   }
 
-  // SaveParams 表示新增或编辑角色参数。
-  export interface SaveParams extends CommonApi.TwoStepReq {
-    title?: string; // 角色名称
+  // CreateParams 表示新增角色参数。
+  export interface CreateParams {
+    title: string; // 角色名称
     pid?: number; // 上级角色 ID
     status?: Status; // 角色状态
     description?: string; // 角色描述
-    permissions?: number[]; // 权限ID列表
+  }
+
+  // UpdateParams 表示编辑角色基础资料参数，状态由专用接口维护。
+  export interface UpdateParams {
+    title: string; // 角色名称
+    pid: number; // 上级角色 ID
+    description: string; // 角色描述
+  }
+
+  // DocPermissionItem 表示后端返回的精确文档权限节点。
+  export interface DocPermissionItem {
+    id: number; // 文档权限 ID
+    site: 'admin' | 'api'; // 文档站点
+    path: string; // 站点内 Markdown 相对路径
+    title: string; // 文档标题
+    description: string; // 文档描述
+    status: Status; // 文档权限状态
+    checked: boolean; // 当前角色是否已授权
+    disabled: boolean; // 是否禁用
+    disableCheckbox: boolean; // 是否禁止勾选
+    selectable: boolean; // 是否允许选择
+  }
+
+  // PermissionTreeResult 表示角色的两类权限数据。
+  export interface PermissionTreeResult {
+    routePermissions: SystemPermissionApi.Item[]; // 正常路由权限树
+    docPermissions: DocPermissionItem[]; // 精确文档权限列表
+    writable: boolean; // 当前角色权限是否允许修改
+  }
+
+  // PermissionSaveParams 表示覆盖保存角色权限的请求。
+  export interface PermissionSaveParams {
+    routePermissionIds: number[]; // 正常路由权限 ID 列表
+    docPermissionIds: number[]; // 文档权限 ID 列表
   }
 }
 
@@ -71,18 +105,18 @@ export async function fetchRoleParentTreeOptions() {
 }
 
 // createRole 新增角色。
-export async function createRole(data: SystemRoleApi.SaveParams) {
-  return requestClient.post('/roles', data);
+export async function createRole(data: SystemRoleApi.CreateParams) {
+  return requestClient.post<CommonApi.CacheSyncResp>('/roles', data);
 }
 
 // updateRole 编辑角色。
-export async function updateRole(id: number, data: SystemRoleApi.SaveParams) {
-  return requestClient.patch(`/roles/${id}`, data);
+export async function updateRole(id: number, data: SystemRoleApi.UpdateParams) {
+  return requestClient.patch<CommonApi.CacheSyncResp>(`/roles/${id}`, data);
 }
 
 // deleteRole 删除角色。
 export async function deleteRole(id: number) {
-  return requestClient.delete(`/roles/${id}`);
+  return requestClient.delete<CommonApi.CacheSyncResp>(`/roles/${id}`);
 }
 
 // updateRoleStatus 修改角色状态。
@@ -90,17 +124,25 @@ export async function updateRoleStatus(
   id: number,
   status: SystemRoleApi.Status,
 ) {
-  return requestClient.patch(`/roles/status/${id}`, { status });
+  return requestClient.patch<CommonApi.CacheSyncResp>(`/roles/status/${id}`, {
+    status,
+  });
 }
 
 // fetchRolePermissionTree 查询角色权限树，checked 字段表示已授权。
-export async function fetchRolePermissionTree(id: number, isPid = false) {
-  return requestClient.get<SystemPermissionApi.Item[]>(
-    `/roles/permissions/tree/${id}/${isPid ? 'y' : 'n'}`,
+export async function fetchRolePermissionTree(id: number) {
+  return requestClient.get<SystemRoleApi.PermissionTreeResult>(
+    `/roles/permissions/tree/${id}`,
   );
 }
 
 // updateRolePermissions 覆盖保存角色权限。
-export async function updateRolePermissions(id: number, permissions: number[]) {
-  return requestClient.patch(`/roles/permissions/${id}`, { permissions });
+export async function updateRolePermissions(
+  id: number,
+  data: SystemRoleApi.PermissionSaveParams,
+) {
+  return requestClient.patch<CommonApi.CacheSyncResp>(
+    `/roles/permissions/${id}`,
+    data,
+  );
 }

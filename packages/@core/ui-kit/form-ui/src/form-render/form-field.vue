@@ -75,6 +75,24 @@ const formRenderProps = injectRenderFormProps();
 const values = useFormValues();
 const errors = useFieldError(fieldName);
 const fieldComponentRef = useTemplateRef<HTMLInputElement>('fieldComponentRef');
+// groupControlRole 为组合控件补充组级语义，避免 label for 指向不可标记的 div。
+const groupControlRole = computed(() => {
+  if (!isString(component)) {
+    return undefined;
+  }
+  if (component === 'RadioGroup') {
+    return 'radiogroup';
+  }
+  return component === 'CheckboxGroup' ? 'group' : undefined;
+});
+const isGroupControl = computed(() => groupControlRole.value !== undefined);
+// isFieldControlReady 避免异步控件尚未生成可关联元素时提前渲染 label for。
+const isFieldControlReady = computed(() => {
+  const control = fieldComponentRef.value as
+    | (HTMLInputElement & { __vbenControlReady?: boolean })
+    | null;
+  return control !== null && control.__vbenControlReady !== false;
+});
 const formApi = formRenderProps.form;
 const compact = computed(() => formRenderProps.compact);
 const isInValid = computed(() => errors.value?.length > 0);
@@ -349,7 +367,7 @@ onUnmounted(() => {
       v-bind="$attrs"
     >
       <FormLabel
-        v-if="!hideLabel"
+        v-if="!hideLabel && ($slots.default || isFieldControlReady)"
         :class="
           cn(
             'flex leading-6',
@@ -366,6 +384,7 @@ onUnmounted(() => {
         :label="label"
         :required="shouldRequired && !hideRequiredMark"
         :style="labelStyle"
+        :is-control-group="isGroupControl"
       >
         <template v-if="label">
           <VbenRenderContent :content="label" />
@@ -392,7 +411,11 @@ onUnmounted(() => {
         <VbenCollapsible :show-trigger="false" v-model:open="collapseOpen">
           <template #collapsibleContent>
             <div :class="cn('relative flex w-full items-center', wrapperClass)">
-              <FormControl :class="cn(controlClass)">
+              <FormControl
+                :class="cn(controlClass)"
+                :is-control-group="isGroupControl"
+                :role="groupControlRole"
+              >
                 <slot
                   v-bind="{
                     ...slotProps,

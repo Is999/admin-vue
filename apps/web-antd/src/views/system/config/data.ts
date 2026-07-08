@@ -217,11 +217,21 @@ export function useColumns<T = SystemConfigApi.Item>(
       title: $t('business.message.level'),
       width: 90,
     },
-    buildClampTextColumn({
-      field: 'page',
-      minWidth: 160,
+    {
+      field: 'pageLink',
+      align: 'center',
+      cellRender: {
+        attrs: {
+          copyButtonText: $t('business.message.copyPagePath'),
+          copySuccessMessage: $t('business.message.pagePathCopied'),
+          labelField: 'pageLinkLabel',
+        },
+        name: 'CellRoutePathLink',
+      },
+      minWidth: 140,
+      showOverflow: false,
       title: $t('business.message.pagePath'),
-    }),
+    },
     buildClampTextColumn({
       field: 'groupPath',
       minWidth: 220,
@@ -322,7 +332,7 @@ export function useColumns<T = SystemConfigApi.Item>(
       headerAlign: 'center',
       showOverflow: false,
       title: $t('business.message.operation'),
-      width: 108,
+      width: 76,
     },
   ];
 }

@@ -13,6 +13,7 @@ import {
 
 import { $t } from '#/locales';
 
+import TreeExpandToolbar from '../../../system/components/tree-expand-toolbar.vue';
 import { formatShortChecksum } from '../../shared';
 
 type SnapshotDiffKind = 'added' | 'removed' | 'same';
@@ -122,6 +123,8 @@ const rt = (key: string) => $t(`admin.runtimeConfig.${key}`);
 
 const viewMode = ref<SnapshotViewMode>('json');
 const collapsedPaths = ref(new Set<string>());
+// snapshotLevel 在普通视图与全屏视图之间共享层级输入。
+const snapshotLevel = ref<number | undefined>(2);
 const searchKeyword = ref('');
 const activeSearchIndex = ref(0);
 // diffJumpStarted 避免空搜索时自动高亮第一处差异。
@@ -185,13 +188,33 @@ const draftTreeLines = computed(() =>
 const releaseTreeLines = computed(() =>
   buildSnapshotTreeLines(releaseSnapshotValue.value, new Map(), 'same'),
 );
-const collapsiblePaths = computed(() => {
-  const paths = new Set<string>();
-  collectCollapsiblePaths(currentSnapshotValue.value, paths);
-  collectCollapsiblePaths(draftSnapshotValue.value, paths);
-  collectCollapsiblePaths(releaseSnapshotValue.value, paths);
+// collapsiblePathDepths 记录当前 JSON/YAML 视图中每个可折叠路径的零基层级。
+const collapsiblePathDepths = computed(() => {
+  const paths = new Map<string, number>();
+  collectCollapsiblePathDepths(
+    currentSnapshotValue.value,
+    paths,
+    viewMode.value,
+  );
+  collectCollapsiblePathDepths(draftSnapshotValue.value, paths, viewMode.value);
+  collectCollapsiblePathDepths(
+    releaseSnapshotValue.value,
+    paths,
+    viewMode.value,
+  );
   return paths;
 });
+// collapsiblePaths 提供全部折叠操作需要的路径集合。
+const collapsiblePaths = computed(
+  () => new Set(collapsiblePathDepths.value.keys()),
+);
+// snapshotMaxLevel 限制层级输入不超过当前快照的实际深度。
+const snapshotMaxLevel = computed(() =>
+  Math.max(
+    1,
+    ...[...collapsiblePathDepths.value.values()].map((depth) => depth + 1),
+  ),
+);
 const releaseFallbackText = computed(
   () => props.releaseSnapshotYaml || props.releaseSnapshotText,
 );
@@ -593,28 +616,58 @@ function walkPathInfo(
   }
 }
 
-function collectCollapsiblePaths(
+// collectCollapsiblePathDepths 收集当前渲染模式下可折叠路径及其展示层级。
+function collectCollapsiblePathDepths(
   value: SnapshotValue,
-  result: Set<string>,
+  result: Map<string, number>,
+  mode: SnapshotViewMode,
   path = 'root',
+  depth = 0,
+  root = true,
 ) {
   if (!isSnapshotContainer(value)) {
     return;
   }
-  result.add(path);
+  if (mode === 'yaml' && root && isSnapshotRecord(value)) {
+    Object.entries(value).forEach(([key, item]) => {
+      collectCollapsiblePathDepths(
+        item,
+        result,
+        mode,
+        `${path}.${key}`,
+        depth,
+        false,
+      );
+    });
+    return;
+  }
+  const currentDepth = result.get(path);
+  if (currentDepth === undefined || depth < currentDepth) {
+    result.set(path, depth);
+  }
   if (Array.isArray(value)) {
     const keyCounts = new Map<string, number>();
     value.forEach((item, index) => {
-      collectCollapsiblePaths(
+      collectCollapsiblePathDepths(
         item,
         result,
+        mode,
         snapshotArrayItemPath(path, item, index, keyCounts),
+        depth + 1,
+        false,
       );
     });
     return;
   }
   Object.entries(value).forEach(([key, item]) => {
-    collectCollapsiblePaths(item, result, `${path}.${key}`);
+    collectCollapsiblePathDepths(
+      item,
+      result,
+      mode,
+      `${path}.${key}`,
+      depth + 1,
+      false,
+    );
   });
 }
 
@@ -1122,6 +1175,29 @@ function expandAllSnapshots() {
 function collapseAllSnapshots() {
   collapsedPaths.value = new Set(collapsiblePaths.value);
 }
+
+// expandSnapshotLevel 展开到指定层级，并保留更深层节点已有状态。
+function expandSnapshotLevel(level: number) {
+  const next = new Set(collapsedPaths.value);
+  collapsiblePathDepths.value.forEach((depth, path) => {
+    if (depth < level) {
+      next.delete(path);
+    }
+  });
+  collapsedPaths.value = next;
+}
+
+// collapseSnapshotLevel 从指定层级向下折叠，并保留更高层节点状态。
+function collapseSnapshotLevel(level: number) {
+  const next = new Set(collapsedPaths.value);
+  const startDepth = Math.max(0, level - 1);
+  collapsiblePathDepths.value.forEach((depth, path) => {
+    if (depth >= startDepth) {
+      next.add(path);
+    }
+  });
+  collapsedPaths.value = next;
+}
 </script>
 
 <template>
@@ -1135,50 +1211,59 @@ function collapseAllSnapshots() {
     />
     <div class="snapshot-diff-panel__toolbar">
       <div class="snapshot-diff-panel__toolbar-main">
-        <Radio.Group v-model:value="viewMode" button-style="solid" size="small">
+        <Radio.Group v-model:value="viewMode" button-style="solid">
           <Radio.Button value="json">{{ rt('snapshotJsonView') }}</Radio.Button>
           <Radio.Button value="yaml">{{ rt('snapshotYamlView') }}</Radio.Button>
         </Radio.Group>
         <Input
           v-model:value="searchKeyword"
           allow-clear
+          autocomplete="off"
           class="snapshot-diff-panel__search"
+          id="snapshot-diff-search"
+          name="snapshot-diff-search"
           :placeholder="rt('snapshotSearchPlaceholder')"
-          size="small"
           @press-enter="submitSearchJump"
         />
         <span v-if="jumpResultText" class="snapshot-diff-panel__search-count">
           {{ jumpResultText }}
         </span>
         <Button
-          size="small"
           :disabled="visibleJumpMatches.length === 0"
+          type="primary"
           @click="moveJumpMatch(-1)"
         >
           {{ rt('snapshotSearchPrev') }}
         </Button>
         <Button
-          size="small"
           :disabled="visibleJumpMatches.length === 0"
+          type="primary"
           @click="moveJumpMatch(1)"
         >
           {{ rt('snapshotSearchNext') }}
         </Button>
       </div>
       <div class="snapshot-diff-panel__toolbar-actions">
-        <label class="snapshot-diff-panel__sync-toggle">
-          <Switch v-model:checked="scrollSyncEnabled" size="small" />
+        <div class="snapshot-diff-panel__sync-toggle">
+          <Switch
+            v-model:checked="scrollSyncEnabled"
+            :aria-label="rt('snapshotScrollSync')"
+            size="small"
+          />
           <span>{{ rt('snapshotScrollSync') }}</span>
-        </label>
-        <Button size="small" @click="openFullscreenDiff">
+        </div>
+        <Button type="primary" @click="openFullscreenDiff">
           {{ rt('snapshotFullscreen') }}
         </Button>
-        <Button size="small" @click="expandAllSnapshots">
-          {{ rt('snapshotExpandAll') }}
-        </Button>
-        <Button size="small" @click="collapseAllSnapshots">
-          {{ rt('snapshotCollapseAll') }}
-        </Button>
+        <TreeExpandToolbar
+          v-model:level="snapshotLevel"
+          :collapse-all-handler="collapseAllSnapshots"
+          :collapse-level-handler="collapseSnapshotLevel"
+          :disabled="collapsiblePaths.size === 0"
+          :expand-all-handler="expandAllSnapshots"
+          :expand-level-handler="expandSnapshotLevel"
+          :max-level="snapshotMaxLevel"
+        />
       </div>
     </div>
     <div class="snapshot-diff-panel__layout">
@@ -1375,32 +1460,47 @@ function collapseAllSnapshots() {
           <Input
             v-model:value="searchKeyword"
             allow-clear
+            autocomplete="off"
             class="snapshot-diff-panel__search"
+            id="snapshot-diff-fullscreen-search"
+            name="snapshot-diff-fullscreen-search"
             :placeholder="rt('snapshotSearchPlaceholder')"
-            size="small"
             @press-enter="submitSearchJump"
           />
           <span v-if="jumpResultText" class="snapshot-diff-panel__search-count">
             {{ jumpResultText }}
           </span>
           <Button
-            size="small"
             :disabled="visibleJumpMatches.length === 0"
+            type="primary"
             @click="moveJumpMatch(-1)"
           >
             {{ rt('snapshotSearchPrev') }}
           </Button>
           <Button
-            size="small"
             :disabled="visibleJumpMatches.length === 0"
+            type="primary"
             @click="moveJumpMatch(1)"
           >
             {{ rt('snapshotSearchNext') }}
           </Button>
-          <label class="snapshot-diff-panel__sync-toggle">
-            <Switch v-model:checked="scrollSyncEnabled" size="small" />
+          <div class="snapshot-diff-panel__sync-toggle">
+            <Switch
+              v-model:checked="scrollSyncEnabled"
+              :aria-label="rt('snapshotScrollSync')"
+              size="small"
+            />
             <span>{{ rt('snapshotScrollSync') }}</span>
-          </label>
+          </div>
+          <TreeExpandToolbar
+            v-model:level="snapshotLevel"
+            :collapse-all-handler="collapseAllSnapshots"
+            :collapse-level-handler="collapseSnapshotLevel"
+            :disabled="collapsiblePaths.size === 0"
+            :expand-all-handler="expandAllSnapshots"
+            :expand-level-handler="expandSnapshotLevel"
+            :max-level="snapshotMaxLevel"
+          />
         </div>
         <div class="snapshot-diff-panel__fullscreen-layout">
           <section
@@ -1634,7 +1734,7 @@ function collapseAllSnapshots() {
 .snapshot-diff-panel__search-count {
   min-width: 44px;
   font-size: 12px;
-  line-height: 24px;
+  line-height: 32px;
   color: var(--snapshot-diff-text-secondary);
 }
 
@@ -1642,7 +1742,7 @@ function collapseAllSnapshots() {
   display: inline-flex;
   gap: 6px;
   align-items: center;
-  height: 24px;
+  height: 32px;
   font-size: 12px;
   color: var(--snapshot-diff-text-secondary);
 }

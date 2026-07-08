@@ -1,34 +1,30 @@
 /**
- * @zh_CN 后台源码仓库地址，私有化部署时可替换为企业内部仓库。
+ * @zh_CN GITHUB 仓库地址
  */
-export const VBEN_GITHUB_URL = '/';
+export const VBEN_GITHUB_URL = 'https://github.com/vbenjs/vue-vben-admin';
 
 /**
- * @zh_CN 后台接口文档地址，默认指向 admin 暴露的 Swagger 文档。
+ * @zh_CN 文档地址
  */
-export const VBEN_DOC_URL = '/api/docs#/';
+export const VBEN_DOC_URL = 'https://doc.vben.pro';
 
 /**
- * @zh_CN 后台默认 Logo 资源地址。
+ * @zh_CN Vben Logo
  */
-export const VBEN_LOGO_URL = '/favicon.svg';
+export const VBEN_LOGO_URL =
+  'https://unpkg.com/@vbenjs/static-source@0.1.7/source/logo-v1.webp';
 
 /**
- * @zh_CN 后台默认首页地址。
+ * @zh_CN Vben Admin 首页地址
  */
-export const VBEN_PREVIEW_URL = '/ops/task-console';
+export const VBEN_PREVIEW_URL = 'https://www.vben.pro';
 
-// VBEN_ANTDV_NEXT_PREVIEW_URL 沿用上游导出名，生产项目统一指向当前后台首页。
-export const VBEN_ANTDV_NEXT_PREVIEW_URL = VBEN_PREVIEW_URL;
+export const VBEN_ANTDV_NEXT_PREVIEW_URL = 'https://antdv-next.vben.pro';
 
-// VBEN_ELE_PREVIEW_URL 沿用上游导出名，已不再承载 Element Plus 示例站点。
-export const VBEN_ELE_PREVIEW_URL = VBEN_PREVIEW_URL;
+export const VBEN_ELE_PREVIEW_URL = 'https://ele.vben.pro';
 
-// VBEN_NAIVE_PREVIEW_URL 沿用上游导出名，已不再承载 Naive UI 示例站点。
-export const VBEN_NAIVE_PREVIEW_URL = VBEN_PREVIEW_URL;
+export const VBEN_NAIVE_PREVIEW_URL = 'https://naive.vben.pro';
 
-// VBEN_ANT_PREVIEW_URL 沿用上游导出名，指向当前 Ant Design Vue 后台。
-export const VBEN_ANT_PREVIEW_URL = VBEN_PREVIEW_URL;
+export const VBEN_ANT_PREVIEW_URL = 'https://ant.vben.pro';
 
-// VBEN_TD_PREVIEW_URL 沿用上游导出名，已不再承载 TDesign 示例站点。
-export const VBEN_TD_PREVIEW_URL = VBEN_PREVIEW_URL;
+export const VBEN_TD_PREVIEW_URL = 'https://tdesign.vben.pro';

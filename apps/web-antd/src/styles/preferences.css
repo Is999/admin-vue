@@ -1,0 +1,49 @@
+/* 偏好抽屉标题与说明纵向排列，英文说明可换行且不会挤压右侧操作按钮。 */
+[role='dialog'][class~='border-0!'][class~='sm:max-w-sm']
+  > :first-child
+  > :first-child {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+[role='dialog'][class~='border-0!'][class~='sm:max-w-sm']
+  > :first-child
+  > :first-child
+  > * {
+  max-width: 100%;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+/* 偏好抽屉的长标签保持单行，空间不足时横向滚动，避免英文文案互相覆盖。 */
+[role='dialog'][class~='border-0!'][class~='sm:max-w-sm'] [role='tablist'] {
+  display: flex !important;
+  justify-content: flex-start;
+  max-width: 100%;
+  overflow: auto hidden;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+
+[role='dialog'][class~='border-0!'][class~='sm:max-w-sm']
+  [role='tablist']
+  [role='tab'] {
+  flex: 1 0 max-content;
+  scroll-snap-align: start;
+}
+
+/* 官方分段指示器带等分宽度内联样式，滚动布局下改用 Reka 实测页签宽度。 */
+[role='dialog'][class~='border-0!'][class~='sm:max-w-sm']
+  [role='tablist']
+  > :not([role='tab']) {
+  width: var(--reka-tabs-indicator-size) !important;
+}
+
+[role='dialog'][class~='border-0!'][class~='sm:max-w-sm']
+  [role='tablist']::-webkit-scrollbar {
+  height: 4px;
+}

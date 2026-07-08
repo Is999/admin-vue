@@ -17,6 +17,10 @@ export namespace AdminMessageApi {
   // Item 表示管理员收件箱消息项。
   export interface Item {
     id: number; // 消息ID
+    replyToId: number; // 被回复的原消息ID，0表示非回复消息
+    replyToTitle: string; // 原消息标题
+    replyToSenderName: string; // 原消息发送人账号
+    replyToCreatedAt: string; // 原消息创建时间
     type: string; // 消息类型
     level: Level; // 消息等级
     title: string; // 消息标题
@@ -35,6 +39,7 @@ export namespace AdminMessageApi {
 
   // ListParams 表示收件箱列表查询参数。
   export interface ListParams {
+    id?: number; // 精确消息ID
     page?: number; // 页码
     pageSize?: number; // 每页条数
     type?: string; // 消息类型
@@ -74,6 +79,7 @@ export namespace AdminMessageApi {
 
   // SendReq 表示发送消息请求参数。
   export interface SendReq {
+    replyToId?: number; // 被回复的原消息ID
     type: string; // 消息类型
     level: Level; // 消息等级
     title: string; // 消息标题
@@ -90,6 +96,7 @@ export namespace AdminMessageApi {
 
   // SentListParams 表示已发送列表查询参数。
   export interface SentListParams {
+    id?: number; // 精确消息ID
     page?: number; // 页码
     pageSize?: number; // 每页条数
     type?: string; // 消息类型
@@ -102,6 +109,10 @@ export namespace AdminMessageApi {
   // SentItem 表示已发送消息列表项（包含收件人已读统计）。
   export interface SentItem {
     id: number; // 消息ID
+    replyToId: number; // 被回复的原消息ID，0表示非回复消息
+    replyToTitle: string; // 原消息标题
+    replyToSenderName: string; // 原消息发送人账号
+    replyToCreatedAt: string; // 原消息创建时间
     type: string; // 消息类型
     level: Level; // 消息等级
     title: string; // 消息标题
@@ -117,6 +128,20 @@ export namespace AdminMessageApi {
     handledByAdminName: string; // 处理人账号
     handledAt: string; // 处理时间
     createdAt: string; // 创建时间
+  }
+
+  // ReceiverOptionParams 表示可用收件人选项查询参数。
+  export interface ReceiverOptionParams {
+    page?: number; // 页码
+    pageSize?: number; // 每页条数
+    keyword?: string; // 账号或姓名关键字
+  }
+
+  // ReceiverOptionItem 表示当前管理员可选择的消息收件人。
+  export interface ReceiverOptionItem {
+    id: number; // 管理员ID
+    username: string; // 管理员账号
+    realName: string; // 管理员姓名
   }
 
   // ReceiverItem 表示收件人已读明细项。
@@ -167,6 +192,15 @@ export async function fetchAdminMessageSentList(
       params,
     },
   );
+}
+
+// fetchAdminMessageReceiverOptions 查询当前管理员可选择的消息收件人。
+export async function fetchAdminMessageReceiverOptions(
+  params: AdminMessageApi.ReceiverOptionParams,
+) {
+  return requestClient.get<
+    CommonApi.ListResult<AdminMessageApi.ReceiverOptionItem>
+  >('/admin-messages/receiver-options', { params });
 }
 
 // fetchAdminMessageReceivers 查询指定消息的收件人已读明细（仅发送人可见）。

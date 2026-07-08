@@ -49,8 +49,8 @@ export namespace SystemProfileApi {
 }
 
 // fetchProfileInfo 查询当前登录管理员资料。
-export async function fetchProfileInfo() {
-  return requestClient.get<SystemProfileApi.Item>('/profile');
+export async function fetchProfileInfo(config?: Record<string, any>) {
+  return requestClient.get<SystemProfileApi.Item>('/profile', config);
 }
 
 // updateProfileInfo 更新当前登录管理员基础资料。
@@ -70,14 +70,19 @@ export async function updateProfilePassword(
 // updateProfileMfaStatus 修改当前登录管理员MFA状态。
 export async function updateProfileMfaStatus(
   data: SystemProfileApi.UpdateMfaStatusParams,
+  config?: Record<string, any>,
 ) {
-  return requestClient.patch('/profile/mfa-status', data);
+  return requestClient.patch('/profile/mfa-status', data, config);
 }
 
 // refreshProfileMfaSecretKey 重新生成当前登录管理员 MFA 秘钥。
-export async function refreshProfileMfaSecretKey(data?: CommonApi.TwoStepReq) {
+export async function refreshProfileMfaSecretKey(
+  data?: CommonApi.TwoStepReq,
+  config?: Record<string, any>,
+) {
   return requestClient.post<SystemProfileApi.RefreshMfaSecretResp>(
     '/profile/mfa-secret/refresh',
     data || {},
+    config,
   );
 }

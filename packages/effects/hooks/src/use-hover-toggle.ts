@@ -28,7 +28,7 @@ export function useHoverToggle(
   refElement: Arrayable<MaybeElementRef> | Ref<HTMLElement[] | null>,
   delay: (() => number) | HoverDelayOptions | number = DEFAULT_LEAVE_DELAY,
 ) {
-  // 数字或函数参数表示离开延迟，便于调用方保持简洁。
+  // 兼容旧版本API
   const normalizedOptions: HoverDelayOptions =
     typeof delay === 'number' || isFunction(delay)
       ? { enterDelay: DEFAULT_ENTER_DELAY, leaveDelay: delay }

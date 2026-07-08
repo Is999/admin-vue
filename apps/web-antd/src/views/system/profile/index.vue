@@ -37,10 +37,11 @@ import { cropAvatarFile, resolveDisplayFileURL } from '#/utils/file/image';
 import {
   extractMfaManualInfo,
   extractMfaSecret,
-  isMfaAgainError,
+  isMfaCancelledError,
   mfaAccountLabel,
   mfaIssuerLabel,
   requestMfaTwoStep,
+  submitWithMfaRetry,
   ticketPayload,
 } from '#/utils/security/mfa';
 import {
@@ -50,6 +51,10 @@ import {
   isValidStrongPassword,
   validateStrongPassword,
 } from '#/utils/security/password';
+import {
+  currentSessionStateIdentity,
+  SESSION_STATE_CHANGED,
+} from '#/utils/session-state-gate';
 import { createResumableUpload } from '#/utils/transfer/resumable-upload';
 
 // MFA_SCENARIO_CHANGE_PASSWORD 表示修改密码二次校验场景。
@@ -131,10 +136,20 @@ const profileNeedResetPassword = computed(
 const avatarUploading = ref(false);
 // avatarPreviewURL 保存当前头像预览地址。
 const avatarPreviewURL = ref('');
+// avatarLocalPreviewURL 保存上传后、资料保存前的本地预览地址。
+const avatarLocalPreviewURL = ref('');
 // avatarPreviewFailed 标识当前头像预览是否加载失败，失败后回退到占位展示。
 const avatarPreviewFailed = ref(false);
 // avatarInputRef 绑定头像文件选择器。
 const avatarInputRef = ref<HTMLInputElement | null>(null);
+
+// clearAvatarLocalPreviewURL 释放头像本地预览对象，避免重复上传积累 Blob URL。
+function clearAvatarLocalPreviewURL() {
+  if (avatarLocalPreviewURL.value) {
+    URL.revokeObjectURL(avatarLocalPreviewURL.value);
+    avatarLocalPreviewURL.value = '';
+  }
+}
 
 // formatProfileText 归一化个人信息展示值，避免空字符串把表格撑成空白。
 function formatProfileText(value: unknown) {
@@ -146,16 +161,25 @@ function formatProfileText(value: unknown) {
 const profileSchema: VbenFormSchema[] = [
   {
     component: 'Input',
+    componentProps: {
+      autocomplete: 'name',
+    },
     fieldName: 'realName',
     label: $t('business.message.profileRealName'),
   },
   {
     component: 'Input',
+    componentProps: {
+      autocomplete: 'email',
+    },
     fieldName: 'email',
     label: $t('business.message.profileEmail'),
   },
   {
     component: 'Input',
+    componentProps: {
+      autocomplete: 'tel',
+    },
     fieldName: 'phone',
     label: $t('business.message.profilePhone'),
   },
@@ -170,12 +194,18 @@ const profileSchema: VbenFormSchema[] = [
 const passwordSchema: VbenFormSchema[] = [
   {
     component: 'InputPassword',
+    componentProps: {
+      autocomplete: 'current-password',
+    },
     fieldName: 'passwordOld',
     label: $t('business.message.oldPassword'),
     rules: 'required',
   },
   {
     component: 'InputPassword',
+    componentProps: {
+      autocomplete: 'new-password',
+    },
     fieldName: 'passwordNew',
     label: $t('business.message.newPassword'),
     help: $t('business.message.passwordRuleHelp'),
@@ -208,6 +238,9 @@ const passwordSchema: VbenFormSchema[] = [
   },
   {
     component: 'InputPassword',
+    componentProps: {
+      autocomplete: 'new-password',
+    },
     fieldName: 'confirmPassword',
     label: $t('business.message.confirmPassword'),
     rules: 'required',
@@ -246,6 +279,7 @@ onMounted(() => {
 
 // onBeforeUnmount 组件销毁时清理全局 MFA 状态同步监听。
 onBeforeUnmount(() => {
+  clearAvatarLocalPreviewURL();
   if (typeof window !== 'undefined') {
     window.removeEventListener('login-mfa-user-updated', onLoginMfaUserUpdated);
   }
@@ -256,11 +290,14 @@ async function loadProfile() {
   loading.value = true;
   try {
     const data = await fetchProfileInfo();
-    profile.value = data;
-    avatarPreviewURL.value = resolveDisplayFileURL(
+    // nextAvatarPreviewURL 在释放本地预览前先准备好新头像地址。
+    const nextAvatarPreviewURL = resolveDisplayFileURL(
       String(data.avatar || ''),
       requestClient.getBaseUrl(),
     );
+    clearAvatarLocalPreviewURL();
+    profile.value = data;
+    avatarPreviewURL.value = nextAvatarPreviewURL;
     avatarPreviewFailed.value = false;
     profileFormApi.setValues(profile.value);
   } finally {
@@ -278,7 +315,8 @@ async function onSaveProfile() {
     message.error($t('business.message.currentUserIdMissing'));
     return;
   }
-  const values = await profileFormApi.getValues<SystemAdminApi.SaveParams>();
+  const values =
+    await profileFormApi.getValues<SystemProfileApi.UpdateMineParams>();
   await updateProfileInfo({
     avatar: String(profile.value.avatar || '').trim(),
     description: values.description,
@@ -333,10 +371,9 @@ async function onAvatarFileChange(event: Event) {
     if (!avatarURL) {
       throw new Error($t('business.message.avatarUploadMissingUrl'));
     }
-    avatarPreviewURL.value = resolveDisplayFileURL(
-      avatarURL,
-      requestClient.getBaseUrl(),
-    );
+    clearAvatarLocalPreviewURL();
+    avatarLocalPreviewURL.value = URL.createObjectURL(file);
+    avatarPreviewURL.value = avatarLocalPreviewURL.value;
     avatarPreviewFailed.value = false;
     profile.value = {
       ...profile.value,
@@ -383,7 +420,9 @@ async function onCopyNewPassword() {
 
 // onUpdatePassword 修改当前账号密码。
 async function onUpdatePassword() {
+  const sessionIdentity = currentSessionStateIdentity();
   const { valid } = await passwordFormApi.validate();
+  assertProfileSessionIdentity(sessionIdentity);
   if (!valid) {
     return;
   }
@@ -396,6 +435,7 @@ async function onUpdatePassword() {
     passwordNew: string;
     passwordOld: string;
   }>();
+  assertProfileSessionIdentity(sessionIdentity);
   const passwordError = validateStrongPassword(
     values.passwordNew,
     $t('business.message.newPassword'),
@@ -408,14 +448,25 @@ async function onUpdatePassword() {
     message.error($t('business.message.passwordConfirmMismatch'));
     return;
   }
-  await submitWithMfa(MFA_SCENARIO_CHANGE_PASSWORD, (ticket) =>
-    updateProfilePassword({
-      confirmPassword: values.confirmPassword,
-      passwordNew: values.passwordNew,
-      passwordOld: values.passwordOld,
-      ...ticketPayload(ticket),
-    }),
-  );
+  try {
+    await submitProfileWithMfa(
+      MFA_SCENARIO_CHANGE_PASSWORD,
+      (ticket) =>
+        updateProfilePassword({
+          confirmPassword: values.confirmPassword,
+          passwordNew: values.passwordNew,
+          passwordOld: values.passwordOld,
+          ...ticketPayload(ticket),
+        }),
+      sessionIdentity,
+    );
+  } catch (error) {
+    if (isMfaCancelledError(error)) {
+      return;
+    }
+    throw error;
+  }
+  assertProfileSessionIdentity(sessionIdentity);
   profile.value = {
     ...profile.value,
     needResetPassword: 0,
@@ -436,6 +487,7 @@ async function onUpdatePassword() {
 
 // onToggleMfa 启用或关闭当前账号MFA。
 async function onToggleMfa(nextStatus: number) {
+  const sessionIdentity = currentSessionStateIdentity();
   if (
     nextStatus === 0 &&
     profileForceMfaEnabled.value &&
@@ -443,22 +495,31 @@ async function onToggleMfa(nextStatus: number) {
   ) {
     return;
   }
-  const ticket = await requestMfaTwoStep(
-    MFA_SCENARIO_STATUS,
-    nextStatus === 1
-      ? $t('business.message.mfaEnableShort')
-      : $t('business.message.mfaDisableShort'),
-    profileMfaUrl.value,
-    { accountName: profileMfaAccountName.value },
-  );
-  await updateProfileMfaStatus({
-    mfaStatus: nextStatus,
-    mfaSecureKey:
+  assertProfileSessionIdentity(sessionIdentity);
+  try {
+    await submitProfileWithMfa(
+      MFA_SCENARIO_STATUS,
+      (ticket) =>
+        updateProfileMfaStatus({
+          mfaStatus: nextStatus,
+          mfaSecureKey:
+            nextStatus === 1
+              ? extractMfaSecret(profileMfaUrl.value) || undefined
+              : undefined,
+          ...ticketPayload(ticket),
+        }),
+      sessionIdentity,
       nextStatus === 1
-        ? extractMfaSecret(profileMfaUrl.value) || undefined
-        : undefined,
-    ...ticketPayload(ticket),
-  });
+        ? $t('business.message.mfaEnableShort')
+        : $t('business.message.mfaDisableShort'),
+    );
+  } catch (error) {
+    if (isMfaCancelledError(error)) {
+      return;
+    }
+    throw error;
+  }
+  assertProfileSessionIdentity(sessionIdentity);
   let successMessage = $t('business.message.mfaDisabled');
   if (nextStatus === 1) {
     successMessage = $t('business.message.mfaEnabled');
@@ -492,33 +553,34 @@ async function onOpenMfaBinding() {
   await router.push({ name: 'SystemMfa' });
 }
 
-// submitWithMfa 在需要时获取MFA二次校验票据并重试业务操作。
-async function submitWithMfa<T>(
+// submitProfileWithMfa 为个人中心补齐弹窗上下文，并复用统一的身份隔离与重试逻辑。
+async function submitProfileWithMfa<T>(
   scenario: number,
   submit: (ticket?: AuthApi.TwoStepTicket) => Promise<T>,
+  sessionIdentity: string,
+  title = $t('business.message.mfaSecondConfirmTitle'),
 ) {
-  let firstTicket: AuthApi.TwoStepTicket | undefined;
-  if (profileMfaStatus.value === 1) {
-    firstTicket = await requestMfaTwoStep(
-      scenario,
-      $t('business.message.mfaSecondConfirmTitle'),
-      profileMfaUrl.value,
-      { accountName: profileMfaAccountName.value },
-    );
+  assertProfileSessionIdentity(sessionIdentity);
+  // MFA 状态切换必须先取得同场景票据：未绑定账号启用时，不能先发送缺少票据的状态更新再依赖失败重试。
+  if (profileMfaStatus.value === 1 || scenario === MFA_SCENARIO_STATUS) {
+    await requestMfaTwoStep(scenario, title, profileMfaUrl.value, {
+      accountName: profileMfaAccountName.value,
+    });
+    assertProfileSessionIdentity(sessionIdentity);
   }
-  try {
-    return await submit(firstTicket);
-  } catch (error) {
-    if (!isMfaAgainError(error)) {
-      throw error;
-    }
-    const retryTicket = await requestMfaTwoStep(
-      scenario,
-      $t('business.message.mfaSecondConfirmTitle'),
-      profileMfaUrl.value,
-      { accountName: profileMfaAccountName.value },
-    );
-    return await submit(retryTicket);
+  const result = await submitWithMfaRetry(scenario, submit, title, {
+    accountName: profileMfaAccountName.value,
+    buildMfaUrl: profileMfaUrl.value,
+    loadProfileContext: false,
+  });
+  assertProfileSessionIdentity(sessionIdentity);
+  return result;
+}
+
+// assertProfileSessionIdentity 阻止旧个人中心页面继续修改新登录账号。
+function assertProfileSessionIdentity(sessionIdentity: string) {
+  if (sessionIdentity !== currentSessionStateIdentity()) {
+    throw new Error(SESSION_STATE_CHANGED);
   }
 }
 </script>
@@ -765,6 +827,8 @@ async function submitWithMfa<T>(
                 ref="avatarInputRef"
                 accept=".jpg,.jpeg,.png,.gif,.webp"
                 class="hidden"
+                id="profile-avatar-file"
+                name="profile-avatar-file"
                 type="file"
                 @change="onAvatarFileChange"
               />
@@ -938,7 +1002,10 @@ async function submitWithMfa<T>(
                       <div class="profile-mfa-secret-row">
                         <Input
                           :value="profileMfaSecret || '-'"
+                          autocomplete="off"
                           class="profile-mfa-secret-input"
+                          id="profile-mfa-secret"
+                          name="profile-mfa-secret"
                           readonly
                         />
                         <VbenButton

@@ -27,9 +27,6 @@ const emit = defineEmits<{
   submit: [Recordable<any>];
 }>();
 
-// LOCK_SCREEN_PASSWORD_MIN_LENGTH 表示锁屏临时密码的最小长度，必须大于 4 位。
-const LOCK_SCREEN_PASSWORD_MIN_LENGTH = 4;
-
 const [Form, { resetForm, validate, getValues, getFieldComponentRef }] =
   useVbenForm(
     reactive({
@@ -46,9 +43,9 @@ const [Form, { resetForm, validate, getValues, getFieldComponentRef }] =
           fieldName: 'lockScreenPassword',
           formFieldProps: { validateOnBlur: false },
           label: $t('authentication.password'),
-          rules: z.string().min(LOCK_SCREEN_PASSWORD_MIN_LENGTH, {
-            message: $t('ui.widgets.lockScreen.passwordMinLength'),
-          }),
+          rules: z
+            .string()
+            .min(1, { message: $t('ui.widgets.lockScreen.placeholder') }),
         },
       ]),
       showDefaultActions: false,

@@ -1,5 +1,6 @@
 import type { VbenFormSchema } from '#/adapter/form';
 
+import { TASK_API_LIMITS } from '#/api/ops/task-types';
 import { $t } from '#/locales';
 
 import { taskConsoleDefaults } from './defaults';
@@ -34,7 +35,7 @@ export function useTriggerWorkflowSchema(
       fieldName: 'targetsText',
       label: $t('business.message.executionTargets'),
       componentProps: {
-        autoSize: { minRows: 4, maxRows: 8 },
+        rows: 4,
         placeholder: $t('business.message.executionTargetsPlaceholder'),
       },
     },
@@ -54,7 +55,11 @@ export function useTriggerWorkflowSchema(
       fieldName: 'shardTotal',
       label: $t('business.message.shardTotal'),
       defaultValue: taskConsoleDefaults.shardTotal,
-      componentProps: { min: 1, style: { width: '100%' } },
+      componentProps: {
+        max: TASK_API_LIMITS.shardTotal,
+        min: 1,
+        style: { width: '100%' },
+      },
     },
     {
       component: 'InputNumber',
@@ -95,6 +100,7 @@ export function useTriggerWorkflowSchema(
       label: $t('business.message.retryCount'),
       defaultValue: taskConsoleDefaults.retry,
       componentProps: {
+        max: TASK_API_LIMITS.retry,
         min: 0,
         addonAfter: $t('business.message.timesUnit'),
         style: { width: '100%' },
@@ -106,6 +112,7 @@ export function useTriggerWorkflowSchema(
       label: $t('business.message.timeoutSeconds'),
       defaultValue: taskConsoleDefaults.timeoutSeconds,
       componentProps: {
+        max: TASK_API_LIMITS.timeoutSeconds,
         min: 1,
         addonAfter: $t('business.message.secondsUnit'),
         style: { width: '100%' },
@@ -169,7 +176,7 @@ export function useEnqueueTaskSchema(
       label: $t('business.message.taskPayload'),
       rules: 'required',
       componentProps: {
-        autoSize: { minRows: 6, maxRows: 10 },
+        rows: 6,
         placeholder: '{\n  "appId": "203"\n}',
       },
     },
@@ -200,6 +207,7 @@ export function useEnqueueTaskSchema(
       label: $t('business.message.retryCount'),
       defaultValue: taskConsoleDefaults.retry,
       componentProps: {
+        max: TASK_API_LIMITS.retry,
         min: 0,
         addonAfter: $t('business.message.timesUnit'),
         style: { width: '100%' },
@@ -211,6 +219,7 @@ export function useEnqueueTaskSchema(
       label: $t('business.message.timeoutSeconds'),
       defaultValue: taskConsoleDefaults.timeoutSeconds,
       componentProps: {
+        max: TASK_API_LIMITS.timeoutSeconds,
         min: 1,
         addonAfter: $t('business.message.secondsUnit'),
         style: { width: '100%' },

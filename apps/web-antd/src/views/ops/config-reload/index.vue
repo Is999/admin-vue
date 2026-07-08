@@ -3,7 +3,7 @@
 import type { OpsAPIRuntimeApi } from '#/api/ops/runtime';
 import type { TaskApi } from '#/api/ops/task';
 
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 
 import { Page, VbenButton } from '@vben/common-ui';
 import { useAccessStore } from '@vben/stores';
@@ -11,6 +11,8 @@ import { useAccessStore } from '@vben/stores';
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
+  CaretDownOutlined,
+  CaretRightOutlined,
   CopyOutlined,
   FileTextOutlined,
   SearchOutlined,
@@ -51,6 +53,8 @@ import { resolveRequestErrorMessage } from '#/utils/file/download';
 import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
 import { copyTextToClipboard } from '#/utils/security/password';
 
+import JsonDetailViewer from '../../system/components/json-detail-viewer.vue';
+import TreeExpandToolbar from '../../system/components/tree-expand-toolbar.vue';
 import {
   buildHotReloadStatusLabel,
   buildHotReloadTriggerLabel,
@@ -65,6 +69,8 @@ type ConfigItemTablePagination = {
 };
 // ConfigItemViewMode 控制配置项结果在 YAML 与表格之间切换。
 type ConfigItemViewMode = 'table' | 'yaml';
+// ReloadTabKey 标识当前查看的是后台或 API 进程热加载状态。
+type ReloadTabKey = 'admin' | 'api';
 // ConfigYamlViewMode 控制 YAML 视图展示运行期结构或完整快照。
 type ConfigYamlViewMode = 'runtime' | 'snapshot';
 // ConfigYamlTokenType 表示 YAML 只读高亮视图中的词法类型。
@@ -95,6 +101,18 @@ type ConfigYamlLine = {
   // tokens 保存该行按 YAML 语义拆分后的高亮片段。
   tokens: ConfigYamlToken[];
 };
+// ConfigYamlVisibleLine 表示应用层级折叠后实际展示的一行 YAML。
+type ConfigYamlVisibleLine = {
+  // collapsed 标记当前节点是否折叠。
+  collapsed: boolean;
+  // foldable 标记当前行是否拥有缩进层级子节点。
+  foldable: boolean;
+} & ConfigYamlLine;
+// ConfigYamlFoldNode 记录可折叠 YAML 行的结束位置与零基层级。
+type ConfigYamlFoldNode = {
+  depth: number;
+  endLineNo: number;
+};
 // ConfigYamlSearchMatch 表示当前 YAML 中可跳转的一个搜索命中。
 type ConfigYamlSearchMatch = {
   // index 是从 0 开始的命中序号，和 DOM data 属性保持一致。
@@ -122,7 +140,11 @@ const configYamlTokenClassMap: Record<ConfigYamlTokenType, string> = {
 // accessStore 保存当前登录账号的 uuid 权限码集合，用于判断是否自动拉取热加载状态。
 const accessStore = useAccessStore();
 // activeReloadTab 控制 Admin 与 API 热加载分区，避免两类运行态混在同一屏卡片里。
-const activeReloadTab = ref('admin');
+const activeReloadTab = ref<ReloadTabKey>('admin');
+// adminReloadStatusLoaded 标记后台热加载状态是否已经由页面自动拉取过。
+const adminReloadStatusLoaded = ref(false);
+// apiReloadStatusLoaded 标记 API 热加载状态是否已经由页面自动拉取过。
+const apiReloadStatusLoaded = ref(false);
 // submitting 避免查询与执行热加载时重复点击。
 const submitting = ref(false);
 // configReloadStatusText 保存热加载接口原始响应，便于排障复制。
@@ -159,6 +181,8 @@ const configYamlViewMode = ref<ConfigYamlViewMode>('runtime');
 const configYamlViewRef = ref<HTMLElement | null>(null);
 // configYamlMatchIndex 保存当前高亮定位到的 YAML 搜索命中序号。
 const configYamlMatchIndex = ref(0);
+// collapsedConfigYamlLines 保存当前 YAML 已折叠节点的一基行号。
+const collapsedConfigYamlLines = ref<Set<number>>(new Set());
 // apiRuntimeSubmitting 避免 API 热加载状态查询或触发重复点击。
 const apiRuntimeSubmitting = ref(false);
 // apiRuntimeStatusText 保存 API 热加载接口原始回执，便于复制排障。
@@ -483,6 +507,44 @@ const activeConfigYamlLineRows = computed(() =>
     : activeConfigYamlLines.value,
 );
 
+// activeConfigYamlFoldNodes 返回每个可折叠 YAML 节点的范围与层级。
+const activeConfigYamlFoldNodes = computed(() =>
+  buildConfigYamlFoldNodes(activeConfigYamlText.value),
+);
+// activeConfigYamlMaxLevel 限制层级输入不超过当前 YAML 的实际深度。
+const activeConfigYamlMaxLevel = computed(() =>
+  Math.max(
+    1,
+    ...[...activeConfigYamlFoldNodes.value.values()].map(
+      (node) => node.depth + 1,
+    ),
+  ),
+);
+
+// activeConfigYamlVisibleLines 过滤折叠子行；搜索时自动展开以保证命中可定位。
+const activeConfigYamlVisibleLines = computed<ConfigYamlVisibleLine[]>(() => {
+  const collapsedLines = activeConfigSearchKeyword.value
+    ? new Set<number>()
+    : collapsedConfigYamlLines.value;
+
+  return activeConfigYamlLineRows.value
+    .filter((line) => {
+      for (const lineNo of collapsedLines) {
+        const endLineNo =
+          activeConfigYamlFoldNodes.value.get(lineNo)?.endLineNo;
+        if (endLineNo && line.no > lineNo && line.no <= endLineNo) {
+          return false;
+        }
+      }
+      return true;
+    })
+    .map((line) => ({
+      ...line,
+      collapsed: collapsedLines.has(line.no),
+      foldable: activeConfigYamlFoldNodes.value.has(line.no),
+    }));
+});
+
 // activeConfigYamlMatches 汇总当前 YAML 视图内可跳转的搜索命中。
 const activeConfigYamlMatches = computed(() =>
   collectConfigYamlMatches(activeConfigYamlLineRows.value),
@@ -497,6 +559,116 @@ const activeConfigYamlMatchTotal = computed(
 const activeConfigYamlCurrentMatch = computed(() =>
   activeConfigYamlMatchTotal.value > 0 ? configYamlMatchIndex.value + 1 : 0,
 );
+
+/** 按 YAML 缩进识别每个可折叠节点的结束行与层级。 */
+function buildConfigYamlFoldNodes(yaml: string) {
+  const lines = yaml.split('\n');
+  const nodes = new Map<number, ConfigYamlFoldNode>();
+  const getIndent = (line: string) => {
+    let indent = 0;
+    for (const char of line) {
+      if (char === ' ') {
+        indent += 1;
+      } else if (char === '\t') {
+        indent += 2;
+      } else {
+        break;
+      }
+    }
+    return indent;
+  };
+  const isContentLine = (line: string) => {
+    const text = line.trim();
+    return text.length > 0 && !text.startsWith('#');
+  };
+  const contentLines = lines.flatMap((line, index) =>
+    isContentLine(line)
+      ? [{ indent: getIndent(line), index, lineNo: index + 1 }]
+      : [],
+  );
+  const parentIndents: number[] = [];
+
+  contentLines.forEach((line, contentIndex) => {
+    while (
+      parentIndents.length > 0 &&
+      parentIndents[parentIndents.length - 1]! >= line.indent
+    ) {
+      parentIndents.pop();
+    }
+    const child = contentLines[contentIndex + 1];
+    if (child && child.indent > line.indent) {
+      let endLineNo = lines.length;
+      for (
+        let nextIndex = contentIndex + 2;
+        nextIndex < contentLines.length;
+        nextIndex += 1
+      ) {
+        const next = contentLines[nextIndex]!;
+        if (next.indent <= line.indent) {
+          endLineNo = next.index;
+          break;
+        }
+      }
+      nodes.set(line.lineNo, {
+        depth: parentIndents.length,
+        endLineNo,
+      });
+    }
+    parentIndents.push(line.indent);
+  });
+
+  return nodes;
+}
+
+/** 切换单个 YAML 层级节点的折叠状态。 */
+function toggleConfigYamlFold(lineNo: number) {
+  const next = new Set(collapsedConfigYamlLines.value);
+  if (next.has(lineNo)) {
+    next.delete(lineNo);
+  } else {
+    next.add(lineNo);
+  }
+  collapsedConfigYamlLines.value = next;
+}
+
+/** 展开当前 YAML 的全部层级。 */
+function expandAllConfigYaml() {
+  collapsedConfigYamlLines.value = new Set();
+}
+
+/** 折叠当前 YAML 的全部层级。 */
+function collapseAllConfigYaml() {
+  collapsedConfigYamlLines.value = new Set(
+    activeConfigYamlFoldNodes.value.keys(),
+  );
+}
+
+/** 展开 YAML 到指定层级，并保留更深层节点已有状态。 */
+function expandConfigYamlLevel(level: number) {
+  const next = new Set(collapsedConfigYamlLines.value);
+  activeConfigYamlFoldNodes.value.forEach((node, lineNo) => {
+    if (node.depth < level) {
+      next.delete(lineNo);
+    }
+  });
+  collapsedConfigYamlLines.value = next;
+}
+
+/** 从指定层级向下折叠 YAML，并保留更高层节点状态。 */
+function collapseConfigYamlLevel(level: number) {
+  const next = new Set(collapsedConfigYamlLines.value);
+  const startDepth = Math.max(0, level - 1);
+  activeConfigYamlFoldNodes.value.forEach((node, lineNo) => {
+    if (node.depth >= startDepth) {
+      next.add(lineNo);
+    }
+  });
+  collapsedConfigYamlLines.value = next;
+}
+
+watch(activeConfigYamlText, () => {
+  collapsedConfigYamlLines.value = new Set();
+});
 
 // activeConfigTableItems 返回当前 Tab 的配置项表格数据。
 const activeConfigTableItems = computed(() =>
@@ -1394,6 +1566,27 @@ function handleCopyActiveConfigYaml() {
   return handleCopyConfigYaml();
 }
 
+// loadActiveReloadStatusOnce 按当前 Tab 首次进入时加载对应进程状态，避免打开页面同时请求后台与 API。
+function loadActiveReloadStatusOnce() {
+  if (activeReloadTab.value === 'api') {
+    if (
+      apiReloadStatusLoaded.value ||
+      !canQueryAPIRuntimeConfigReloadStatus.value
+    ) {
+      return;
+    }
+    apiReloadStatusLoaded.value = true;
+    void handleFetchAPIRuntimeConfigReloadStatus();
+    return;
+  }
+
+  if (adminReloadStatusLoaded.value || !canQueryConfigReloadStatus.value) {
+    return;
+  }
+  adminReloadStatusLoaded.value = true;
+  void handleFetchConfigReloadStatus();
+}
+
 watch(activeConfigSearchKeyword, () => {
   configYamlMatchIndex.value = 0;
 });
@@ -1412,19 +1605,20 @@ watch(
   { flush: 'post' },
 );
 
-onMounted(() => {
-  if (canQueryConfigReloadStatus.value) {
-    void handleFetchConfigReloadStatus();
-  }
-  if (canQueryAPIRuntimeConfigReloadStatus.value) {
-    void handleFetchAPIRuntimeConfigReloadStatus();
-  }
-});
+watch(
+  [
+    activeReloadTab,
+    canQueryConfigReloadStatus,
+    canQueryAPIRuntimeConfigReloadStatus,
+  ],
+  loadActiveReloadStatusOnce,
+  { immediate: true },
+);
 </script>
 
 <template>
   <Page :title="$t('business.message.configHotReload')">
-    <div class="space-y-2">
+    <div class="min-w-0 space-y-2">
       <Alert
         v-if="!canManageConfigReload"
         :message="$t('business.message.noConfigHotReloadPermission')"
@@ -1442,10 +1636,10 @@ onMounted(() => {
           :tab="$t('business.message.apiConfigHotReload')"
         />
       </Tabs>
-      <div class="mt-3 grid gap-2">
+      <div class="mt-3 grid min-w-0 gap-2">
         <Card
           v-if="activeReloadTab === 'admin'"
-          class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+          class="min-w-0 border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
           :title="$t('business.message.configHotReload')"
         >
           <div class="flex flex-wrap items-start justify-between gap-3">
@@ -1529,16 +1723,19 @@ onMounted(() => {
               </div>
             </div>
           </div>
-          <pre
+          <JsonDetailViewer
             v-if="showConfigReloadRaw && configReloadStatusText"
-            class="mt-4 overflow-auto rounded-2xl border border-amber-500/20 bg-slate-950 px-4 py-4 text-sm text-amber-100 shadow-inner"
-            v-text="configReloadStatusText"
-          ></pre>
+            class="mt-4"
+            :search-placeholder="
+              $t('business.message.jsonDataSearchPlaceholder')
+            "
+            :value="configReloadStatusText"
+          />
         </Card>
 
         <Card
           v-if="activeReloadTab === 'api'"
-          class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+          class="min-w-0 border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
           :title="$t('business.message.apiConfigHotReload')"
         >
           <div class="flex flex-wrap items-start justify-between gap-3">
@@ -1622,11 +1819,14 @@ onMounted(() => {
               </div>
             </div>
           </div>
-          <pre
+          <JsonDetailViewer
             v-if="showAPIRuntimeRaw && apiRuntimeStatusText"
-            class="mt-4 overflow-auto rounded-2xl border border-amber-500/20 bg-slate-950 px-4 py-4 text-sm text-amber-100 shadow-inner"
-            v-text="apiRuntimeStatusText"
-          ></pre>
+            class="mt-4"
+            :search-placeholder="
+              $t('business.message.jsonDataSearchPlaceholder')
+            "
+            :value="apiRuntimeStatusText"
+          />
         </Card>
 
         <Card
@@ -1640,7 +1840,10 @@ onMounted(() => {
             <div class="config-query-toolbar grid gap-4">
               <Input
                 v-model:value="activeConfigItemKeyword"
+                id="config-reload-item-search"
+                name="config-reload-item-search"
                 allow-clear
+                autocomplete="off"
                 class="config-query-input w-full"
                 :maxlength="128"
                 :placeholder="
@@ -1814,7 +2017,6 @@ onMounted(() => {
                     <Button
                       :aria-label="$t('business.message.previousConfigMatch')"
                       :disabled="activeConfigYamlMatchTotal <= 0"
-                      size="small"
                       @click="handleConfigYamlMatchJump(-1)"
                     >
                       <template #icon>
@@ -1826,7 +2028,6 @@ onMounted(() => {
                     <Button
                       :aria-label="$t('business.message.nextConfigMatch')"
                       :disabled="activeConfigYamlMatchTotal <= 0"
-                      size="small"
                       @click="handleConfigYamlMatchJump(1)"
                     >
                       <template #icon>
@@ -1835,9 +2036,17 @@ onMounted(() => {
                     </Button>
                   </Tooltip>
                 </Space>
+                <TreeExpandToolbar
+                  v-if="activeConfigItemViewMode === 'yaml'"
+                  :collapse-all-handler="collapseAllConfigYaml"
+                  :collapse-level-handler="collapseConfigYamlLevel"
+                  :disabled="activeConfigYamlFoldNodes.size === 0"
+                  :expand-all-handler="expandAllConfigYaml"
+                  :expand-level-handler="expandConfigYamlLevel"
+                  :max-level="activeConfigYamlMaxLevel"
+                />
                 <Button
                   v-if="activeConfigItemViewMode === 'yaml'"
-                  size="small"
                   :disabled="!activeConfigYamlText"
                   @click="handleCopyActiveConfigYaml"
                 >
@@ -1857,11 +2066,11 @@ onMounted(() => {
               role="region"
             >
               <div
-                v-if="activeConfigYamlLineRows.length > 0"
+                v-if="activeConfigYamlVisibleLines.length > 0"
                 class="min-w-max py-3"
               >
                 <div
-                  v-for="line in activeConfigYamlLineRows"
+                  v-for="line in activeConfigYamlVisibleLines"
                   :key="line.no"
                   class="config-yaml-line grid min-w-max"
                   :class="{
@@ -1874,6 +2083,25 @@ onMounted(() => {
                   >
                     {{ line.no }}
                   </span>
+                  <button
+                    v-if="line.foldable"
+                    :aria-label="
+                      line.collapsed
+                        ? $t('business.message.expand')
+                        : $t('business.message.collapse')
+                    "
+                    class="config-yaml-fold-toggle"
+                    type="button"
+                    @click="toggleConfigYamlFold(line.no)"
+                  >
+                    <CaretRightOutlined v-if="line.collapsed" />
+                    <CaretDownOutlined v-else />
+                  </button>
+                  <span
+                    v-else
+                    aria-hidden="true"
+                    class="config-yaml-fold-placeholder"
+                  ></span>
                   <code class="whitespace-pre px-3">
                     <span
                       v-for="(token, tokenIndex) in line.tokens"
@@ -2089,7 +2317,7 @@ onMounted(() => {
 }
 
 .config-yaml-line {
-  grid-template-columns: 3.25rem minmax(0, 1fr);
+  grid-template-columns: 3.25rem 1.5rem minmax(0, 1fr);
 }
 
 .config-yaml-line:hover {
@@ -2103,6 +2331,32 @@ onMounted(() => {
 .config-yaml-line-no {
   z-index: 1;
   font-variant-numeric: tabular-nums;
+}
+
+.config-yaml-fold-toggle,
+.config-yaml-fold-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.config-yaml-fold-toggle {
+  color: rgb(100 116 139);
+  cursor: pointer;
+}
+
+.config-yaml-fold-toggle:hover {
+  color: rgb(37 99 235);
+}
+
+:is(.dark .config-yaml-fold-toggle) {
+  color: rgb(148 163 184);
+}
+
+:is(.dark .config-yaml-fold-toggle:hover) {
+  color: rgb(96 165 250);
 }
 
 .config-yaml-match {

@@ -2,17 +2,12 @@ import type { SystemCacheApi } from '#/api/system';
 
 import { h } from 'vue';
 
-import {
-  Button,
-  Descriptions,
-  DescriptionsItem,
-  Modal,
-  Space,
-} from 'ant-design-vue';
+import { Descriptions, DescriptionsItem, Modal } from 'ant-design-vue';
 
-import JsonEditor from '#/components/json-editor/index.vue';
 import { $t } from '#/locales';
 import { copyTextToClipboard } from '#/utils/security/password';
+
+import JsonDetailViewer from '../components/json-detail-viewer.vue';
 
 // cacheCategoryKeyMap 定义缓存分类到多语言 key 的映射。
 const cacheCategoryKeyMap: Record<string, string> = {
@@ -71,48 +66,6 @@ export function buildJsonText(data: any) {
   return JSON.stringify(data, null, 2);
 }
 
-// parseCacheJsonValue 尝试把缓存值解析为 JSON，成功时返回结构化结果，失败时返回 null。
-function parseCacheJsonValue(data: any) {
-  if (data === undefined || data === null) {
-    return null;
-  }
-  if (typeof data === 'string') {
-    const text = data.trim();
-    if (!text) {
-      return null;
-    }
-    try {
-      return JSON.parse(text);
-    } catch {
-      return null;
-    }
-  }
-  if (typeof data === 'object') {
-    return data;
-  }
-  return null;
-}
-
-// buildCacheValueViewer 根据缓存值类型构建展示节点。
-export function buildCacheValueViewer(data: any) {
-  const jsonValue = parseCacheJsonValue(data);
-  if (jsonValue !== null) {
-    return h(JsonEditor, {
-      readonly: true,
-      rows: 14,
-      value: JSON.stringify(jsonValue, null, 2),
-    });
-  }
-  return h(
-    'pre',
-    {
-      class:
-        'max-h-[360px] overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 text-xs dark:bg-gray-900',
-    },
-    buildJsonText(data),
-  );
-}
-
 // showStructuredValueModal 使用统一的 JSON/文本查看器展示结构化值，并支持复制。
 export function showStructuredValueModal(
   title: string,
@@ -123,27 +76,18 @@ export function showStructuredValueModal(
   const valueText = buildJsonText(value);
   Modal.info({
     closable: true,
-    content: h('div', { class: 'space-y-4' }, [
-      h('div', { class: 'flex items-center justify-between gap-3' }, [
-        h('div', { class: 'text-xs text-gray-500' }, valueLabel),
-        h(Space, { size: 8 }, () => [
-          h(
-            Button,
-            {
-              size: 'small',
-              onClick: () =>
-                copyTextToClipboard(
-                  valueText,
-                  $t('business.message.valueCopiedToClipboard', [valueLabel]),
-                  $t('business.message.noValueToCopy', [valueLabel]),
-                ),
-            },
-            () => $t('business.message.copyValueLabel', [valueLabel]),
-          ),
-        ]),
-      ]),
-      buildCacheValueViewer(value),
-    ]),
+    content: h(JsonDetailViewer, {
+      copyLabel: $t('business.message.copyValueLabel', [valueLabel]),
+      onCopy: () =>
+        copyTextToClipboard(
+          valueText,
+          $t('business.message.valueCopiedToClipboard', [valueLabel]),
+          $t('business.message.noValueToCopy', [valueLabel]),
+        ),
+      searchPlaceholder: $t('business.message.cacheValueSearchPlaceholder'),
+      value,
+    }),
+    maskClosable: true,
     title,
     width,
   });
@@ -175,110 +119,123 @@ export function showCacheInfoModal(
   const cacheValueText = buildJsonText(info.value);
   Modal.info({
     closable: true,
-    content: h('div', { class: 'space-y-4' }, [
-      h(
-        Descriptions,
-        {
-          bordered: true,
-          column: 2,
-          size: 'small',
-          title: $t('business.message.cacheDetail'),
-        },
-        () => [
-          h(
-            DescriptionsItem,
-            { label: $t('business.message.cacheKey') },
-            () => info.key || '-',
-          ),
-          h(
-            DescriptionsItem,
-            { label: $t('business.message.redisType') },
-            () => info.type || '-',
-          ),
-          h(
-            DescriptionsItem,
-            { label: $t('business.message.remainingTtl') },
-            () => formatTTLValue(info.ttl),
-          ),
-          h(
-            DescriptionsItem,
-            { label: $t('business.message.valueCount') },
-            () => String(info.total ?? '-'),
-          ),
-        ],
-      ),
-      h(
-        Descriptions,
-        {
-          bordered: true,
-          column: 2,
-          size: 'small',
-          title: $t('business.message.cacheItemMeta'),
-        },
-        () => [
-          h(
-            DescriptionsItem,
-            { label: $t('business.message.cacheIndex') },
-            () => info.item?.index || '-',
-          ),
-          h(
-            DescriptionsItem,
-            { label: $t('business.message.cacheCategory') },
-            () => formatCacheCategory(info.item?.category),
-          ),
-          h(
-            DescriptionsItem,
-            { label: $t('business.message.templateKey') },
-            () =>
-              info.item?.isTemplate
-                ? $t('business.message.yes')
-                : $t('business.message.no'),
-          ),
-          h(
-            DescriptionsItem,
-            { label: $t('business.message.exampleKey') },
-            () => info.item?.exampleKey || '-',
-          ),
-          h(
-            DescriptionsItem,
-            { label: $t('business.message.autoRebuild') },
-            () =>
-              info.item?.autoRebuild
-                ? $t('business.message.supported')
-                : $t('business.message.unsupported'),
-          ),
-          h(
-            DescriptionsItem,
-            { label: $t('business.message.refreshScope') },
-            () => formatRefreshScope(info.item?.refreshScope),
-          ),
-        ],
-      ),
-      h('div', { class: 'flex items-center justify-between gap-3' }, [
+    maskClosable: true,
+    content: h('div', { style: { display: 'grid', gap: '16px' } }, [
+      h('section', { style: { display: 'grid', gap: '8px' } }, [
         h(
           'div',
-          { class: 'text-xs text-gray-500' },
-          $t('business.message.cacheValue'),
-        ),
-        h(Space, { size: 8 }, () => [
-          h(
-            Button,
-            {
-              size: 'small',
-              onClick: () =>
-                copyTextToClipboard(
-                  cacheValueText,
-                  $t('business.message.cacheValueCopied'),
-                  $t('business.message.noCacheValueToCopy'),
-                ),
+          {
+            style: {
+              fontSize: '16px',
+              fontWeight: '600',
+              lineHeight: '24px',
             },
-            () => $t('business.message.copyCacheValue'),
-          ),
-        ]),
+          },
+          $t('business.message.cacheDetail'),
+        ),
+        h(
+          Descriptions,
+          {
+            bordered: true,
+            column: 2,
+            size: 'small',
+          },
+          () => [
+            h(
+              DescriptionsItem,
+              { label: $t('business.message.cacheKey') },
+              () => info.key || '-',
+            ),
+            h(
+              DescriptionsItem,
+              { label: $t('business.message.redisType') },
+              () => info.type || '-',
+            ),
+            h(
+              DescriptionsItem,
+              { label: $t('business.message.remainingTtl') },
+              () => formatTTLValue(info.ttl),
+            ),
+            h(
+              DescriptionsItem,
+              { label: $t('business.message.valueCount') },
+              () => String(info.total ?? '-'),
+            ),
+          ],
+        ),
       ]),
-      buildCacheValueViewer(info.value),
+      h('section', { style: { display: 'grid', gap: '8px' } }, [
+        h(
+          'div',
+          {
+            style: {
+              fontSize: '16px',
+              fontWeight: '600',
+              lineHeight: '24px',
+            },
+          },
+          $t('business.message.cacheItemMeta'),
+        ),
+        h(
+          Descriptions,
+          {
+            bordered: true,
+            column: 2,
+            size: 'small',
+          },
+          () => [
+            h(
+              DescriptionsItem,
+              { label: $t('business.message.cacheIndex') },
+              () => info.item?.index || '-',
+            ),
+            h(
+              DescriptionsItem,
+              { label: $t('business.message.cacheCategory') },
+              () => formatCacheCategory(info.item?.category),
+            ),
+            h(
+              DescriptionsItem,
+              { label: $t('business.message.templateKey') },
+              () =>
+                info.item?.isTemplate
+                  ? $t('business.message.yes')
+                  : $t('business.message.no'),
+            ),
+            h(
+              DescriptionsItem,
+              { label: $t('business.message.exampleKey') },
+              () => info.item?.exampleKey || '-',
+            ),
+            h(
+              DescriptionsItem,
+              { label: $t('business.message.autoRebuild') },
+              () =>
+                info.item?.autoRebuild
+                  ? $t('business.message.supported')
+                  : $t('business.message.unsupported'),
+            ),
+            h(
+              DescriptionsItem,
+              { label: $t('business.message.refreshScope') },
+              () => formatRefreshScope(info.item?.refreshScope),
+            ),
+          ],
+        ),
+      ]),
+      h(JsonDetailViewer, {
+        copyLabel: $t('business.message.copyCacheValue'),
+        onCopy: () =>
+          copyTextToClipboard(
+            cacheValueText,
+            $t('business.message.cacheValueCopied'),
+            $t('business.message.noCacheValueToCopy'),
+          ),
+        searchPlaceholder: $t('business.message.cacheValueSearchPlaceholder'),
+        value: info.value,
+      }),
     ]),
     title,
-    width: 860,
+    width: 1080,
   });
 }

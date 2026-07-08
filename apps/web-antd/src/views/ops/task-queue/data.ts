@@ -117,6 +117,29 @@ export function useColumns<T = any>(
         },
         name: 'CellTag',
       },
+      field: 'archived',
+      title: $t('business.message.archivedTaskCount'),
+      width: 100,
+    },
+    {
+      field: 'aggregating',
+      title: $t('business.message.aggregatingTaskCount'),
+      width: 100,
+    },
+    {
+      field: 'processed',
+      title: $t('business.message.processedTaskCount'),
+      width: 110,
+    },
+    {
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ value }: { value: unknown }) =>
+            countRiskTagMeta(value, 'error'),
+        },
+        name: 'CellTag',
+      },
       field: 'failed',
       title: $t('business.message.todayFailed'),
       width: 100,
@@ -157,14 +180,24 @@ export function useColumns<T = any>(
             auth: asActionPermission(OPS_ACTION_PERMISSION_CODES.TASK_INFO_GET),
           },
           {
-            code: 'toggleConsume',
+            auth: asActionPermission(
+              OPS_ACTION_PERMISSION_CODES.TASK_QUEUE_PAUSE,
+            ),
+            code: 'pauseConsume',
             icon: 'toggle',
             iconOnly: true,
-            text: $t('business.message.toggleConsume'),
-            auth: asActionPermission([
-              OPS_ACTION_PERMISSION_CODES.TASK_QUEUE_PAUSE,
+            text: $t('business.message.pauseConsume'),
+            visible: (row: T) => !(row as any).paused,
+          },
+          {
+            auth: asActionPermission(
               OPS_ACTION_PERMISSION_CODES.TASK_QUEUE_RESUME,
-            ]),
+            ),
+            code: 'resumeConsume',
+            icon: 'play',
+            iconOnly: true,
+            text: $t('business.message.resumeConsume'),
+            visible: (row: T) => (row as any).paused,
           },
         ],
       },

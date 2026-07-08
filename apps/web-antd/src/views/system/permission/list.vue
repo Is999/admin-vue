@@ -3,13 +3,15 @@
 import type { OnActionClickParams } from '#/adapter/vxe-table';
 import type { SystemPermissionApi } from '#/api/system';
 
-import { h } from 'vue';
+import { computed, h, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
+import { useAccess } from '@vben/access';
 import { Page, useVbenDrawer, VbenButton } from '@vben/common-ui';
 import { Plus } from '@vben/icons';
+import { useUserStore } from '@vben/stores';
 
-import { message, Modal } from 'ant-design-vue';
+import { Modal, Tabs } from 'ant-design-vue';
 
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
 import {
@@ -24,12 +26,13 @@ import {
 import { $t } from '#/locales';
 import {
   buildPermissionCacheTargets,
-  buildPermissionCacheTemplateKeys,
   openSystemCachePage,
 } from '#/utils/cache/navigation';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 
 import TreeExpandToolbar from '../components/tree-expand-toolbar.vue';
 import { useColumns, useGridFormSchema } from './data';
+import DocPermissionList from './modules/doc-permission-list.vue';
 import Form from './modules/form.vue';
 
 // PERMISSION_ROW_HEIGHT 与 VXE 虚拟滚动行高保持一致，避免滚动时相邻行状态和类型串位。
@@ -42,6 +45,23 @@ const [FormDrawer, formDrawerApi] = useVbenDrawer({
 });
 // router 用于跳转缓存管理页定位权限相关全局缓存。
 const router = useRouter();
+// userStore 提供后端会话中的超级管理员标记。
+const userStore = useUserStore();
+// isSuperAdmin 控制只有超级管理员可从工具栏新增顶级权限。
+const isSuperAdmin = computed(() =>
+  Boolean(
+    (userStore.userInfo as null | { isSuperAdmin?: boolean })?.isSuperAdmin,
+  ),
+);
+// activePermissionTab 记录权限管理当前展示的定义类型。
+const activePermissionTab = ref<'doc' | 'route'>('route');
+// canViewDocPermissions 控制只有拥有文档权限查询接口权限的账号才加载列表。
+const { hasAccessByCodes } = useAccess();
+const canViewDocPermissions = computed(() =>
+  hasAccessByCodes(
+    asActionPermission(SYSTEM_ACTION_PERMISSION_CODES.DOC_PERMISSION_LIST),
+  ),
+);
 type PermissionTreeIndex = {
   total: number; // 当前查询树节点总数
   tree: SystemPermissionApi.Item[]; // 补齐 hasChild 后的当前查询树
@@ -395,11 +415,17 @@ function onActionClick(e: OnActionClickParams<PermissionTreeRow>) {
 
 // onCreate 打开新增权限抽屉，可从列表行直接新增子级。
 function onCreate(parent?: SystemPermissionApi.Item) {
+  if ((parent && !parent.canCreateChild) || (!parent && !isSuperAdmin.value)) {
+    return;
+  }
   formDrawerApi.setData(parent?.id ? { pid: parent.id } : {}).open();
 }
 
 // onEdit 打开编辑权限抽屉。
 function onEdit(row: SystemPermissionApi.Item) {
+  if (!row.manageable) {
+    return;
+  }
   formDrawerApi.setData(row).open();
 }
 
@@ -412,13 +438,15 @@ function onRefresh() {
 async function onOpenPermissionCache() {
   await openSystemCachePage(router, {
     source: $t('business.message.permissionManagement'),
-    templateKeys: buildPermissionCacheTemplateKeys(),
     targets: buildPermissionCacheTargets(),
   });
 }
 
 // onStatusChange 修改权限状态。
 async function onStatusChange(newStatus: number, row: PermissionTreeRow) {
+  if (!row.manageable) {
+    return false;
+  }
   const statusText: Record<number, string> = {
     0: $t('business.message.disable'),
     1: $t('business.message.enable'),
@@ -431,9 +459,13 @@ async function onStatusChange(newStatus: number, row: PermissionTreeRow) {
       ]),
       $t('business.message.switchPermissionStatus'),
     );
-    await updatePermissionStatus(
+    const cacheSyncResult = await updatePermissionStatus(
       row.id,
       newStatus as SystemPermissionApi.Status,
+    );
+    showCacheSyncResult(
+      cacheSyncResult,
+      $t('business.message.permissionStatusUpdated'),
     );
     updatePermissionStatusCache(
       Number(row.id),
@@ -447,6 +479,9 @@ async function onStatusChange(newStatus: number, row: PermissionTreeRow) {
 
 // onDelete 删除权限。
 function onDelete(row: SystemPermissionApi.Item) {
+  if (!row.manageable) {
+    return;
+  }
   Modal.confirm({
     content: () =>
       h('div', { class: 'space-y-2' }, [
@@ -463,8 +498,11 @@ function onDelete(row: SystemPermissionApi.Item) {
       ]),
     okType: 'danger',
     onOk: async () => {
-      await deletePermission(row.id);
-      message.success($t('business.message.permissionDeleted'));
+      const cacheSyncResult = await deletePermission(row.id);
+      showCacheSyncResult(
+        cacheSyncResult,
+        $t('business.message.permissionDeleted'),
+      );
       onRefresh();
     },
     title: $t('business.message.deletePermissionDangerTitle'),
@@ -490,45 +528,80 @@ function confirm(content: string, title: string) {
 
 <template>
   <Page auto-content-height>
-    <FormDrawer @success="onRefresh" />
-    <Grid
-      class="system-tree-grid"
-      :style="permissionGridStyle"
-      :table-title="$t('business.message.permissionList')"
+    <Tabs
+      v-model:active-key="activePermissionTab"
+      class="permission-management-tabs"
     >
-      <template #toolbar-tools>
-        <div class="flex flex-wrap items-center justify-end gap-2">
-          <VbenButton
-            v-access="
-              asActionPermission(SYSTEM_ACTION_PERMISSION_CODES.PERMISSION_ADD)
-            "
-            type="primary"
-            @click="onCreate"
-          >
-            <Plus class="size-5" /> {{ $t('business.message.addPermission') }}
-          </VbenButton>
-          <VbenButton
-            v-access="
-              asActionPermission(SYSTEM_ACTION_PERMISSION_CODES.CACHE_SEARCH)
-            "
-            @click="onOpenPermissionCache"
-          >
-            {{ $t('business.message.permissionCache') }}
-          </VbenButton>
-          <TreeExpandToolbar
-            :collapse-all-handler="collapsePermissionAll"
-            :collapse-level-handler="collapsePermissionLevel"
-            :expand-all-handler="expandPermissionAll"
-            :expand-level-handler="expandPermissionLevel"
-            :grid-api="gridApi"
-          />
-        </div>
-      </template>
-    </Grid>
+      <Tabs.TabPane key="route" :tab="$t('business.message.routePermissions')">
+        <FormDrawer @success="onRefresh" />
+        <Grid
+          class="system-tree-grid"
+          :style="permissionGridStyle"
+          :table-title="$t('business.message.permissionList')"
+        >
+          <template #toolbar-tools>
+            <div class="flex flex-wrap items-center justify-end gap-2">
+              <VbenButton
+                v-if="isSuperAdmin"
+                v-access="
+                  asActionPermission(
+                    SYSTEM_ACTION_PERMISSION_CODES.PERMISSION_ADD,
+                  )
+                "
+                type="primary"
+                @click="onCreate()"
+              >
+                <Plus class="size-5" />
+                {{ $t('business.message.addPermission') }}
+              </VbenButton>
+              <VbenButton
+                v-access="
+                  asActionPermission(
+                    SYSTEM_ACTION_PERMISSION_CODES.CACHE_SEARCH,
+                  )
+                "
+                @click="onOpenPermissionCache"
+              >
+                {{ $t('business.message.permissionCache') }}
+              </VbenButton>
+              <TreeExpandToolbar
+                :collapse-all-handler="collapsePermissionAll"
+                :collapse-level-handler="collapsePermissionLevel"
+                :expand-all-handler="expandPermissionAll"
+                :expand-level-handler="expandPermissionLevel"
+                :grid-api="gridApi"
+              />
+            </div>
+          </template>
+        </Grid>
+      </Tabs.TabPane>
+      <Tabs.TabPane
+        v-if="canViewDocPermissions"
+        key="doc"
+        :tab="$t('business.message.docPermissions')"
+      >
+        <DocPermissionList />
+      </Tabs.TabPane>
+    </Tabs>
   </Page>
 </template>
 
 <style scoped>
+.permission-management-tabs {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+:deep(.permission-management-tabs > .ant-tabs-content-holder),
+:deep(
+  .permission-management-tabs > .ant-tabs-content-holder > .ant-tabs-content
+),
+:deep(.permission-management-tabs .ant-tabs-tabpane) {
+  height: 100%;
+  min-height: 0;
+}
+
 :deep(.system-tree-grid .vxe-body--row) {
   height: var(--permission-row-height);
 }

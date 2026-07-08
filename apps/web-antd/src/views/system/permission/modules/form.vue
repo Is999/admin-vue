@@ -5,8 +5,7 @@ import type { SystemPermissionApi } from '#/api/system';
 import { computed, ref } from 'vue';
 
 import { useVbenDrawer } from '@vben/common-ui';
-
-import { message } from 'ant-design-vue';
+import { useUserStore } from '@vben/stores';
 
 import { useVbenForm } from '#/adapter/form';
 import {
@@ -16,17 +15,22 @@ import {
   updatePermission,
 } from '#/api/system';
 import { $t } from '#/locales';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 
 import FormTips from '../../components/form-tips.vue';
 import { useFormSchema } from '../data';
 
 // emit 定义权限保存成功事件。
 const emit = defineEmits<{ success: [] }>();
+// userStore 提供后端会话中的超级管理员标记。
+const userStore = useUserStore();
 
 // formData 保存当前编辑权限。
 const formData = ref<Partial<SystemPermissionApi.Item>>({});
 // permissionTree 保存父级权限树下拉数据。
 const permissionTree = ref<Array<Record<string, any>>>([]);
+// drawerSessionID 标识当前抽屉会话，避免旧请求或旧提交覆盖新状态。
+let drawerSessionID = 0;
 
 // [Form, formApi] 创建 Vben 表单实例。
 const [Form, formApi] = useVbenForm({
@@ -45,6 +49,9 @@ function buildPermissionTreeOptions(
   currentID?: number,
 ): Array<Record<string, any>> {
   const currentIDText = currentID ? `${currentID}` : '';
+  const canUseRoot = Boolean(
+    (userStore.userInfo as null | { isSuperAdmin?: boolean })?.isSuperAdmin,
+  );
   const walk = (
     nodes: SystemPermissionApi.Item[],
   ): Array<Record<string, any>> =>
@@ -66,7 +73,10 @@ function buildPermissionTreeOptions(
   return [
     {
       children: walk(items),
+      disableCheckbox: !canUseRoot,
+      disabled: !canUseRoot,
       id: 0,
+      selectable: canUseRoot,
       title: $t('business.message.topLevelPermission'),
     },
   ];
@@ -76,41 +86,57 @@ function buildPermissionTreeOptions(
 const [Drawer, drawerApi] = useVbenDrawer({
   onConfirm: onSubmit,
   async onOpenChange(isOpen) {
+    const sessionID = ++drawerSessionID;
     if (!isOpen) {
+      drawerApi.unlock();
       return;
     }
-    const data = drawerApi.getData<Partial<SystemPermissionApi.Item>>();
-    const defaultPid = Number(data?.pid || 0);
-    formApi.resetForm();
-    formData.value = data?.id ? data : {};
-    permissionTree.value = buildPermissionTreeOptions(
-      await fetchPermissionTree(),
-      data?.id,
-    );
-    formApi.updateSchema(useFormSchema(permissionTree.value));
-    if (data?.id) {
-      formApi.setValues({
-        description: data.description ?? '',
-        module: data.module ?? '',
-        pid: data.pid ?? 0,
-        status: data.status ?? 1,
-        title: data.title ?? '',
-        type: data.type ?? 4,
-        uuid: data.uuid ?? '',
+    drawerApi.lock();
+    try {
+      const data = drawerApi.getData<Partial<SystemPermissionApi.Item>>();
+      const defaultPid = Number(data?.pid || 0);
+      formApi.resetForm();
+      formData.value = data?.id ? data : {};
+      permissionTree.value = [];
+      const permissions = await fetchPermissionTree();
+      if (sessionID !== drawerSessionID) {
+        return;
+      }
+      permissionTree.value = buildPermissionTreeOptions(permissions, data?.id);
+      formApi.updateSchema(
+        useFormSchema(permissionTree.value, Boolean(data?.id)),
+      );
+      if (data?.id) {
+        await formApi.setValues({
+          description: data.description ?? '',
+          module: data.module ?? '',
+          pid: data.pid ?? 0,
+          status: data.status ?? 1,
+          title: data.title ?? '',
+          type: data.type ?? 4,
+          uuid: data.uuid ?? '',
+        });
+        return;
+      }
+      // 新增权限时预取后端建议的 UUID，减少手动录入错误。
+      const maxUuid = await fetchPermissionMaxUuid().catch(() => undefined);
+      if (sessionID !== drawerSessionID) {
+        return;
+      }
+      await formApi.setValues({
+        description: '',
+        module: '',
+        pid: defaultPid,
+        status: 1,
+        title: '',
+        type: 4,
+        uuid: maxUuid?.uuid,
       });
-      return;
+    } finally {
+      if (sessionID === drawerSessionID) {
+        drawerApi.unlock();
+      }
     }
-    // 新增权限时预取后端建议的 uuid，减少手动录入错误。
-    const maxUuid = await fetchPermissionMaxUuid().catch(() => undefined);
-    formApi.setValues({
-      description: '',
-      module: '',
-      pid: defaultPid,
-      status: 1,
-      title: '',
-      type: 4,
-      uuid: maxUuid?.uuid,
-    });
   },
 });
 
@@ -143,28 +169,41 @@ const formTips = [
 
 // onSubmit 校验并提交权限保存请求。
 async function onSubmit() {
+  const sessionID = drawerSessionID;
   const { valid } = await formApi.validate();
-  if (!valid) {
+  if (!valid || sessionID !== drawerSessionID) {
     return;
   }
-  const values = await formApi.getValues<SystemPermissionApi.SaveParams>();
+  const values = await formApi.getValues<SystemPermissionApi.CreateParams>();
+  const permissionID = Number(formData.value?.id || 0);
   drawerApi.lock();
-  const action = formData.value?.id
-    ? updatePermission(formData.value.id, values)
+  const action = permissionID
+    ? updatePermission(permissionID, {
+        description: values.description ?? '',
+        module: values.module ?? '',
+        pid: Number(values.pid ?? 0),
+        title: values.title,
+        type: values.type,
+        uuid: values.uuid,
+      })
     : createPermission(values);
-  action
-    .then(() => {
-      message.success(
-        formData.value?.id
+  try {
+    const cacheSyncResult = await action;
+    if (sessionID === drawerSessionID) {
+      showCacheSyncResult(
+        cacheSyncResult,
+        permissionID
           ? $t('business.message.permissionUpdated')
           : $t('business.message.permissionCreated'),
       );
       drawerApi.close();
-      emit('success');
-    })
-    .finally(() => {
+    }
+    emit('success');
+  } finally {
+    if (sessionID === drawerSessionID) {
       drawerApi.unlock();
-    });
+    }
+  }
 }
 </script>
 

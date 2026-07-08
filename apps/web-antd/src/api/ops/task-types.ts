@@ -1,3 +1,10 @@
+// TASK_API_LIMITS 与后端任务资源硬上限保持一致，供任务入口表单复用。
+export const TASK_API_LIMITS = {
+  retry: 25,
+  shardTotal: 128,
+  timeoutSeconds: 86_400,
+} as const;
+
 // TaskApi 定义运维任务系统相关接口的请求与响应结构。
 export namespace TaskApi {
   /** 手动触发工作流请求 */
@@ -555,6 +562,8 @@ export namespace TaskApi {
     syncIntervalSeconds: number;
     /** 调度器心跳间隔，单位秒 */
     heartbeatIntervalSeconds: number;
+    /** 周期任务投递前允许的队列积压上限，0 表示关闭背压 */
+    maxQueueBacklog: number;
     /** 当前有效周期任务数量 */
     periodicTaskCount: number;
     /** 最近一次调度器总体状态 */

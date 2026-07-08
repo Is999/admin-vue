@@ -69,6 +69,8 @@ import { isEmpty } from '@vben/utils';
 
 import { message, Modal, notification } from 'ant-design-vue';
 
+import { resolveSafeFilePreviewURL } from '#/utils/file/image';
+
 type AdapterUploadProps = UploadProps & {
   aspectRatio?: string;
   crop?: boolean;
@@ -162,12 +164,23 @@ const withDefaultPlaceholder = (
         $t(`ui.placeholder.${type}`);
       // 透传组件暴露的方法
       const innerRef = ref();
+      // controlReady 优先读取嵌套异步组件状态，避免包装实例先挂载时误判控件已就绪。
+      const controlReady = computed(() => {
+        const nestedReady = innerRef.value?.__vbenControlReady;
+        return nestedReady === undefined
+          ? Boolean(innerRef.value)
+          : Boolean(nestedReady);
+      });
       expose(
         new Proxy(
           {},
           {
-            get: (_target, key) => innerRef.value?.[key],
-            has: (_target, key) => key in (innerRef.value || {}),
+            get: (_target, key) =>
+              key === '__vbenControlReady'
+                ? controlReady.value
+                : innerRef.value?.[key],
+            has: (_target, key) =>
+              key === '__vbenControlReady' || key in (innerRef.value || {}),
           },
         ),
       );
@@ -256,9 +269,9 @@ async function previewImage(
 ) {
   // 非图片文件直接打开链接
   if (!isImageFile(file)) {
-    const url = file.url || file.preview;
+    const url = resolveSafeFilePreviewURL(file.url || file.preview);
     if (url) {
-      window.open(url, '_blank');
+      window.open(url, '_blank', 'noopener,noreferrer');
     } else {
       message.error($t('ui.formRules.previewWarning'));
     }

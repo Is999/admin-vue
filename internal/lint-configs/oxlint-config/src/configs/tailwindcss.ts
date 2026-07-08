@@ -18,9 +18,6 @@ const selectors = [
 const entryPoint = fileURLToPath(
   new URL('../../../../tailwind-config/src/theme.css', import.meta.url),
 );
-const tailwindcssPlugin = fileURLToPath(
-  import.meta.resolve('eslint-plugin-better-tailwindcss'),
-);
 
 const settings = {
   entryPoint,
@@ -33,7 +30,7 @@ const tailwindcss: OxlintConfig = {
   jsPlugins: [
     {
       name: 'better-tailwindcss',
-      specifier: tailwindcssPlugin,
+      specifier: 'eslint-plugin-better-tailwindcss',
     },
   ],
   rules: {

@@ -12,7 +12,9 @@ import { Descriptions, DescriptionsItem, Modal, Tag } from 'ant-design-vue';
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
 import { fetchAdminLogList } from '#/api/system';
 import { $t } from '#/locales';
+import { copyTextToClipboard } from '#/utils/security/password';
 
+import JsonDetailViewer from '../components/json-detail-viewer.vue';
 import { useColumns, useGridFormSchema } from './data';
 
 // ================= 表格配置 =================
@@ -80,8 +82,11 @@ function parseLogData(data = '') {
 
 // onViewDetail 展示单条操作日志详情。
 function onViewDetail(row: SystemAdminLogApi.Item) {
+  const detailValue = parseLogData(row.data);
+  const detailText = JSON.stringify(detailValue, null, 2);
   Modal.info({
-    content: h('div', { style: { paddingTop: '4px' } }, [
+    closable: true,
+    content: h('div', { style: { display: 'grid', gap: '16px' } }, [
       h(
         Descriptions,
         {
@@ -129,18 +134,21 @@ function onViewDetail(row: SystemAdminLogApi.Item) {
           ],
         },
       ),
-      h(
-        'pre',
-        {
-          class:
-            'max-h-[360px] overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 text-xs dark:bg-gray-900',
-          style: { marginTop: '16px' },
-        },
-        JSON.stringify(parseLogData(row.data), null, 2),
-      ),
+      h(JsonDetailViewer, {
+        copyLabel: $t('business.message.copy'),
+        onCopy: () =>
+          copyTextToClipboard(
+            detailText,
+            $t('business.message.contentCopied'),
+            $t('business.message.emptyCopyContent'),
+          ),
+        searchPlaceholder: $t('business.message.logDataSearchPlaceholder'),
+        value: detailValue,
+      }),
     ]),
+    maskClosable: true,
     title: $t('business.message.logDetailTitle', [row.id]),
-    width: 820,
+    width: 1040,
   });
 }
 </script>

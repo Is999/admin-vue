@@ -40,9 +40,11 @@ function defineApplicationConfig(userConfigPromise?: DefineApplicationOptions) {
       isBuild,
       license: true,
       mode,
+      nitroMock: !isBuild,
+      nitroMockOptions: {},
       print: !isBuild,
       printInfoMap: {
-        'Admin API Docs': '/api/docs#/',
+        'Vben Admin Docs': 'https://doc.vben.pro',
       },
       pwa: true,
       pwaOptions: getDefaultPwaOptions(appTitle),
@@ -61,7 +63,6 @@ function defineApplicationConfig(userConfigPromise?: DefineApplicationOptions) {
             assetFileNames: '[ext]/[name]-[hash].[ext]',
             chunkFileNames: 'js/[name]-[hash].js',
             entryFileNames: 'jse/index-[name]-[hash].js',
-            manualChunks: createManualChunks,
             minify: isBuild
               ? {
                   compress: {
@@ -95,31 +96,6 @@ function defineApplicationConfig(userConfigPromise?: DefineApplicationOptions) {
     );
     return mergeConfig(mergedCommonConfig, vite);
   });
-}
-
-/**
- * createManualChunks 构建生产环境依赖分包规则，降低首屏入口包体积。
- * @param id 模块文件标识
- * @returns 分包名称，返回 undefined 时交由 Vite 默认策略处理
- */
-function createManualChunks(id: string): string | undefined {
-  // 非第三方依赖保留路由级动态拆分，避免业务模块被过度聚合。
-  if (!id.includes('node_modules')) {
-    return undefined;
-  }
-
-  // Ant Design Vue 组件库体积较大，单独成包减少入口包与业务页之间的重复权重。
-  if (id.includes('ant-design-vue') || id.includes('@ant-design/icons-vue')) {
-    return 'vendor-antd';
-  }
-
-  // VXE 表格链路体积较大，独立分包便于表格页面按需复用缓存。
-  if (id.includes('vxe-table') || id.includes('xe-utils')) {
-    return 'vendor-vxe';
-  }
-
-  // 其他依赖交由 Vite 默认策略，避免手动拆分过细造成循环 chunk。
-  return undefined;
 }
 
 function createCssOptions(injectGlobalScss = true): CSSOptions {

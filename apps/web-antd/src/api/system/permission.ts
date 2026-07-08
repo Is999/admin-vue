@@ -22,10 +22,15 @@ export namespace SystemPermissionApi {
     disabled: boolean; // 是否禁用
     disableCheckbox: boolean; // 是否禁止勾选
     selectable: boolean; // 是否允许选择
+    manageable: boolean; // 当前管理员是否有权管理该权限
+    canCreateChild: boolean; // 当前管理员是否可在该权限下新增子权限
     hasChild: boolean; // 是否存在子权限，用于列表展开入口
     children?: Item[]; // 子权限列表
     createdAt: string; // 创建时间
     updatedAt: string; // 更新时间
+    virtual?: boolean; // 是否为前端生成的虚拟分组节点
+    site?: string; // 文档权限所属站点
+    path?: string; // 文档权限站点内相对路径
   }
 
   // ListParams 表示权限列表查询参数。
@@ -40,15 +45,25 @@ export namespace SystemPermissionApi {
     type?: number[]; // 权限类型筛选
   }
 
-  // SaveParams 表示新增或编辑权限参数。
-  export interface SaveParams {
+  // CreateParams 表示新增权限参数。
+  export interface CreateParams {
     uuid?: string; // 权限标识
-    title?: string; // 权限名称
+    title: string; // 权限名称
     module?: string; // 模块名称
     pid?: number; // 上级权限ID
-    type?: number; // 权限类型
+    type: number; // 权限类型
     description?: string; // 权限说明
     status?: Status; // 权限状态
+  }
+
+  // UpdateParams 表示编辑权限基础资料参数，状态由专用接口维护。
+  export interface UpdateParams {
+    uuid?: string; // 权限标识
+    title: string; // 权限名称
+    module: string; // 模块名称
+    pid: number; // 上级权限ID
+    type: number; // 权限类型
+    description: string; // 权限说明
   }
 
   // MaxUuidResp 表示后端返回的下一个权限标识。
@@ -82,21 +97,24 @@ export async function fetchPermissionMaxUuid() {
 }
 
 // createPermission 新增权限。
-export async function createPermission(data: SystemPermissionApi.SaveParams) {
-  return requestClient.post('/permissions', data);
+export async function createPermission(data: SystemPermissionApi.CreateParams) {
+  return requestClient.post<CommonApi.CacheSyncResp>('/permissions', data);
 }
 
 // updatePermission 编辑权限。
 export async function updatePermission(
   id: number,
-  data: SystemPermissionApi.SaveParams,
+  data: SystemPermissionApi.UpdateParams,
 ) {
-  return requestClient.patch(`/permissions/${id}`, data);
+  return requestClient.patch<CommonApi.CacheSyncResp>(
+    `/permissions/${id}`,
+    data,
+  );
 }
 
 // deletePermission 删除权限。
 export async function deletePermission(id: number) {
-  return requestClient.delete(`/permissions/${id}`);
+  return requestClient.delete<CommonApi.CacheSyncResp>(`/permissions/${id}`);
 }
 
 // updatePermissionStatus 修改权限状态。
@@ -104,5 +122,8 @@ export async function updatePermissionStatus(
   id: number,
   status: SystemPermissionApi.Status,
 ) {
-  return requestClient.patch(`/permissions/status/${id}`, { status });
+  return requestClient.patch<CommonApi.CacheSyncResp>(
+    `/permissions/status/${id}`,
+    { status },
+  );
 }

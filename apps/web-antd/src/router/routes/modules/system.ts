@@ -5,6 +5,7 @@ import {
   SYSTEM_ROUTE_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
+import { configEditorRoutes } from '#/views/system/config/editors/routes';
 
 // routes 定义后台系统管理路由，权限码由后端 /auth/codes 控制。
 const routes: RouteRecordRaw[] = [
@@ -63,6 +64,7 @@ const routes: RouteRecordRaw[] = [
         },
         component: () => import('#/views/system/config/list.vue'),
       },
+      ...configEditorRoutes,
       {
         path: '/system/cache',
         name: 'SystemCache',

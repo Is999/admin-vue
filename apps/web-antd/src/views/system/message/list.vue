@@ -4,9 +4,11 @@ import type { OnActionClickParams } from '#/adapter/vxe-table';
 import type { AdminMessageApi } from '#/api/message';
 
 import { computed, h, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
 import { Page, useVbenDrawer, VbenButton } from '@vben/common-ui';
 import { VbenTiptapPreview } from '@vben/plugins/tiptap';
+import { useUserStore } from '@vben/stores';
 
 import {
   Alert,
@@ -52,9 +54,17 @@ import {
 
 defineOptions({ name: 'SystemMessageListPage' });
 
+const route = useRoute();
+const router = useRouter();
+const userStore = useUserStore();
+
 // ================= 发送消息表单 =================
 // sending 表示当前是否正在提交发送请求。
 const sending = ref(false);
+// sendDrawerTitle 区分新消息与回复消息抽屉标题。
+const sendDrawerTitle = ref('');
+// replyToMessageID 保存本次发送关联的原消息ID，0表示普通消息。
+const replyToMessageID = ref(0);
 const overlayOffsetLeft = ref(0);
 // receiversModalWidth 控制收件人已读明细弹框宽度，避免少列数据在宽屏下铺满页面。
 const receiversModalWidth = ref(760);
@@ -307,6 +317,48 @@ function renderDetailMetaGrid(items: Array<{ label: string; value: any }>) {
   );
 }
 
+// renderReplyReference 展示回复关联的原消息，并提供原消息详情入口。
+function renderReplyReference(
+  row: Pick<
+    AdminMessageApi.Item,
+    'replyToCreatedAt' | 'replyToId' | 'replyToSenderName' | 'replyToTitle'
+  >,
+  onViewOriginal: () => void,
+) {
+  if (!row.replyToId) {
+    return null;
+  }
+  return h('section', { class: 'message-reply-reference' }, [
+    h('div', { class: 'message-reply-reference__content' }, [
+      h('div', { class: 'message-reply-reference__label' }, [
+        $t('business.message.replyToMessage', [row.replyToId]),
+      ]),
+      h(
+        'div',
+        { class: 'message-reply-reference__title' },
+        row.replyToTitle ||
+          $t('business.message.messageTitleWithId', [row.replyToId]),
+      ),
+      h(
+        'div',
+        { class: 'message-reply-reference__meta' },
+        [row.replyToSenderName, row.replyToCreatedAt]
+          .filter(Boolean)
+          .join(' / ') || '-',
+      ),
+    ]),
+    h(
+      'button',
+      {
+        class: 'message-reply-reference__action',
+        onClick: onViewOriginal,
+        type: 'button',
+      },
+      $t('business.message.viewOriginalMessage'),
+    ),
+  ]);
+}
+
 function renderDetailOverview(options: {
   createdAt?: string;
   level: AdminMessageApi.Level;
@@ -387,7 +439,7 @@ async function autoMarkMessageRead(row: AdminMessageApi.Item) {
   await gridApi.reload();
 }
 
-// onViewDetail 展示单条消息详情。
+// onViewDetail 展示单条消息详情，并闭环回复与处理操作。
 function onViewDetail(row: AdminMessageApi.Item) {
   const shouldMarkRead = !row.isRead;
   if (shouldMarkRead) {
@@ -399,7 +451,68 @@ function onViewDetail(row: AdminMessageApi.Item) {
   }
   const processable = isProcessableMessageType(row.type);
   const handled = Number(row.handledStatus || 0) === 1;
-  Modal.info({
+  const currentUsername = String(userStore.userInfo?.username || '').trim();
+  const canReply =
+    Number(detailRow.senderAdminId || 0) > 0 &&
+    (!currentUsername || detailRow.senderAdminName !== currentUsername);
+  let handling = false;
+  let detailModal: undefined | { destroy: () => void };
+  const footerActions = [
+    h(VbenButton, { onClick: () => detailModal?.destroy() }, () =>
+      $t('business.message.close'),
+    ),
+  ];
+  if (canReply) {
+    footerActions.push(
+      h(
+        VbenButton,
+        {
+          onClick: () => {
+            detailModal?.destroy();
+            openReplyDrawer(detailRow);
+          },
+          type: 'primary',
+        },
+        () => $t('business.message.reply'),
+      ),
+    );
+  }
+  if (processable && !handled) {
+    footerActions.push(
+      h(
+        VbenButton,
+        {
+          onClick: async () => {
+            if (handling) {
+              return;
+            }
+            handling = true;
+            try {
+              const resp = await handleAdminMessage({ id: detailRow.id });
+              if (resp?.alreadyHandled) {
+                message.info(
+                  resp?.handledByAdminName
+                    ? $t('business.message.messageHandledByOperator', [
+                        resp.handledByAdminName,
+                      ])
+                    : $t('business.message.messageHandledByOther'),
+                );
+              } else {
+                message.success($t('business.message.messageMarkedProcessed'));
+              }
+              detailModal?.destroy();
+              await gridApi.reload();
+            } finally {
+              handling = false;
+            }
+          },
+        },
+        () => $t('business.message.markHandled'),
+      ),
+    );
+  }
+  detailModal = Modal.info({
+    closable: true,
     content: h('div', { class: 'message-detail-shell' }, [
       h(Alert, {
         class: 'message-detail-alert',
@@ -438,41 +551,26 @@ function onViewDetail(row: AdminMessageApi.Item) {
           value: renderMessageLink(detailRow.link),
         },
       ]),
+      renderReplyReference(detailRow, () => {
+        detailModal?.destroy();
+        void openMessageDetailByID(detailRow.replyToId);
+      }),
       renderMessageContent(detailRow.content),
       renderMessageData(detailRow.data),
     ]),
+    footer: h('div', { class: 'message-detail-footer' }, footerActions),
+    maskClosable: true,
     title:
       detailRow.title ||
       $t('business.message.messageDetailTitle', [detailRow.id]),
     width: 860,
     wrapClassName: 'message-detail-modal',
-    okText:
-      processable && !handled
-        ? $t('business.message.markHandled')
-        : $t('business.message.close'),
-    async onOk() {
-      if (!processable || handled) {
-        return;
-      }
-      const resp = await handleAdminMessage({ id: detailRow.id });
-      if (resp?.alreadyHandled) {
-        message.info(
-          resp?.handledByAdminName
-            ? $t('business.message.messageHandledByOperator', [
-                resp.handledByAdminName,
-              ])
-            : $t('business.message.messageHandledByOther'),
-        );
-      } else {
-        message.success($t('business.message.messageMarkedProcessed'));
-      }
-      await gridApi.reload();
-    },
   });
 }
 
 function onViewSentDetail(row: AdminMessageApi.SentItem) {
-  Modal.info({
+  const sentDetailModal = Modal.info({
+    closable: true,
     content: h('div', { class: 'message-detail-shell' }, [
       renderDetailOverview({
         createdAt: row.createdAt,
@@ -505,14 +603,65 @@ function onViewSentDetail(row: AdminMessageApi.SentItem) {
           value: renderMessageLink(row.link),
         },
       ]),
+      renderReplyReference(row, () => {
+        sentDetailModal.destroy();
+        void openMessageDetailByID(row.replyToId);
+      }),
       renderMessageContent(row.content),
       renderMessageData(row.data),
     ]),
+    maskClosable: true,
     title: row.title || $t('business.message.sentMessageDetailTitle', [row.id]),
     width: 860,
     wrapClassName: 'message-detail-modal',
   });
 }
+
+// openMessageDetailByID 从收件箱或已发送列表精确定位消息并打开详情。
+async function openMessageDetailByID(messageID: number) {
+  if (!Number.isSafeInteger(messageID) || messageID <= 0) {
+    message.warning($t('business.message.messageUnavailable'));
+    return;
+  }
+  const inboxResp = await fetchAdminMessageList({
+    id: messageID,
+    page: 1,
+    pageSize: 1,
+  });
+  const inboxMessage = inboxResp.list?.find((item) => item.id === messageID);
+  if (inboxMessage) {
+    activeTab.value = 'inbox';
+    onViewDetail(inboxMessage);
+    return;
+  }
+  const sentResp = await fetchAdminMessageSentList({
+    id: messageID,
+    page: 1,
+    pageSize: 1,
+  });
+  const sentMessage = sentResp.list?.find((item) => item.id === messageID);
+  if (sentMessage) {
+    activeTab.value = 'sent';
+    onViewSentDetail(sentMessage);
+    return;
+  }
+  message.warning($t('business.message.messageUnavailable'));
+}
+
+watch(
+  () => route.query.messageId,
+  async (value) => {
+    const rawValue = Array.isArray(value) ? value[0] : value;
+    const messageID = Number(rawValue);
+    if (!Number.isSafeInteger(messageID) || messageID <= 0) {
+      return;
+    }
+    const { messageId: _messageId, ...query } = route.query;
+    await router.replace({ path: route.path, query }).catch(() => undefined);
+    await openMessageDetailByID(messageID);
+  },
+  { immediate: true },
+);
 
 const receiversModalOpen = ref(false);
 const receiversLoading = ref(false);
@@ -665,10 +814,40 @@ function onDeleteMessage(row: AdminMessageApi.Item) {
 
 // openSendDrawer 打开发送消息抽屉。
 function openSendDrawer() {
+  replyToMessageID.value = 0;
+  sendDrawerTitle.value = $t('business.message.sendMessage');
   sendFormApi.resetForm();
   sendFormApi.setValues({
     level: 1,
     type: 'work_handover',
+  });
+  sendDrawerApi.open();
+}
+
+// openReplyDrawer 预填原发送人与标题，并记录回复关联消息ID。
+function openReplyDrawer(row: AdminMessageApi.Item) {
+  const currentUsername = String(userStore.userInfo?.username || '')
+    .trim()
+    .toLowerCase();
+  if (
+    currentUsername &&
+    String(row.senderAdminName || '')
+      .trim()
+      .toLowerCase() === currentUsername
+  ) {
+    message.warning($t('business.message.selfSendForbidden'));
+    return;
+  }
+  const sourceTitle =
+    row.title || $t('business.message.messageTitleWithId', [row.id]);
+  replyToMessageID.value = row.id;
+  sendDrawerTitle.value = $t('business.message.replyMessage');
+  sendFormApi.resetForm();
+  sendFormApi.setValues({
+    level: row.level,
+    receiverIDs: [row.senderAdminId],
+    title: $t('business.message.replyTitle', [sourceTitle]).slice(0, 200),
+    type: row.type || 'work_handover',
   });
   sendDrawerApi.open();
 }
@@ -691,7 +870,11 @@ async function onSendConfirm() {
       message.error($t('business.message.messageContentRequired'));
       return;
     }
-    await sendAdminMessage({ ...values, content });
+    await sendAdminMessage({
+      ...values,
+      content,
+      replyToId: replyToMessageID.value || undefined,
+    });
     message.success($t('business.message.sendSucceeded'));
     sendDrawerApi.close();
     await gridApi.reload();
@@ -763,7 +946,7 @@ function onClearRead() {
     <SendDrawer
       class="w-full max-w-[1040px]"
       :loading="sending"
-      :title="$t('business.message.sendMessage')"
+      :title="sendDrawerTitle || $t('business.message.sendMessage')"
     >
       <div class="send-message-editor">
         <div class="send-message-guide">
@@ -808,6 +991,7 @@ function onClearRead() {
     <Modal
       v-model:open="receiversModalOpen"
       :body-style="{ padding: '16px 20px' }"
+      :closable="true"
       :footer="null"
       :mask-closable="true"
       :mask-style="overlaySafeAreaStyle"
@@ -855,7 +1039,10 @@ function onClearRead() {
             <Input
               v-model:value="receiversKeyword"
               allow-clear
+              autocomplete="off"
               class="w-72"
+              id="message-receivers-search"
+              name="message-receivers-search"
               :placeholder="$t('business.message.searchAccountName')"
             />
             <Space wrap>
@@ -902,15 +1089,19 @@ function onClearRead() {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  container: send-message-editor / inline-size;
 }
 
 .send-message-guide {
   display: flex;
+  flex: 0 0 auto;
   flex-wrap: wrap;
   gap: 6px 14px;
+  place-content: flex-start;
   align-items: flex-start;
-  justify-content: space-between;
   min-width: 0;
+  block-size: max-content;
+  min-height: 0;
   padding: 10px 12px;
   background: hsl(var(--accent) / 38%);
   border: 1px solid hsl(var(--border));
@@ -933,6 +1124,21 @@ function onClearRead() {
   flex: 1 1 420px;
   flex-wrap: wrap;
   justify-content: flex-start;
+}
+
+@container send-message-editor (max-width: 900px) {
+  .send-message-guide {
+    gap: 4px;
+    padding: 8px 10px;
+  }
+
+  .send-message-guide__summary {
+    flex-basis: 100%;
+  }
+
+  .send-message-guide__meta {
+    display: none;
+  }
 }
 
 .send-message-guide__icon {
@@ -1077,6 +1283,67 @@ function onClearRead() {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+:global(.message-detail-modal .message-detail-footer) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  padding-top: 16px;
+}
+
+:global(.message-detail-modal .message-reply-reference) {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: hsl(var(--primary) / 8%);
+  border: 1px solid hsl(var(--primary) / 30%);
+  border-radius: 8px;
+}
+
+:global(.message-detail-modal .message-reply-reference__content) {
+  min-width: 0;
+}
+
+:global(.message-detail-modal .message-reply-reference__label) {
+  font-size: 12px;
+  font-weight: 700;
+  color: hsl(var(--primary));
+}
+
+:global(.message-detail-modal .message-reply-reference__title) {
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+  white-space: nowrap;
+}
+
+:global(.message-detail-modal .message-reply-reference__meta) {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--vben-text-color-secondary);
+}
+
+:global(.message-detail-modal .message-reply-reference__action) {
+  flex: none;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--primary));
+  background: transparent;
+  border: 1px solid hsl(var(--primary) / 38%);
+  border-radius: 6px;
+}
+
+:global(.message-detail-modal .message-reply-reference__action:hover) {
+  background: hsl(var(--primary) / 10%);
 }
 
 :global(.message-detail-modal .message-detail-alert) {
@@ -1339,6 +1606,11 @@ function onClearRead() {
 
   :global(.message-detail-modal .message-detail-overview) {
     flex-direction: column;
+  }
+
+  :global(.message-detail-modal .message-reply-reference) {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   :global(.message-detail-modal .message-detail-overview__title),

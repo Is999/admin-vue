@@ -218,7 +218,7 @@ function renderPermissionStatus<T extends PermissionTreeTitleRow>(
     );
   }
 
-  const canUpdate = options.canUpdate === true;
+  const canUpdate = options.canUpdate === true && row.manageable === true;
 
   return h(Switch, {
     checked: status === 1,
@@ -251,6 +251,7 @@ function rootPermissionOption(): Array<Record<string, any>> {
 // useFormSchema 返回权限新增与编辑表单配置。
 export function useFormSchema(
   permissionTree: Array<Record<string, any>> = rootPermissionOption(),
+  disableStatus = false,
 ): VbenFormSchema[] {
   return [
     {
@@ -310,6 +311,7 @@ export function useFormSchema(
       label: $t('business.message.permissionStatus'),
       componentProps: {
         buttonStyle: 'solid',
+        disabled: disableStatus,
         options: statusOptions(),
         optionType: 'button',
       },
@@ -320,7 +322,7 @@ export function useFormSchema(
       fieldName: 'description',
       label: $t('business.message.permissionDescription'),
       componentProps: {
-        autoSize: { minRows: 3, maxRows: 5 },
+        rows: 3,
         maxlength: 255,
         showCount: true,
       },
@@ -390,7 +392,7 @@ export function useColumns<T extends PermissionTreeTitleRow>(
 ): VxeTableGridOptions['columns'] {
   const { hasAccessByCodes } = useAccess();
   const canUpdateStatus = hasAccessByCodes(
-    asActionPermission(SYSTEM_ACTION_PERMISSION_CODES.PERMISSION_UPDATE),
+    asActionPermission(SYSTEM_ACTION_PERMISSION_CODES.PERMISSION_STATUS_UPDATE),
   );
 
   return [
@@ -459,6 +461,8 @@ export function useColumns<T extends PermissionTreeTitleRow>(
             auth: asActionPermission(
               SYSTEM_ACTION_PERMISSION_CODES.PERMISSION_ADD,
             ),
+            visible: (row: SystemPermissionApi.Item) =>
+              row.canCreateChild === true,
           },
           {
             code: 'edit',
@@ -468,6 +472,7 @@ export function useColumns<T extends PermissionTreeTitleRow>(
             auth: asActionPermission(
               SYSTEM_ACTION_PERMISSION_CODES.PERMISSION_UPDATE,
             ),
+            visible: (row: SystemPermissionApi.Item) => row.manageable === true,
           },
           {
             code: 'delete',
@@ -478,6 +483,7 @@ export function useColumns<T extends PermissionTreeTitleRow>(
             auth: asActionPermission(
               SYSTEM_ACTION_PERMISSION_CODES.PERMISSION_DELETE,
             ),
+            visible: (row: SystemPermissionApi.Item) => row.manageable === true,
           },
         ],
       },

@@ -20,6 +20,7 @@ import {
   onMounted,
   onUnmounted,
   toRaw,
+  useId,
   useSlots,
   useTemplateRef,
   watch,
@@ -61,8 +62,22 @@ const FORM_SLOT_PREFIX = 'form-';
 const TOOLBAR_ACTIONS = 'toolbar-actions';
 const TOOLBAR_TOOLS = 'toolbar-tools';
 const TABLE_TITLE = 'table-title';
+// PAGER_SIZES_SLOT 统一替换 VXE 缺少字段标识的默认分页大小选择器。
+const PAGER_SIZES_SLOT = 'vben-pager-sizes';
+
+// PagerSizeOption 描述 VXE 分页大小插槽提供的选项。
+type PagerSizeOption = {
+  label: string;
+  value: number | string;
+};
+
+// PagerSizeController 收口分页大小变更所需的 VXE Pager 方法。
+type PagerSizeController = {
+  setPageSizeByEvent: (event: Event, pageSize: number) => void;
+};
 
 const gridRef = useTemplateRef<VxeGridInstance>('gridRef');
+const pagerSizeId = `${useId()}-page-size`;
 
 const state = props.api?.useStore?.();
 
@@ -222,6 +237,7 @@ const options = computed(() => {
   }
 
   if (mergedOptions.pagerConfig) {
+    const pagerSlots = mergedOptions.pagerConfig.slots ?? {};
     const mobileLayouts = [
       'PrevJump',
       'PrevPage',
@@ -246,6 +262,10 @@ const options = computed(() => {
         className: 'mt-2 w-full',
         layouts: isMobile.value ? mobileLayouts : layouts,
         size: 'mini' as const,
+        slots: {
+          ...pagerSlots,
+          sizes: pagerSlots.sizes ?? PAGER_SIZES_SLOT,
+        },
       },
     );
   }
@@ -279,6 +299,20 @@ function onToolbarToolClick(event: VxeGridDefines.ToolbarToolClickEventParams) {
 
 function onSearchBtnClick() {
   props.api?.toggleSearchForm?.();
+}
+
+// onPagerSizeChange 复用 VXE 原生事件链更新分页大小和当前页。
+function onPagerSizeChange(pager: PagerSizeController, event: Event) {
+  const pageSize = Number((event.target as HTMLSelectElement).value);
+  pager.setPageSizeByEvent(event, pageSize);
+}
+
+// getPagerSizeLabel 复用 VXE 已本地化的选项文本作为可访问名称。
+function getPagerSizeLabel(options: PagerSizeOption[], pageSize: number) {
+  return (
+    options.find((option) => Number(option.value) === pageSize)?.label ??
+    String(pageSize)
+  );
 }
 
 const events = computed(() => {
@@ -442,6 +476,26 @@ onUnmounted(() => {
           :title="$t('common.search')"
           @click="onSearchBtnClick"
         />
+      </template>
+
+      <template
+        #vben-pager-sizes="{ $pager, options: pageSizeOptions, pageSize }"
+      >
+        <select
+          :id="pagerSizeId"
+          :aria-label="getPagerSizeLabel(pageSizeOptions, pageSize)"
+          class="vxe-pager--sizes h-7 rounded border border-input bg-background px-2 text-xs text-foreground"
+          :value="pageSize"
+          @change="onPagerSizeChange($pager, $event)"
+        >
+          <option
+            v-for="option in pageSizeOptions"
+            :key="String(option.value)"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </option>
+        </select>
       </template>
 
       <!-- form表单 -->

@@ -1,0 +1,8 @@
+{
+  "captcha": "Captcha",
+  "captchaTip": "Please enter captcha",
+  "captchaRefreshAriaLabel": "Refresh captcha",
+  "captchaImageAlt": "Login captcha",
+  "captchaLoading": "Loading...",
+  "captchaClickToLoad": "Click to load"
+}

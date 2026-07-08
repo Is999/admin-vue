@@ -14,6 +14,7 @@ export namespace SystemCacheApi {
     category: string; // 缓存分类
     isTemplate: boolean; // 是否为模板缓存键
     exampleKey: string; // 模板缓存示例键
+    warmupSupported: boolean; // 是否支持按模板预热
     autoRebuild: boolean; // 查看详情 miss 时是否自动回源重建
     refreshScope: string; // 刷新粒度
   }
@@ -71,6 +72,48 @@ export namespace SystemCacheApi {
 
   // ServerInfo 表示 Redis 服务信息。
   export type ServerInfo = Record<string, Record<string, string>>;
+
+  // MetricSummary 表示当前进程的表缓存运行指标汇总。
+  export interface MetricSummary {
+    hitTotal: number;
+    missTotal: number;
+    hitRate: number;
+    refreshSuccessTotal: number;
+    refreshErrorTotal: number;
+    loaderErrorTotal: number;
+    lockFailedTotal: number;
+    waitTimeoutTotal: number;
+    scanFallbackTotal: number;
+    batchSuccessTotal: number;
+    batchFailedTotal: number;
+  }
+
+  // MetricTarget 表示单个表缓存目标的当前进程指标。
+  export interface MetricTarget {
+    index: string;
+    keyTitle: string;
+    remark: string;
+    category: string;
+    hitTotal: number;
+    missTotal: number;
+    hitRate: number;
+    refreshSuccessTotal: number;
+    refreshErrorTotal: number;
+    loaderErrorTotal: number;
+    lockFailedTotal: number;
+    waitTimeoutTotal: number;
+    scanFallbackTotal: number;
+  }
+
+  // MetricsResp 表示当前管理进程的表缓存运行观测快照。
+  export interface MetricsResp {
+    scope: 'current_process';
+    instanceId: string;
+    startedAt: string;
+    generatedAt: string;
+    summary: MetricSummary;
+    targets: MetricTarget[];
+  }
 }
 
 // fetchCacheList 查询系统内置可刷新缓存列表。
@@ -86,6 +129,11 @@ export async function fetchCacheList(params?: { key?: string }) {
 // fetchCacheServerInfo 查询 Redis 服务信息。
 export async function fetchCacheServerInfo() {
   return requestClient.get<SystemCacheApi.ServerInfo>('/caches/server-info');
+}
+
+// fetchCacheMetrics 查询当前管理进程的表缓存运行指标。
+export async function fetchCacheMetrics() {
+  return requestClient.get<SystemCacheApi.MetricsResp>('/caches/metrics');
 }
 
 // fetchCacheKeyInfo 查询 Redis Key 详情。

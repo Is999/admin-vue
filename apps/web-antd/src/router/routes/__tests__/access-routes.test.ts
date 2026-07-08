@@ -9,6 +9,12 @@ import {
   USER_ROUTE_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { overridesPreferences } from '#/preferences';
+import {
+  ADMIN_IP_WHITELIST_PATH,
+  ADMIN_IP_WHITELIST_ROUTE,
+  ADMIN_DISABLE_MFA_CHECK_SCENARIO_PATH,
+  ADMIN_DISABLE_MFA_CHECK_SCENARIO_ROUTE,
+} from '#/views/system/config/editors/registry';
 
 import { coreRoutes } from '../core';
 import { accessRoutes } from '../index';
@@ -71,6 +77,27 @@ function findRouteByName(routes: typeof accessRoutes, name: string) {
   return visit(routes);
 }
 
+// findRouteByPath 按路由路径查找节点，适合校验隐藏页可跳转入口。
+function findRouteByPath(routes: typeof accessRoutes, path: string) {
+  const visit = (
+    items: typeof accessRoutes,
+  ): (typeof accessRoutes)[number] | null => {
+    for (const route of items) {
+      if (route.path === path) {
+        return route;
+      }
+      if (route.children?.length) {
+        const child = visit(route.children);
+        if (child) {
+          return child;
+        }
+      }
+    }
+    return null;
+  };
+  return visit(routes);
+}
+
 describe('admin access routes', () => {
   it('keeps production route modules focused and unique', () => {
     const names = collectRouteNames(accessRoutes);
@@ -95,6 +122,8 @@ describe('admin access routes', () => {
         'SystemAdmin',
         'SystemCache',
         'SystemConfig',
+        ADMIN_IP_WHITELIST_ROUTE,
+        ADMIN_DISABLE_MFA_CHECK_SCENARIO_ROUTE,
         'SystemLog',
         'SystemManage',
         'SystemMfa',
@@ -140,6 +169,8 @@ describe('admin access routes', () => {
         '/system/admin',
         '/system/cache',
         '/system/config',
+        ADMIN_IP_WHITELIST_PATH,
+        ADMIN_DISABLE_MFA_CHECK_SCENARIO_PATH,
         '/system/log',
         '/system/permission',
         '/system/role',
@@ -198,6 +229,19 @@ describe('admin access routes', () => {
     expect(rootRoute?.redirect).toBe(APP_DEFAULT_HOME_PATH);
   });
 
+  it('keeps project branding overrides outside the Vben core defaults', () => {
+    expect(overridesPreferences.app?.defaultAvatar).toBe('/favicon.svg');
+    expect(overridesPreferences.app?.enableRefreshToken).toBe(true);
+    expect(overridesPreferences.app).toHaveProperty('name');
+    expect(overridesPreferences.app?.preferencesButtonPosition).toBe('auto');
+    expect(overridesPreferences.copyright).toMatchObject({
+      companyName: 'Admin',
+      companySiteLink: '/',
+      date: '2026',
+    });
+    expect(overridesPreferences.logo?.source).toBe('/favicon.svg');
+  });
+
   it('keeps split admin tools on independent menu permissions', () => {
     const workflowStatusRoute = findRouteByName(
       accessRoutes,
@@ -232,6 +276,26 @@ describe('admin access routes', () => {
     expect(configReloadRoute?.meta?.authority).not.toContain(
       OPS_ROUTE_PERMISSION_CODES.TASK_CONSOLE,
     );
+  });
+
+  it('keeps complex dictionary editor hidden under system config permissions', () => {
+    const hiddenEditors: Array<[string, string]> = [
+      [ADMIN_IP_WHITELIST_PATH, ADMIN_IP_WHITELIST_ROUTE],
+      [
+        ADMIN_DISABLE_MFA_CHECK_SCENARIO_PATH,
+        ADMIN_DISABLE_MFA_CHECK_SCENARIO_ROUTE,
+      ],
+    ];
+
+    for (const [path, routeName] of hiddenEditors) {
+      const route = findRouteByPath(accessRoutes, path);
+
+      expect(route?.name).toBe(routeName);
+      expect(route?.meta?.hideInMenu).toBe(true);
+      expect(route?.meta?.authority).toEqual([
+        SYSTEM_ROUTE_PERMISSION_CODES.SYSTEM_CONFIG_LIST,
+      ]);
+    }
   });
 
   it('requires system parent and log child permissions for log menu', async () => {

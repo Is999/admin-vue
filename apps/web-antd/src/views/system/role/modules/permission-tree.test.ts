@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDisplayedPermissionCheckedIds,
   buildPermissionViewTree,
+  collectPermissionIdsByDepth,
   collectPermissionState,
 } from './permission-tree';
 
@@ -10,6 +11,20 @@ import {
 const renderTitle = (item: { title: string }) => item.title;
 
 describe('permission tree view builder', () => {
+  it('collects permission IDs within the requested hierarchy range', () => {
+    const tree = [
+      {
+        children: [{ children: [{ id: 3 }], id: 2 }, { id: 4 }],
+        id: 1,
+      },
+    ];
+
+    expect(collectPermissionIdsByDepth(tree, 1, 1)).toEqual([1]);
+    expect(collectPermissionIdsByDepth(tree, 2, 2)).toEqual([2, 4]);
+    expect(collectPermissionIdsByDepth(tree, 3)).toEqual([3]);
+    expect(collectPermissionIdsByDepth(tree, 1, 0)).toEqual([]);
+  });
+
   it('filters permission nodes by type while keeping matched ancestors', () => {
     const tree = [
       {

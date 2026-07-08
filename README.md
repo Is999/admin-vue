@@ -27,6 +27,16 @@ pnpm check:type
 pnpm build:antd
 ```
 
+生产构建会按实际启用的签名、验签或加密能力校验所需配置；签名与加密可以独立开关，缺少当前能力所需材料时会终止构建。本地可从安全配置样例创建已忽略提交的环境文件：
+
+```bash
+cp apps/web-antd/.env.security.example apps/web-antd/.env.production.local
+# 填入与目标 admin AppID 匹配的真实构建参数后执行
+ADMIN_VUE_BUILD_ENV_FILE=apps/web-antd/.env.production.local pnpm build:docker
+```
+
+Docker 通过 BuildKit secret 临时挂载该文件，不会把环境文件本身复制到 builder layer。`VITE_*` 值仍会进入浏览器产物，不能当作服务端私密存储；上线前必须使用目标环境专用材料，并轮换曾进入 Git 历史的开发材料。
+
 ## 目录结构
 
 - `apps/web-antd/src/api`: 请求声明和接口适配。

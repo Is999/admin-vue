@@ -20,32 +20,62 @@ function statusOptions() {
   ];
 }
 
-// useFormSchema 返回用户新增与编辑表单配置。
-export function useFormSchema(): VbenFormSchema[] {
+// canManageAdmin 判断当前行是否允许编辑管理员资料。
+function canManageAdmin(row: SystemAdminApi.Item) {
+  return row.manageable === true;
+}
+
+// canManageOtherAdmin 判断当前行是否允许执行不能针对本人的管理操作。
+function canManageOtherAdmin(row: SystemAdminApi.Item) {
+  return canManageAdmin(row) && row.self !== true;
+}
+
+// useFormSchema 返回用户新增与编辑表单配置，并限制本人通过管理员页面修改密码和安全状态。
+export function useFormSchema(
+  isEdit = false,
+  isSelfEdit = false,
+): VbenFormSchema[] {
   return [
     {
       component: 'Input',
+      componentProps: {
+        autocomplete: 'username',
+        disabled: isEdit,
+      },
       fieldName: 'username',
       label: $t('business.message.loginUsername'),
       rules: 'required',
     },
     {
       component: 'Input',
+      componentProps: {
+        autocomplete: 'name',
+      },
       fieldName: 'realName',
       label: $t('business.message.realName'),
     },
     {
       component: 'Input',
+      componentProps: {
+        autocomplete: 'email',
+      },
       fieldName: 'email',
       label: $t('business.message.email'),
     },
     {
       component: 'Input',
+      componentProps: {
+        autocomplete: 'tel',
+      },
       fieldName: 'phone',
       label: $t('business.message.phone'),
     },
     {
       component: 'InputPassword',
+      componentProps: {
+        autocomplete: 'new-password',
+        disabled: isEdit && isSelfEdit,
+      },
       fieldName: 'password',
       help: $t('business.message.adminPasswordHelp'),
       label: $t('business.message.loginPassword'),
@@ -54,34 +84,43 @@ export function useFormSchema(): VbenFormSchema[] {
     },
     {
       component: 'Input',
+      componentProps: {
+        autocomplete: 'off',
+      },
       fieldName: 'avatar',
       label: $t('business.message.avatarUrl'),
     },
-    {
-      component: 'Select',
-      defaultValue: 1,
-      fieldName: 'status',
-      label: $t('business.message.accountStatus'),
-      componentProps: {
-        options: statusOptions(),
-        style: { width: '100%' },
-      },
-      formItemClass: 'col-span-1',
-    },
-    {
-      component: 'Select',
-      defaultValue: 0,
-      fieldName: 'mfaStatus',
-      label: $t('business.message.mfaStatus'),
-      componentProps: {
-        options: [
-          { label: $t('business.message.disabled'), value: 0 },
-          { label: $t('business.message.enabled'), value: 1 },
-        ],
-        style: { width: '100%' },
-      },
-      formItemClass: 'col-span-1',
-    },
+    ...(isEdit
+      ? [
+          {
+            component: 'Select' as const,
+            defaultValue: 1,
+            fieldName: 'status',
+            label: $t('business.message.accountStatus'),
+            componentProps: {
+              disabled: isSelfEdit,
+              options: statusOptions(),
+              style: { width: '100%' },
+            },
+            formItemClass: 'col-span-1',
+          },
+          {
+            component: 'Select' as const,
+            defaultValue: 0,
+            fieldName: 'mfaStatus',
+            label: $t('business.message.mfaStatus'),
+            componentProps: {
+              disabled: isSelfEdit,
+              options: [
+                { label: $t('business.message.disabled'), value: 0 },
+                { label: $t('business.message.enabled'), value: 1 },
+              ],
+              style: { width: '100%' },
+            },
+            formItemClass: 'col-span-1',
+          },
+        ]
+      : []),
     {
       component: 'Textarea',
       fieldName: 'description',
@@ -99,6 +138,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.loginUsername'),
       componentProps: {
         allowClear: true,
+        autocomplete: 'off',
         placeholder: $t('business.message.filterByLoginUsername'),
       },
     },
@@ -108,6 +148,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.realName'),
       componentProps: {
         allowClear: true,
+        autocomplete: 'off',
         placeholder: $t('business.message.filterByRealName'),
       },
     },
@@ -182,6 +223,7 @@ export function useColumns<T = SystemAdminApi.Item>(
             SYSTEM_ACTION_PERMISSION_CODES.ADMIN_STATUS_UPDATE,
           ),
           beforeChange: onStatusChange,
+          disabled: (row: SystemAdminApi.Item) => !canManageOtherAdmin(row),
         },
         name: onStatusChange ? 'CellSwitch' : 'CellTag',
       },
@@ -218,6 +260,7 @@ export function useColumns<T = SystemAdminApi.Item>(
       align: 'center',
       cellRender: {
         attrs: {
+          iconGridColumns: 3,
           nameField: 'username',
           onClick: onActionClick,
         },
@@ -227,12 +270,15 @@ export function useColumns<T = SystemAdminApi.Item>(
             code: 'edit',
             iconOnly: true,
             text: $t('business.message.edit'),
-            auth: asActionPermission(
+            allAuth: asActionPermission([
               SYSTEM_ACTION_PERMISSION_CODES.ADMIN_UPDATE,
-            ),
+              SYSTEM_ACTION_PERMISSION_CODES.ADMIN_INFO,
+            ]),
+            visible: (row: SystemAdminApi.Item) => canManageAdmin(row),
           },
           {
             code: 'cache',
+            icon: 'search',
             iconOnly: true,
             text: $t('business.message.cacheManagement'),
             auth: asActionPermission(
@@ -243,9 +289,11 @@ export function useColumns<T = SystemAdminApi.Item>(
             code: 'roleConfig',
             iconOnly: true,
             text: $t('business.message.roleConfig'),
-            auth: asActionPermission(
+            allAuth: asActionPermission([
+              SYSTEM_ACTION_PERMISSION_CODES.ADMIN_ROLE_UPDATE,
               SYSTEM_ACTION_PERMISSION_CODES.ADMIN_ROLE_LIST,
-            ),
+            ]),
+            visible: (row: SystemAdminApi.Item) => canManageOtherAdmin(row),
           },
           {
             code: 'delete',
@@ -255,6 +303,7 @@ export function useColumns<T = SystemAdminApi.Item>(
               SYSTEM_ACTION_PERMISSION_CODES.ADMIN_DELETE,
             ),
             danger: true,
+            visible: (row: SystemAdminApi.Item) => canManageOtherAdmin(row),
           },
           {
             code: 'resetPassword',
@@ -263,14 +312,16 @@ export function useColumns<T = SystemAdminApi.Item>(
             auth: asActionPermission(
               SYSTEM_ACTION_PERMISSION_CODES.ADMIN_PASSWORD_RESET,
             ),
+            visible: (row: SystemAdminApi.Item) => canManageOtherAdmin(row),
           },
           {
             code: 'resetUser',
             iconOnly: true,
             text: $t('business.message.resetUser'),
             auth: asActionPermission(
-              SYSTEM_ACTION_PERMISSION_CODES.ADMIN_PASSWORD_RESET,
+              SYSTEM_ACTION_PERMISSION_CODES.ADMIN_RESET_INITIAL_STATE,
             ),
+            visible: (row: SystemAdminApi.Item) => canManageOtherAdmin(row),
           },
         ],
       },
@@ -279,7 +330,7 @@ export function useColumns<T = SystemAdminApi.Item>(
       headerAlign: 'center',
       showOverflow: false,
       title: $t('business.message.operation'),
-      width: 112,
+      width: 104,
     },
   ];
 }

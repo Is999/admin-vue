@@ -1,11 +1,22 @@
 <script lang="ts" setup>
+import type { Ref } from 'vue';
+
 import type { OnActionClickParams } from '#/adapter/vxe-table';
 import type { UserApi } from '#/api/user';
 
-import { computed, defineComponent, h, reactive, ref } from 'vue';
+import {
+  computed,
+  defineComponent,
+  h,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+} from 'vue';
 
 import { Page, useVbenDrawer, VbenButton } from '@vben/common-ui';
 import { Plus } from '@vben/icons';
+import { useAccessStore } from '@vben/stores';
 
 import {
   Alert,
@@ -18,30 +29,52 @@ import {
   Select,
   Space,
   Switch,
+  Tag,
 } from 'ant-design-vue';
 
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
 import {
   createUser,
+  downloadUserExport,
+  fetchUserExportStatus,
   fetchUserDetail,
   fetchUserList,
   resetUserPassword,
   syncUserRuntime,
+  triggerUserExport,
   updateUser,
   updateUserStatus,
 } from '#/api/user';
 import {
   asActionPermission,
+  hasEveryPermission,
   USER_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
+import {
+  downloadBlobFile,
+  ensureDownloadBlobSuccess,
+  resolveRequestErrorMessage,
+} from '#/utils/file/download';
+import {
+  AsyncJobPollingTimeoutError,
+  createAsyncJobSession,
+  createAsyncJobPoller,
+  isAsyncJobPollingAbortError,
+  isAsyncJobRunning,
+} from '#/utils/imex/job';
 import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
 import {
   copyTextToClipboard,
   generateRandomPassword,
 } from '#/utils/security/password';
+import {
+  currentSessionStateIdentity,
+  registerSessionStateCleanup,
+} from '#/utils/session-state-gate';
 
 import FormTips from '../system/components/form-tips.vue';
+import { resolveBackendMessage } from '../system/shared';
 import { userStatusOptions, useColumns, useGridFormSchema } from './data';
 
 defineOptions({ name: 'UserListPage' });
@@ -53,7 +86,42 @@ const USER_PASSWORD_MIN_LENGTH = 8;
 // USER_PASSWORD_MAX_LENGTH 表示后台设置用户密码的最大长度。
 const USER_PASSWORD_MAX_LENGTH = 64;
 // USER_SHARD_NO_MOD 表示用户固定取模分片上限。
-const USER_SHARD_NO_MOD = 1000;
+const USER_SHARD_NO_MOD = 1024;
+// USER_EXPORT_POLL_INTERVAL_MS 表示用户导出状态轮询间隔。
+const USER_EXPORT_POLL_INTERVAL_MS = 2000;
+// accessStore 保存当前管理员的接口权限码。
+const accessStore = useAccessStore();
+// canQueryUserExport 控制用户导出状态查询入口。
+const canQueryUserExport = computed(() =>
+  hasEveryPermission(
+    accessStore.accessCodes,
+    USER_ACTION_PERMISSION_CODES.USER_EXPORT_STATUS,
+  ),
+);
+// canTriggerUserExport 确保提交导出后有权限继续查询异步进度。
+const canTriggerUserExport = computed(() =>
+  hasEveryPermission(accessStore.accessCodes, [
+    USER_ACTION_PERMISSION_CODES.USER_EXPORT,
+    USER_ACTION_PERMISSION_CODES.USER_EXPORT_DOWNLOAD,
+    USER_ACTION_PERMISSION_CODES.USER_EXPORT_STATUS,
+  ]),
+);
+// canDownloadUserExport 控制用户导出文件下载入口。
+const canDownloadUserExport = computed(() =>
+  hasEveryPermission(
+    accessStore.accessCodes,
+    USER_ACTION_PERMISSION_CODES.USER_EXPORT_DOWNLOAD,
+  ),
+);
+
+// UserExportStatusMap 把导出状态映射成易读文案。
+const UserExportStatusMap: Record<UserApi.ExportStatusResp['status'], string> =
+  {
+    failed: $t('business.message.failed'),
+    queued: $t('business.message.queued'),
+    running: $t('business.message.exporting'),
+    succeeded: $t('business.message.completed'),
+  };
 
 // UserFormState 保存新增和编辑抽屉中的表单字段。
 interface UserFormState {
@@ -75,6 +143,12 @@ interface PasswordEditorState {
 interface RuntimeSyncState {
   profile: boolean;
   sessions: boolean;
+}
+
+// UserExportSessionState 保存用户导出状态及已下载分片。
+interface UserExportSessionState {
+  downloadedParts: number[];
+  status: UserApi.ExportStatusResp;
 }
 
 // PasswordEditor 用于重置用户密码，并提供随机密码生成和复制能力。
@@ -107,7 +181,10 @@ const PasswordEditor = defineComponent({
     return () =>
       h('div', { class: 'space-y-3' }, [
         h(Input.Password, {
+          autocomplete: 'new-password',
           autofocus: true,
+          id: 'user-reset-password',
+          name: 'userResetPassword',
           onChange: syncPassword,
           onInput: syncPassword,
           placeholder: $t('business.message.userPasswordPlaceholder'),
@@ -133,6 +210,68 @@ const editorMode = ref<'create' | 'edit'>('create');
 const editorSubmitting = ref(false);
 // currentUser 保存当前正在编辑或操作的用户。
 const currentUser = ref<null | UserApi.Item>(null);
+// lastUserQuery 保存当前列表筛选条件，供异步导出复用。
+const lastUserQuery = ref<UserApi.ExportParams>({});
+// userListCursorByPage 保存分表列表页码到后端游标的映射，只允许从已访问页继续前后翻页。
+const userListCursorByPage = new Map<number, string>([[1, '']]);
+// userListCursorQueryKey 标识游标所属筛选条件和页大小，条件变化时清空旧游标。
+let userListCursorQueryKey = '';
+// userStatusFilterSupported 表示当前后端列表模式是否支持状态筛选。
+let userStatusFilterSupported = true;
+// exportSubmitting 避免重复提交用户导出任务。
+const exportSubmitting = ref(false);
+// exportDownloading 标记导出文件下载中。
+const exportDownloading = ref(false);
+// exportStatus 保存当前用户导出任务轮询状态。
+const exportStatus = ref<null | UserApi.ExportStatusResp>(null);
+// downloadedUserExportParts 记录当前页面已成功触发下载的文件编号。
+const downloadedUserExportParts = ref<Set<number>>(new Set());
+// downloadingUserExportParts 记录当前正在下载的文件编号，避免重复请求。
+const downloadingUserExportParts = ref<Set<number>>(new Set());
+// userExportSession 在同一账号切换菜单时保留导出状态。
+const userExportSession = createAsyncJobSession<UserExportSessionState>(
+  'user-list-export',
+  currentSessionStateIdentity,
+);
+// userExportPoller 统一轮询用户导出任务状态。
+const userExportPoller = createAsyncJobPoller<UserApi.ExportStatusResp>({
+  fetchStatus: fetchUserExportStatus,
+  getScopeKey: currentSessionStateIdentity,
+  intervalMs: USER_EXPORT_POLL_INTERVAL_MS,
+  onError: async (error) => {
+    const sourceSessionIdentity = currentSessionStateIdentity();
+    const errorMessage =
+      error instanceof AsyncJobPollingTimeoutError
+        ? $t('business.message.exportStatusPollingTimeout')
+        : await resolveRequestErrorMessage(
+            error,
+            $t('business.message.userExportStatusApiUnavailable'),
+          );
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
+    message.error(
+      $t('business.message.userExportStatusRefreshFailed', [errorMessage]),
+    );
+  },
+  onStatusChange: async (status) => {
+    exportStatus.value = status;
+    saveUserExportSession();
+    if (canDownloadUserExport.value) {
+      await downloadReadyUserExportFiles(status, false);
+    }
+  },
+});
+
+// unregisterUserExportSessionCleanup 在账号切换时停止旧账号导出轮询并清空页面局部状态。
+const unregisterUserExportSessionCleanup = registerSessionStateCleanup(() => {
+  userExportPoller.stop();
+  userExportSession.clear();
+  exportStatus.value = null;
+  exportSubmitting.value = false;
+  exportDownloading.value = false;
+  resetUserExportDownloadState();
+});
 // editorForm 保存新增/编辑抽屉字段。
 const editorForm = reactive<UserFormState>({
   avatar: '',
@@ -190,11 +329,41 @@ const [Grid, gridApi] = useVbenVxeGrid({
       ajax: {
         // 查询用户列表，只传后端支持的索引筛选字段。
         query: async ({ page }: { page: any }, formValues: any) => {
-          return await fetchUserList({
-            page: page.currentPage,
-            pageSize: page.pageSize,
-            ...normalizeListParams(formValues),
+          const listParams = normalizeListParams(formValues);
+          if (listParams.status !== undefined && !userStatusFilterSupported) {
+            throw new Error(
+              $t('business.message.userStatusFilterUnavailableInShardMode'),
+            );
+          }
+          let currentPage = Number(page.currentPage || 1);
+          const pageSize = Number(page.pageSize || 10);
+          const queryKey = JSON.stringify([listParams, pageSize]);
+          if (queryKey !== userListCursorQueryKey) {
+            userListCursorQueryKey = queryKey;
+            userListCursorByPage.clear();
+            userListCursorByPage.set(1, '');
+            // 筛选或页大小变化后必须从第一页重建游标链。
+            currentPage = 1;
+            page.currentPage = 1;
+          }
+          if (currentPage > 1 && !userListCursorByPage.has(currentPage)) {
+            // 直接跳页或旧页码缺失游标时回退到首页，避免发送无效分表请求。
+            currentPage = 1;
+            page.currentPage = 1;
+          }
+          lastUserQuery.value = listParams;
+          const response = await fetchUserList({
+            cursorId:
+              currentPage > 1
+                ? userListCursorByPage.get(currentPage)
+                : undefined,
+            page: currentPage,
+            pageSize,
+            ...listParams,
           });
+          await syncUserListCapabilities(response.meta);
+          syncUserListCursor(currentPage, response.meta);
+          return response;
         },
       },
       response: {
@@ -215,18 +384,54 @@ const [Grid, gridApi] = useVbenVxeGrid({
   },
 });
 
+// syncUserListCapabilities 根据后端明确回执同步分表阶段可用筛选项。
+async function syncUserListCapabilities(meta?: UserApi.ListMeta) {
+  const supported = meta?.statusFilterSupported !== false;
+  if (supported === userStatusFilterSupported) {
+    return;
+  }
+  userStatusFilterSupported = supported;
+  if (!supported) {
+    await gridApi.formApi.setFieldValue('status', undefined);
+  }
+  gridApi.formApi.updateSchema(useGridFormSchema(supported));
+}
+
+// syncUserListCursor 记录后端返回的下一页游标，末页同时清理失效的后续页游标。
+function syncUserListCursor(page: number, meta?: UserApi.ListMeta) {
+  if (meta?.exactTotal !== false) {
+    return;
+  }
+  const nextPage = page + 1;
+  const nextCursor = String(meta.nextCursorId || '').trim();
+  for (const pageNo of userListCursorByPage.keys()) {
+    if (pageNo >= nextPage) {
+      userListCursorByPage.delete(pageNo);
+    }
+  }
+  if (meta.hasMore && nextCursor && nextCursor !== '0') {
+    userListCursorByPage.set(nextPage, nextCursor);
+  }
+}
+
 // normalizeListParams 清洗列表查询参数，避免空字符串落到后端条件中。
 function normalizeListParams(values: Record<string, any> = {}) {
   const id = String(values.id || '').trim();
   const shardNo = Number(values.shardNo);
+  // email 和 phone 是分表身份索引的两条独立查询路径，不能组合提交。
+  const email = String(values.email || '').trim();
+  const phone = String(values.phone || '').trim();
+  if (email && phone) {
+    throw new Error($t('business.message.userContactFilterExclusive'));
+  }
   const status =
     values.status === 0 || values.status === 1
       ? (values.status as UserApi.Status)
       : undefined;
   return {
-    email: String(values.email || '').trim() || undefined,
+    email: email || undefined,
     id: /^[1-9]\d*$/.test(id) ? id : undefined,
-    phone: String(values.phone || '').trim() || undefined,
+    phone: phone || undefined,
     shardNo: shardNo >= 0 && shardNo < USER_SHARD_NO_MOD ? shardNo : undefined,
     status,
     username: String(values.username || '').trim() || undefined,
@@ -247,10 +452,10 @@ function resetEditorForm() {
 // fillEditorForm 使用现有用户资料填充编辑表单。
 function fillEditorForm(row: UserApi.Item) {
   editorForm.avatar = row.avatar || '';
-  editorForm.email = row.email || '';
+  editorForm.email = '';
   editorForm.nickname = row.nickname || '';
   editorForm.password = '';
-  editorForm.phone = row.phone || '';
+  editorForm.phone = '';
   editorForm.status = row.status;
   editorForm.username = row.username || '';
 }
@@ -304,13 +509,20 @@ function buildCreatePayload(ticket?: Parameters<typeof ticketPayload>[0]) {
 
 // buildUpdatePayload 构造编辑用户请求。
 function buildUpdatePayload(ticket?: Parameters<typeof ticketPayload>[0]) {
-  return {
+  const payload: UserApi.SaveParams = {
     avatar: editorForm.avatar.trim(),
-    email: editorForm.email.trim(),
     nickname: editorForm.nickname.trim(),
-    phone: editorForm.phone.trim(),
     ...ticketPayload(ticket),
-  } satisfies UserApi.SaveParams;
+  };
+  const email = editorForm.email.trim();
+  const phone = editorForm.phone.trim();
+  if (email) {
+    payload.email = email;
+  }
+  if (phone) {
+    payload.phone = phone;
+  }
+  return payload;
 }
 
 // showRuntimeSyncResult 展示 API 运行态同步结果。
@@ -329,6 +541,335 @@ function showRuntimeSyncResult(sync?: UserApi.RuntimeSyncResp) {
 function refreshGrid() {
   gridApi.query();
 }
+
+// onTriggerExport 提交用户列表异步导出任务，并启动轮询。
+async function onTriggerExport() {
+  const sourceSessionIdentity = currentSessionStateIdentity();
+  exportSubmitting.value = true;
+  stopUserExportPolling();
+  try {
+    const response = await triggerUserExport(lastUserQuery.value);
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
+    resetUserExportDownloadState();
+    exportStatus.value = {
+      averageRowsPerSec: 0,
+      createdAt: '',
+      downloadReady: false,
+      downloadUrl: '',
+      errorMessage: '',
+      estimatedSeconds: 0,
+      fileName: '',
+      files: [],
+      finishedAt: '',
+      jobId: response.jobId,
+      lastProcessedAt: '',
+      partCount: 0,
+      processAt: '',
+      processed: 0,
+      progress: 0,
+      queue: response.queue,
+      splitRows: 0,
+      startedAt: '',
+      status: response.status as UserApi.ExportStatusResp['status'],
+      taskId: response.taskId,
+      total: 0,
+      updatedAt: '',
+    };
+    saveUserExportSession(true);
+    message.success($t('business.message.userExportSubmitted'));
+    await refreshUserExportStatus(false);
+  } finally {
+    if (sourceSessionIdentity === currentSessionStateIdentity()) {
+      exportSubmitting.value = false;
+    }
+  }
+}
+
+// onDownloadExport 下载已完成但当前页面尚未下载的用户导出文件。
+async function onDownloadExport() {
+  if (!exportStatus.value?.jobId) {
+    message.warning($t('business.message.noExportFile'));
+    return;
+  }
+  await downloadReadyUserExportFiles(exportStatus.value, true);
+}
+
+// downloadReadyUserExportFiles 串行下载状态中已生成且当前页面未下载的文件分片。
+async function downloadReadyUserExportFiles(
+  status: UserApi.ExportStatusResp,
+  manual: boolean,
+) {
+  const sourceSessionIdentity = currentSessionStateIdentity();
+  const files = readyUserExportFiles(status).filter(
+    (file) => !downloadedUserExportParts.value.has(file.partNo),
+  );
+  if (files.length === 0) {
+    if (manual) {
+      message.warning($t('business.message.noExportFile'));
+    }
+    return;
+  }
+  exportDownloading.value = true;
+  try {
+    for (const file of files) {
+      if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+        return;
+      }
+      await downloadUserExportFile(status.jobId, file, manual);
+    }
+  } finally {
+    if (sourceSessionIdentity === currentSessionStateIdentity()) {
+      exportDownloading.value = false;
+    }
+  }
+}
+
+// downloadUserExportFile 下载单个用户导出文件分片。
+async function downloadUserExportFile(
+  jobId: string,
+  file: UserApi.ExportFileItem,
+  manual: boolean,
+) {
+  const sourceSessionIdentity = currentSessionStateIdentity();
+  if (
+    downloadedUserExportParts.value.has(file.partNo) ||
+    downloadingUserExportParts.value.has(file.partNo)
+  ) {
+    return;
+  }
+  setUserExportPartSet(downloadingUserExportParts, file.partNo, true);
+  try {
+    const blob = await ensureDownloadBlobSuccess(
+      await downloadUserExport(jobId, file.partNo),
+      $t('business.message.userExportDownloadFailed'),
+    );
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
+    const fileName = file.fileName || `user_export_part_${file.partNo}.xlsx`;
+    downloadBlobFile(blob, fileName);
+    setUserExportPartSet(downloadedUserExportParts, file.partNo, true);
+    saveUserExportSession();
+    message.success(
+      $t('business.message.userExportPartDownloadSucceeded', [fileName]),
+    );
+  } catch (error) {
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
+    const errorMessage = await resolveRequestErrorMessage(
+      error,
+      $t('business.message.userExportDownloadApiUnavailable'),
+    );
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
+    if (manual) {
+      message.error(
+        $t('business.message.userExportDownloadFailedWithReason', [
+          errorMessage,
+        ]),
+      );
+    }
+  } finally {
+    if (sourceSessionIdentity === currentSessionStateIdentity()) {
+      setUserExportPartSet(downloadingUserExportParts, file.partNo, false);
+    }
+  }
+}
+
+// readyUserExportFiles 返回按编号排序的可下载文件。
+function readyUserExportFiles(status?: null | UserApi.ExportStatusResp) {
+  return [...(status?.files || [])]
+    .filter((file) => file.downloadReady)
+    .toSorted((left, right) => left.partNo - right.partNo);
+}
+
+// setUserExportPartSet 更新分片编号集合并保持 Vue 响应式。
+function setUserExportPartSet(
+  target: Ref<Set<number>>,
+  partNo: number,
+  enabled: boolean,
+) {
+  const next = new Set(target.value);
+  if (enabled) {
+    next.add(partNo);
+  } else {
+    next.delete(partNo);
+  }
+  target.value = next;
+}
+
+// resetUserExportDownloadState 重置当前导出任务的本地下载记录。
+function resetUserExportDownloadState() {
+  downloadedUserExportParts.value = new Set();
+  downloadingUserExportParts.value = new Set();
+}
+
+// saveUserExportSession 保存当前任务，旧页面的异步回调不得覆盖新任务。
+function saveUserExportSession(replace = false) {
+  const status = exportStatus.value;
+  if (!status?.jobId) {
+    return;
+  }
+  const cached = userExportSession.load();
+  if (!replace && cached && cached.status.jobId !== status.jobId) {
+    return;
+  }
+  userExportSession.save({
+    downloadedParts: [...downloadedUserExportParts.value].toSorted(
+      (left, right) => left - right,
+    ),
+    status,
+  });
+}
+
+// restoreUserExportSession 恢复菜单切换前的导出状态并续查未完成任务。
+async function restoreUserExportSession() {
+  if (!canQueryUserExport.value) {
+    return;
+  }
+  const cached = userExportSession.load();
+  if (!cached?.status.jobId) {
+    return;
+  }
+  exportStatus.value = cached.status;
+  downloadedUserExportParts.value = new Set(cached.downloadedParts);
+  downloadingUserExportParts.value = new Set();
+  if (isAsyncJobRunning(cached.status.status)) {
+    await refreshUserExportStatus(false);
+    return;
+  }
+  if (canDownloadUserExport.value) {
+    await downloadReadyUserExportFiles(cached.status, false);
+  }
+}
+
+// refreshUserExportStatus 查询用户导出进度，并在未完成时继续轮询。
+async function refreshUserExportStatus(manual: boolean) {
+  if (!exportStatus.value?.jobId) {
+    return;
+  }
+  const sourceSessionIdentity = currentSessionStateIdentity();
+  try {
+    const latestStatus = await userExportPoller.refresh(
+      exportStatus.value.jobId,
+    );
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
+    if (latestStatus.status === 'succeeded') {
+      message.success($t('business.message.userExportCompleted'));
+      return;
+    }
+    if (latestStatus.status === 'failed') {
+      message.error(
+        resolveBackendMessage(
+          latestStatus.errorMessage,
+          'business.message.userExportFailed',
+        ),
+      );
+      return;
+    }
+    if (manual) {
+      message.success($t('business.message.userExportStatusRefreshed'));
+    }
+  } catch (error) {
+    if (isAsyncJobPollingAbortError(error)) {
+      return;
+    }
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
+    if (manual) {
+      const errorMessage = await resolveRequestErrorMessage(
+        error,
+        $t('business.message.userExportStatusApiUnavailable'),
+      );
+      if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+        return;
+      }
+      message.error(
+        $t('business.message.userExportStatusRefreshFailed', [errorMessage]),
+      );
+    }
+  }
+}
+
+// stopUserExportPolling 停止用户导出状态轮询。
+function stopUserExportPolling() {
+  userExportPoller.stop();
+}
+
+// exportStatusLabel 返回当前用户导出状态中文文案。
+const exportStatusLabel = computed(() => {
+  const currentStatus = exportStatus.value?.status;
+  if (!currentStatus) {
+    return '';
+  }
+  return UserExportStatusMap[currentStatus] || currentStatus;
+});
+
+// pendingUserExportDownloadCount 返回当前页面尚未下载的已生成文件数。
+const pendingUserExportDownloadCount = computed(
+  () =>
+    readyUserExportFiles(exportStatus.value).filter(
+      (file) => !downloadedUserExportParts.value.has(file.partNo),
+    ).length,
+);
+
+// exportProgressSummary 返回当前用户导出进度摘要。
+const exportProgressSummary = computed(() => {
+  if (!exportStatus.value) {
+    return '';
+  }
+  const status = exportStatus.value;
+  const readyCount = readyUserExportFiles(status).length;
+  const downloadedCount = Math.min(
+    downloadedUserExportParts.value.size,
+    readyCount,
+  );
+  const summaryParts = [
+    `${status.progress || 0}%`,
+    status.total > 0
+      ? $t('business.message.processedCount', [
+          status.processed || 0,
+          status.total,
+        ])
+      : $t('business.message.processedOnly', [status.processed || 0]),
+  ];
+  if (readyCount > 0) {
+    summaryParts.push(
+      $t('business.message.exportFileDownloadProgress', [
+        downloadedCount,
+        readyCount,
+      ]),
+    );
+  }
+  if (status.averageRowsPerSec > 0) {
+    summaryParts.push(
+      $t('business.message.rowsPerSecond', [status.averageRowsPerSec]),
+    );
+  }
+  if (status.estimatedSeconds > 0) {
+    summaryParts.push(
+      $t('business.message.estimatedSecondsLeft', [status.estimatedSeconds]),
+    );
+  }
+  return summaryParts.join($t('business.message.commaSeparator'));
+});
+
+onMounted(() => {
+  void restoreUserExportSession();
+});
+
+onBeforeUnmount(() => {
+  saveUserExportSession();
+  unregisterUserExportSessionCleanup();
+  stopUserExportPolling();
+});
 
 // onActionClick 统一处理行操作。
 function onActionClick(e: OnActionClickParams<UserApi.Item>) {
@@ -558,13 +1099,49 @@ function confirm(content: string, title: string) {
   <Page auto-content-height>
     <Grid :table-title="$t('admin.route.userList')">
       <template #toolbar-tools>
-        <VbenButton
-          v-access="asActionPermission(USER_ACTION_PERMISSION_CODES.USER_ADD)"
-          type="primary"
-          @click="onCreate"
-        >
-          <Plus class="size-5" /> {{ $t('business.message.addUser') }}
-        </VbenButton>
+        <Space wrap>
+          <Tag v-if="exportStatus" color="processing">
+            {{ $t('business.message.exportStatusLabel', [exportStatusLabel]) }}
+          </Tag>
+          <span
+            v-if="exportStatus"
+            class="text-xs text-[var(--ant-color-text-description)]"
+          >
+            {{ exportProgressSummary }}
+          </span>
+          <VbenButton
+            v-if="canQueryUserExport && exportStatus?.jobId"
+            :disabled="exportSubmitting"
+            @click="refreshUserExportStatus(true)"
+          >
+            {{ $t('business.message.refreshProgress') }}
+          </VbenButton>
+          <VbenButton
+            v-if="canDownloadUserExport && pendingUserExportDownloadCount > 0"
+            :loading="exportDownloading"
+            @click="onDownloadExport"
+          >
+            {{
+              $t('business.message.downloadPendingExportFiles', [
+                pendingUserExportDownloadCount,
+              ])
+            }}
+          </VbenButton>
+          <VbenButton
+            v-if="canTriggerUserExport"
+            :loading="exportSubmitting"
+            @click="onTriggerExport"
+          >
+            {{ $t('business.message.asyncExportExcel') }}
+          </VbenButton>
+          <VbenButton
+            v-access="asActionPermission(USER_ACTION_PERMISSION_CODES.USER_ADD)"
+            type="primary"
+            @click="onCreate"
+          >
+            <Plus class="size-5" /> {{ $t('business.message.addUser') }}
+          </VbenButton>
+        </Space>
       </template>
     </Grid>
 
@@ -583,7 +1160,13 @@ function confirm(content: string, title: string) {
         />
         <Form :model="editorForm" layout="vertical">
           <div class="user-editor__layout">
-            <section class="user-editor__section">
+            <section
+              class="user-editor__section"
+              :class="{
+                'user-editor__section--edit-account': editorMode === 'edit',
+                'user-editor__section--wide': editorMode === 'edit',
+              }"
+            >
               <div class="user-editor__section-head">
                 <div>
                   <div class="user-editor__section-title">
@@ -597,24 +1180,33 @@ function confirm(content: string, title: string) {
               <div class="user-editor__grid">
                 <Form.Item
                   :label="$t('business.message.username')"
+                  name="username"
                   :required="editorMode === 'create'"
                 >
                   <Input
                     v-model:value="editorForm.username"
+                    autocomplete="username"
                     :disabled="editorMode === 'edit'"
                     :placeholder="$t('business.message.usernamePlaceholder')"
                   />
                 </Form.Item>
-                <Form.Item :label="$t('business.message.accountStatus')">
+                <Form.Item
+                  :label="$t('business.message.accountStatus')"
+                  name="status"
+                >
                   <Select
                     v-model:value="editorForm.status"
                     :disabled="editorMode === 'edit'"
                     :options="statusOptions"
                   />
                 </Form.Item>
-                <Form.Item :label="$t('business.message.nickname')">
+                <Form.Item
+                  :label="$t('business.message.nickname')"
+                  name="nickname"
+                >
                   <Input
                     v-model:value="editorForm.nickname"
+                    autocomplete="off"
                     :placeholder="$t('business.message.nicknamePlaceholder')"
                   />
                 </Form.Item>
@@ -635,9 +1227,14 @@ function confirm(content: string, title: string) {
                   </div>
                 </div>
               </div>
-              <Form.Item :label="$t('business.message.loginPassword')" required>
+              <Form.Item
+                :label="$t('business.message.loginPassword')"
+                name="password"
+                required
+              >
                 <Input.Password
                   v-model:value="editorForm.password"
+                  autocomplete="new-password"
                   :placeholder="$t('business.message.userPasswordPlaceholder')"
                 >
                   <template #addonAfter>
@@ -661,24 +1258,56 @@ function confirm(content: string, title: string) {
                 </div>
               </div>
               <div class="user-editor__grid">
-                <Form.Item :label="$t('business.message.email')">
+                <Form.Item :label="$t('business.message.email')" name="email">
                   <Input
                     v-model:value="editorForm.email"
-                    :placeholder="$t('business.message.email')"
+                    autocomplete="email"
+                    :placeholder="
+                      editorMode === 'edit'
+                        ? $t('business.message.userContactEditPlaceholder')
+                        : $t('business.message.email')
+                    "
                   />
+                  <div
+                    v-if="editorMode === 'edit' && currentUser?.emailMasked"
+                    class="user-editor__masked-value"
+                  >
+                    {{
+                      $t('business.message.currentMaskedContact', [
+                        currentUser.emailMasked,
+                      ])
+                    }}
+                  </div>
                 </Form.Item>
-                <Form.Item :label="$t('business.message.phone')">
+                <Form.Item :label="$t('business.message.phone')" name="phone">
                   <Input
                     v-model:value="editorForm.phone"
-                    :placeholder="$t('business.message.phone')"
+                    autocomplete="tel"
+                    :placeholder="
+                      editorMode === 'edit'
+                        ? $t('business.message.userContactEditPlaceholder')
+                        : $t('business.message.phone')
+                    "
                   />
+                  <div
+                    v-if="editorMode === 'edit' && currentUser?.phoneMasked"
+                    class="user-editor__masked-value"
+                  >
+                    {{
+                      $t('business.message.currentMaskedContact', [
+                        currentUser.phoneMasked,
+                      ])
+                    }}
+                  </div>
                 </Form.Item>
                 <Form.Item
                   class="user-editor__field-wide"
                   :label="$t('business.message.avatarUrl')"
+                  name="avatar"
                 >
                   <Input
                     v-model:value="editorForm.avatar"
+                    autocomplete="off"
                     :placeholder="$t('business.message.avatarUrl')"
                   />
                 </Form.Item>
@@ -768,8 +1397,20 @@ function confirm(content: string, title: string) {
   gap: 12px 14px;
 }
 
+.user-editor__section--edit-account .user-editor__grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .user-editor__field-wide {
   grid-column: 1 / -1;
+}
+
+.user-editor__masked-value {
+  min-height: 18px;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--vben-text-color-secondary);
 }
 
 .user-editor :deep(.ant-form-item) {
@@ -816,7 +1457,8 @@ function confirm(content: string, title: string) {
   }
 
   .user-editor__layout,
-  .user-editor__grid {
+  .user-editor__grid,
+  .user-editor__section--edit-account .user-editor__grid {
     grid-template-columns: 1fr;
   }
 

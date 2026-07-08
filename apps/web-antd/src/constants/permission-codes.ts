@@ -22,8 +22,13 @@ export const SYSTEM_ACTION_PERMISSION_CODES = {
   ADMIN_ADD: '100025',
   ADMIN_DELETE: '100071',
   ADMIN_EXPORT: '100074',
+  ADMIN_EXPORT_DOWNLOAD: '100077',
+  ADMIN_EXPORT_STATUS: '100076',
+  ADMIN_INFO: '100072',
   ADMIN_PASSWORD_RESET: '100033',
+  ADMIN_RESET_INITIAL_STATE: '100075',
   ADMIN_ROLE_LIST: '100029',
+  ADMIN_ROLE_UPDATE: '100035',
   ADMIN_STATUS_UPDATE: '100028',
   ADMIN_UPDATE: '100027',
   CACHE_KEY_INFO: '100044',
@@ -32,8 +37,11 @@ export const SYSTEM_ACTION_PERMISSION_CODES = {
   CACHE_SEARCH: '100049',
   CACHE_SEARCH_KEY_INFO: '100050',
   CACHE_WARMUP: '100082',
+  DOC_PERMISSION_LIST: '100103',
+  DOC_PERMISSION_STATUS_UPDATE: '100104',
   PERMISSION_ADD: '100013',
   PERMISSION_DELETE: '100016',
+  PERMISSION_STATUS_UPDATE: '100058',
   PERMISSION_UPDATE: '100015',
   ROLE_ADD: '100004',
   ROLE_DELETE: '100007',
@@ -52,6 +60,8 @@ export const SYSTEM_ACTION_PERMISSION_CODES = {
   SECURITY_DEBUG_VERIFY: '200034',
   SYSTEM_CONFIG_ADD: '100038',
   SYSTEM_CONFIG_CACHE: '100041',
+  SYSTEM_CONFIG_EXPORT: '100078',
+  SYSTEM_CONFIG_IMPORT: '100079',
   SYSTEM_CONFIG_RENEW: '100042',
   SYSTEM_CONFIG_UPDATE: '100040',
 } as const satisfies Record<string, PermissionCode>;
@@ -65,6 +75,9 @@ export const USER_ROUTE_PERMISSION_CODES = {
 // USER_ACTION_PERMISSION_CODES 统一维护用户管理模块的按钮与接口级 uuid 权限码。
 export const USER_ACTION_PERMISSION_CODES = {
   USER_ADD: '100094',
+  USER_EXPORT: '100100',
+  USER_EXPORT_DOWNLOAD: '100102',
+  USER_EXPORT_STATUS: '100101',
   USER_INFO: '100093',
   USER_PASSWORD_RESET: '100097',
   USER_RUNTIME_SYNC: '100098',
@@ -220,6 +233,18 @@ export function hasAnyPermission(
     ? targetCodes
     : [targetCodes];
   return currentTargetCodes.some((code) => currentOwnedCodes.has(code));
+}
+
+// hasEveryPermission 判断当前权限集合中是否拥有全部目标权限码。
+export function hasEveryPermission(
+  ownedCodes: readonly string[] | undefined,
+  targetCodes: PermissionCode | readonly PermissionCode[],
+) {
+  const currentOwnedCodes = new Set(ownedCodes || []);
+  const currentTargetCodes = Array.isArray(targetCodes)
+    ? targetCodes
+    : [targetCodes];
+  return currentTargetCodes.every((code) => currentOwnedCodes.has(code));
 }
 
 // hasSuperAdminRoleId 判断当前角色 ID 列表中是否包含超级管理员角色。

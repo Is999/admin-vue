@@ -2,6 +2,7 @@ export * from './admin';
 export * from './admin-log';
 export * from './cache';
 export * from './config';
+export * from './doc-permission';
 export * from './permission';
 export * from './profile';
 export * from './role';

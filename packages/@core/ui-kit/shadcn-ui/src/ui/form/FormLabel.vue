@@ -6,13 +6,20 @@ import { cn } from '@vben-core/shared/utils';
 import { Label } from '../label';
 import { useFormField } from './useFormField';
 
-const props = defineProps<LabelProps & { class?: any }>();
+const props = defineProps<
+  LabelProps & { class?: any; isControlGroup?: boolean }
+>();
 
 const { formItemId } = useFormField();
 </script>
 
 <template>
-  <Label :class="cn(props.class)" :for="formItemId">
+  <Label
+    :as="props.isControlGroup ? 'span' : undefined"
+    :class="cn(props.class)"
+    :for="props.isControlGroup ? undefined : formItemId"
+    :id="props.isControlGroup ? `${formItemId}-label` : undefined"
+  >
     <slot></slot>
   </Label>
 </template>

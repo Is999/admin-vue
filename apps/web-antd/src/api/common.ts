@@ -2,6 +2,11 @@ import type { Recordable } from '@vben/types';
 
 // CommonApi 收口后台通用接口类型，避免 Admin/System 模块依赖已删除的业务目录。
 export namespace CommonApi {
+  // CacheSyncResp 表示数据库操作已提交后的缓存同步状态。
+  export interface CacheSyncResp {
+    syncPending: boolean; // 是否仍有缓存同步未完成
+  }
+
   // TwoStepReq 表示敏感操作通用 MFA 二次确认票据。
   export interface TwoStepReq {
     twoStepKey?: string; // MFA二次校验票据key
@@ -24,6 +29,7 @@ export namespace CommonApi {
   // ListResult 表示标准分页响应结构。
   export interface ListResult<T = Recordable<any>> {
     list: T[]; // 当前页数据
+    meta?: Recordable<any>; // 附加分页或统计口径
     total: number; // 总记录数
   }
 }

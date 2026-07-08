@@ -7,9 +7,15 @@ import { Input } from 'ant-design-vue';
 import { checkMfaSecureApi } from '#/api';
 import { fetchProfileInfo, refreshProfileMfaSecretKey } from '#/api/system';
 import { $t } from '#/locales';
+import {
+  currentSessionStateIdentity,
+  registerSessionStateCleanup,
+  SESSION_STATE_CHANGED,
+} from '#/utils/session-state-gate';
 
 import { extractMfaManualInfo, extractMfaSecret } from './mfa-core';
 import { createMfaOverlayDialog } from './mfa-overlay';
+import { isMfaTicketScenarioMatch } from './mfa-ticket-policy';
 
 export type { MFAManualInfo } from './mfa-core';
 export {
@@ -28,6 +34,7 @@ export {
   getMfaGuideSteps,
   getMfaMicrosoftScanTip,
 } from './mfa-guide';
+export { isMfaCancelledError, MfaCancelledError } from './mfa-overlay';
 
 // MFATicketPayload 表示后端敏感操作需要的 MFA 二次校验字段。
 export type MFATicketPayload = CommonApi.TwoStepReq;
@@ -41,6 +48,7 @@ export type MFACheckDialogOptions = {
   headerDescription?: string; // 顶部说明文案
   headerMessage?: string; // 顶部标题文案
   okText?: string; // 确认按钮文案
+  requestConfig?: Record<string, any>; // 登录事务可将 MFA 请求固定到本次签发的会话
   requireTwoStep?: boolean; // 是否要求后端返回二次校验票据
   title?: string; // 弹窗标题
 };
@@ -60,11 +68,10 @@ export type MFASubmitRetryOptions = {
 type CachedMFATwoStep = {
   expireAt: number; // 票据绝对过期时间，毫秒
   scenario: number; // 当前票据签发场景
+  sessionIdentity: string; // 票据所属前端登录身份，刷新 token 时保持不变
   ticket: AuthApi.TwoStepTicket; // 后端签发的二次票据
 };
 
-// MFA_TWO_STEP_CACHE_KEY 表示当前标签页缓存最近一次 MFA 二次票据的 sessionStorage key。
-const MFA_TWO_STEP_CACHE_KEY = 'admin:mfa-two-step-ticket';
 // MFA_TWO_STEP_EXPIRE_SAFETY_MS 表示前端本地复用票据时预留的安全余量，避免边界时刻刚好撞上后端过期。
 const MFA_TWO_STEP_EXPIRE_SAFETY_MS = 3000;
 // cachedMFATwoStep 保存当前会话最近一次可复用的 MFA 二次票据。
@@ -75,26 +82,6 @@ export function isMfaAgainError(error: any) {
   const data = error?.response?.data ?? error;
   const code = Number(data?.code || 0);
   return code === 8 || code === 6;
-}
-
-// isReusableMfaTicketScenario 判断指定场景是否允许复用最近一次 MFA 二次票据。
-// MFA 状态启用/关闭场景依赖本次绑定链路里的秘钥来源元信息，仍要求严格同场景校验。
-function isReusableMfaTicketScenario(scenario: number) {
-  return scenario > 0 && scenario !== 2;
-}
-
-// isMfaTicketScenarioMatch 判断当前请求场景是否允许复用缓存票据。
-function isMfaTicketScenarioMatch(
-  expectScenario: number,
-  ticketScenario: number,
-) {
-  if (expectScenario === ticketScenario) {
-    return true;
-  }
-  return (
-    isReusableMfaTicketScenario(expectScenario) &&
-    isReusableMfaTicketScenario(ticketScenario)
-  );
 }
 
 // rememberMfaTwoStepTicket 缓存最近一次 MFA 二次校验票据，供频率窗口内的敏感操作直接复用。
@@ -115,53 +102,31 @@ function rememberMfaTwoStepTicket(
   cachedMFATwoStep = {
     expireAt,
     scenario,
+    sessionIdentity: currentSessionStateIdentity(),
     ticket,
   };
-  try {
-    sessionStorage.setItem(
-      MFA_TWO_STEP_CACHE_KEY,
-      JSON.stringify(cachedMFATwoStep),
-    );
-  } catch {
-    // 忽略浏览器存储异常，至少保留当前运行时内存缓存。
-  }
 }
 
 // clearMfaTwoStepTicket 清理当前会话缓存的 MFA 二次校验票据。
 function clearMfaTwoStepTicket() {
   cachedMFATwoStep = null;
-  try {
-    sessionStorage.removeItem(MFA_TWO_STEP_CACHE_KEY);
-  } catch {
-    // 忽略浏览器存储异常，避免影响主流程。
-  }
 }
 
-// loadCachedMfaTwoStepTicket 读取当前标签页缓存的 MFA 二次校验票据。
+registerSessionStateCleanup(clearMfaTwoStepTicket);
+
+// loadCachedMfaTwoStepTicket 读取当前页面运行期内存中的 MFA 二次校验票据。
 function loadCachedMfaTwoStepTicket() {
-  if (cachedMFATwoStep) {
-    return cachedMFATwoStep;
-  }
-  try {
-    const raw = sessionStorage.getItem(MFA_TWO_STEP_CACHE_KEY);
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw) as CachedMFATwoStep | null;
-    if (!parsed?.ticket?.key || !parsed.ticket?.value) {
-      return null;
-    }
-    cachedMFATwoStep = parsed;
-    return cachedMFATwoStep;
-  } catch {
-    return null;
-  }
+  return cachedMFATwoStep;
 }
 
 // getReusableMfaTwoStepTicket 获取当前窗口内仍可复用的 MFA 二次校验票据。
 function getReusableMfaTwoStepTicket(scenario: number) {
   const cachedTicket = loadCachedMfaTwoStepTicket();
   if (!cachedTicket) {
+    return undefined;
+  }
+  if (cachedTicket.sessionIdentity !== currentSessionStateIdentity()) {
+    clearMfaTwoStepTicket();
     return undefined;
   }
   if (Date.now() >= cachedTicket.expireAt) {
@@ -216,20 +181,27 @@ export function createMfaCheckDialog(
     buildMfaUrl = '',
     cancelErrorMessage = $t('business.message.mfaCancelled'),
     okText = $t('business.message.mfaConfirm'),
+    requestConfig,
     requireTwoStep = true,
     title = $t('business.message.mfaSecondConfirmTitle'),
+    ...dialogOptions
   } = options;
 
   const dialog = createMfaOverlayDialog<AuthApi.CheckMfaResult>({
-    ...options,
+    ...dialogOptions,
     allowRefresh,
     buildMfaUrl,
     cancelErrorMessage,
     okText,
     onRefresh: allowRefresh
       ? async () => {
-          const result = await refreshProfileMfaSecretKey();
-          const profile = await fetchProfileInfo().catch(() => undefined);
+          const result = await refreshProfileMfaSecretKey(
+            undefined,
+            requestConfig ? { ...requestConfig } : undefined,
+          );
+          const profile = await fetchProfileInfo(
+            requestConfig ? { ...requestConfig } : undefined,
+          ).catch(() => undefined);
           return {
             accountName: String(profile?.username || '').trim() || undefined,
             buildMfaUrl:
@@ -247,6 +219,7 @@ export function createMfaCheckDialog(
           mfaSecureKey: extractMfaSecret(currentBuildMfaUrl) || undefined,
         },
         {
+          ...requestConfig,
           skipGlobalErrorMessage: true,
         },
       );
@@ -273,8 +246,10 @@ export async function requestMfaCheck(
   scenario: number,
   options: MFACheckDialogOptions = {},
 ) {
+  const sessionIdentity = currentSessionStateIdentity();
   const dialog = createMfaCheckDialog(scenario, options);
   const result = await dialog.promise;
+  assertMfaSessionIdentity(sessionIdentity);
   rememberMfaTwoStepTicket(result.response.scenarios, result.response.twoStep);
   return result.response;
 }
@@ -350,10 +325,14 @@ export async function submitWithMfaRetry<T>(
   title = $t('business.message.mfaSecondConfirmTitle'),
   options: MFASubmitRetryOptions = {},
 ) {
+  const sessionIdentity = currentSessionStateIdentity();
   const cachedTicket = getReusableMfaTwoStepTicket(scenario);
   try {
-    return await submit(cachedTicket);
+    const result = await submit(cachedTicket);
+    assertMfaSessionIdentity(sessionIdentity);
+    return result;
   } catch (error) {
+    assertMfaSessionIdentity(sessionIdentity, error);
     if (!isMfaAgainError(error)) {
       throw error;
     }
@@ -363,13 +342,24 @@ export async function submitWithMfaRetry<T>(
       requireTwoStep: true,
       title,
     });
+    assertMfaSessionIdentity(sessionIdentity);
     const result = await requestMfaCheck(scenario, dialogOptions);
+    assertMfaSessionIdentity(sessionIdentity);
     if (!result.twoStep) {
       throw new Error($t('business.message.mfaTwoStepTicketMissing'), {
         cause: error,
       });
     }
     const ticket = result.twoStep;
-    return await submit(ticket);
+    const retriedResult = await submit(ticket);
+    assertMfaSessionIdentity(sessionIdentity);
+    return retriedResult;
+  }
+}
+
+// assertMfaSessionIdentity 阻止旧账号的 MFA 异步分支缓存票据或重放敏感操作。
+function assertMfaSessionIdentity(sessionIdentity: string, cause?: unknown) {
+  if (sessionIdentity !== currentSessionStateIdentity()) {
+    throw new Error(SESSION_STATE_CHANGED, { cause });
   }
 }

@@ -353,15 +353,23 @@ onScopeDispose(() => {
             <Input
               v-if="isMfaMode"
               v-model:value="currentValue"
+              autocomplete="one-time-code"
               data-lock-screen-input="true"
+              id="lock-screen-credential"
               :maxlength="6"
+              name="lock-screen-credential"
               :placeholder="currentPlaceholder"
               size="large"
             />
             <Input.Password
               v-else
               v-model:value="currentValue"
+              :autocomplete="
+                unlockMode === 'password' ? 'current-password' : 'off'
+              "
               data-lock-screen-input="true"
+              id="lock-screen-credential"
+              name="lock-screen-credential"
               :placeholder="currentPlaceholder"
               size="large"
             />

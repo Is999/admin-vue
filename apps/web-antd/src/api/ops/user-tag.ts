@@ -12,8 +12,8 @@ export namespace UserTagApi {
     mode?: 'delta' | 'full' | 'recalculate' | 'targeted';
     /** 指定标签类型 */
     tagTypes?: number[];
-    /** 指定用户 UID */
-    uids?: number[];
+    /** 指定用户 UID；使用十进制字符串避免 JavaScript 大整数精度丢失 */
+    uids?: string[];
     /** 指定任务队列 */
     queue?: string;
     /** 分片数 */

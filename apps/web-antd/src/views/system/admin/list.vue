@@ -10,6 +10,7 @@ import {
   defineComponent,
   h,
   onBeforeUnmount,
+  onMounted,
   reactive,
   ref,
 } from 'vue';
@@ -17,6 +18,7 @@ import { useRouter } from 'vue-router';
 
 import { Page, useVbenDrawer, useVbenModal, VbenButton } from '@vben/common-ui';
 import { Plus } from '@vben/icons';
+import { useAccessStore } from '@vben/stores';
 
 import {
   Alert,
@@ -45,6 +47,7 @@ import {
 } from '#/api/system';
 import {
   asActionPermission,
+  hasEveryPermission,
   SYSTEM_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
@@ -52,18 +55,33 @@ import {
   buildAdminCacheTargets,
   openSystemCachePage,
 } from '#/utils/cache/navigation';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 import {
   downloadBlobFile,
   ensureDownloadBlobSuccess,
   resolveRequestErrorMessage,
 } from '#/utils/file/download';
-import { createAsyncJobPoller } from '#/utils/imex/job';
-import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
+import {
+  AsyncJobPollingTimeoutError,
+  createAsyncJobSession,
+  createAsyncJobPoller,
+  isAsyncJobPollingAbortError,
+  isAsyncJobRunning,
+} from '#/utils/imex/job';
+import {
+  isMfaCancelledError,
+  submitWithMfaRetry,
+  ticketPayload,
+} from '#/utils/security/mfa';
 import {
   copyTextToClipboard,
   generateRandomPassword,
   validateStrongPassword,
 } from '#/utils/security/password';
+import {
+  currentSessionStateIdentity,
+  registerSessionStateCleanup,
+} from '#/utils/session-state-gate';
 
 import { resolveBackendMessage } from '../shared';
 import { useColumns, useGridFormSchema } from './data';
@@ -92,6 +110,30 @@ const MFA_SCENARIO_USER_STATUS = 4;
 const MFA_SCENARIO_EDIT_USER = 6;
 // ADMIN_EXPORT_POLL_INTERVAL_MS 表示管理员导出状态轮询间隔。
 const ADMIN_EXPORT_POLL_INTERVAL_MS = 2000;
+// accessStore 保存当前管理员的接口权限码。
+const accessStore = useAccessStore();
+// canQueryAdminExport 控制管理员导出状态查询入口。
+const canQueryAdminExport = computed(() =>
+  hasEveryPermission(
+    accessStore.accessCodes,
+    SYSTEM_ACTION_PERMISSION_CODES.ADMIN_EXPORT_STATUS,
+  ),
+);
+// canTriggerAdminExport 确保提交导出后有权限继续查询异步进度。
+const canTriggerAdminExport = computed(() =>
+  hasEveryPermission(accessStore.accessCodes, [
+    SYSTEM_ACTION_PERMISSION_CODES.ADMIN_EXPORT,
+    SYSTEM_ACTION_PERMISSION_CODES.ADMIN_EXPORT_DOWNLOAD,
+    SYSTEM_ACTION_PERMISSION_CODES.ADMIN_EXPORT_STATUS,
+  ]),
+);
+// canDownloadAdminExport 控制管理员导出文件下载入口。
+const canDownloadAdminExport = computed(() =>
+  hasEveryPermission(
+    accessStore.accessCodes,
+    SYSTEM_ACTION_PERMISSION_CODES.ADMIN_EXPORT_DOWNLOAD,
+  ),
+);
 // router 用于跳转缓存管理页并带入管理员相关缓存 key。
 const router = useRouter();
 
@@ -109,6 +151,18 @@ const AdminExportStatusMap: Record<
 // PasswordEditorState 保存弹窗里当前待提交的密码。
 interface PasswordEditorState {
   value: string;
+}
+
+// ignoreMfaCancellation 让确认弹窗在用户主动取消 MFA 时正常关闭，不将其作为未处理异常输出。
+async function ignoreMfaCancellation(action: () => Promise<void>) {
+  try {
+    await action();
+  } catch (error) {
+    if (isMfaCancelledError(error)) {
+      return;
+    }
+    throw error;
+  }
 }
 
 // PasswordChangeHandler 定义密码编辑器对外回写密码的回调签名。
@@ -167,7 +221,10 @@ const PasswordEditor = defineComponent({
             })
           : null,
         h(Input.Password, {
+          autocomplete: 'new-password',
           autofocus: true,
+          id: 'admin-password-editor',
+          name: 'newPassword',
           onChange: syncPassword,
           onInput: syncPassword,
           placeholder: props.placeholder,
@@ -205,6 +262,8 @@ const selectedRoleIds = ref<number[]>([]);
 const expandedRoleIds = ref<number[]>([]);
 // roleKeyword 保存角色树搜索关键字。
 const roleKeyword = ref('');
+// roleRequestID 标识最后一次角色配置请求，避免旧响应覆盖新管理员。
+let roleRequestID = 0;
 
 // RoleModal 用于覆盖保存管理员角色。
 const [RoleModal, roleModalApi] = useVbenModal({
@@ -222,15 +281,48 @@ const lastAdminQuery = ref<SystemAdminApi.ExportParams>({});
 const exportSubmitting = ref(false);
 const exportDownloading = ref(false);
 const exportStatus = ref<null | SystemAdminApi.ExportStatusResp>(null);
+// adminExportSession 在同一账号切换菜单时保留导出状态。
+const adminExportSession =
+  createAsyncJobSession<SystemAdminApi.ExportStatusResp>(
+    'admin-list-export',
+    currentSessionStateIdentity,
+  );
 const adminExportPoller = createAsyncJobPoller<SystemAdminApi.ExportStatusResp>(
   {
     fetchStatus: fetchAdminExportStatus,
+    getScopeKey: currentSessionStateIdentity,
     intervalMs: ADMIN_EXPORT_POLL_INTERVAL_MS,
+    onError: async (error) => {
+      const sourceSessionIdentity = currentSessionStateIdentity();
+      const errorMessage =
+        error instanceof AsyncJobPollingTimeoutError
+          ? $t('business.message.exportStatusPollingTimeout')
+          : await resolveRequestErrorMessage(
+              error,
+              $t('business.message.adminExportStatusApiUnavailable'),
+            );
+      if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+        return;
+      }
+      message.error(
+        $t('business.message.adminExportStatusRefreshFailed', [errorMessage]),
+      );
+    },
     onStatusChange: (status) => {
       exportStatus.value = status;
+      saveAdminExportSession();
     },
   },
 );
+
+// unregisterAdminExportSessionCleanup 在账号切换时停止旧账号导出轮询并清空页面局部状态。
+const unregisterAdminExportSessionCleanup = registerSessionStateCleanup(() => {
+  adminExportPoller.stop();
+  adminExportSession.clear();
+  exportStatus.value = null;
+  exportSubmitting.value = false;
+  exportDownloading.value = false;
+});
 
 const [Grid, gridApi] = useVbenVxeGrid({
   formOptions: {
@@ -412,6 +504,9 @@ function onCreate() {
 
 // onEdit 打开编辑用户抽屉。
 function onEdit(row: SystemAdminApi.Item) {
+  if (!row.manageable) {
+    return;
+  }
   formDrawerApi.setData(row).open();
 }
 
@@ -422,10 +517,14 @@ function onRefresh() {
 
 // onTriggerExport 提交管理员列表异步导出任务，并启动轮询。
 async function onTriggerExport() {
+  const sourceSessionIdentity = currentSessionStateIdentity();
   exportSubmitting.value = true;
   stopAdminExportPolling();
   try {
     const response = await triggerAdminExport(lastAdminQuery.value);
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     exportStatus.value = {
       averageRowsPerSec: 0,
       createdAt: '',
@@ -447,10 +546,13 @@ async function onTriggerExport() {
       total: 0,
       updatedAt: '',
     };
+    saveAdminExportSession(true);
     message.success($t('business.message.adminExportSubmitted'));
     await refreshAdminExportStatus(false);
   } finally {
-    exportSubmitting.value = false;
+    if (sourceSessionIdentity === currentSessionStateIdentity()) {
+      exportSubmitting.value = false;
+    }
   }
 }
 
@@ -460,26 +562,40 @@ async function onDownloadExport() {
     message.warning($t('business.message.noExportFile'));
     return;
   }
+  const sourceSessionIdentity = currentSessionStateIdentity();
+  const jobId = exportStatus.value.jobId;
+  const fileName = exportStatus.value.fileName || 'admin_export.xlsx';
   exportDownloading.value = true;
   try {
     const blob = await ensureDownloadBlobSuccess(
-      await downloadAdminExport(exportStatus.value.jobId),
+      await downloadAdminExport(jobId),
       $t('business.message.adminExportDownloadFailed'),
     );
-    downloadBlobFile(blob, exportStatus.value.fileName || 'admin_export.xlsx');
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
+    downloadBlobFile(blob, fileName);
     message.success($t('business.message.adminExportDownloadSucceeded'));
   } catch (error) {
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     const errorMessage = await resolveRequestErrorMessage(
       error,
       $t('business.message.adminExportDownloadApiUnavailable'),
     );
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     message.error(
       $t('business.message.adminExportDownloadFailedWithReason', [
         errorMessage,
       ]),
     );
   } finally {
-    exportDownloading.value = false;
+    if (sourceSessionIdentity === currentSessionStateIdentity()) {
+      exportDownloading.value = false;
+    }
   }
 }
 
@@ -488,10 +604,14 @@ async function refreshAdminExportStatus(manual: boolean) {
   if (!exportStatus.value?.jobId) {
     return;
   }
+  const sourceSessionIdentity = currentSessionStateIdentity();
   try {
     const latestStatus = await adminExportPoller.refresh(
       exportStatus.value.jobId,
     );
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     if (latestStatus.status === 'succeeded') {
       message.success($t('business.message.adminExportCompleted'));
       return;
@@ -509,11 +629,20 @@ async function refreshAdminExportStatus(manual: boolean) {
       message.success($t('business.message.adminExportStatusRefreshed'));
     }
   } catch (error) {
+    if (isAsyncJobPollingAbortError(error)) {
+      return;
+    }
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     if (manual) {
       const errorMessage = await resolveRequestErrorMessage(
         error,
         $t('business.message.adminExportStatusApiUnavailable'),
       );
+      if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+        return;
+      }
       message.error(
         $t('business.message.adminExportStatusRefreshFailed', [errorMessage]),
       );
@@ -524,6 +653,34 @@ async function refreshAdminExportStatus(manual: boolean) {
 // stopAdminExportPolling 停止管理员导出状态轮询。
 function stopAdminExportPolling() {
   adminExportPoller.stop();
+}
+
+// saveAdminExportSession 保存当前任务，旧页面的异步回调不得覆盖新任务。
+function saveAdminExportSession(replace = false) {
+  const status = exportStatus.value;
+  if (!status?.jobId) {
+    return;
+  }
+  const cached = adminExportSession.load();
+  if (!replace && cached && cached.jobId !== status.jobId) {
+    return;
+  }
+  adminExportSession.save(status);
+}
+
+// restoreAdminExportSession 恢复菜单切换前的导出状态并续查未完成任务。
+async function restoreAdminExportSession() {
+  if (!canQueryAdminExport.value) {
+    return;
+  }
+  const cached = adminExportSession.load();
+  if (!cached?.jobId) {
+    return;
+  }
+  exportStatus.value = cached;
+  if (isAsyncJobRunning(cached.status)) {
+    await refreshAdminExportStatus(false);
+  }
 }
 
 // normalizeAdminExportParams 把表格搜索条件归一化为导出请求参数。
@@ -576,12 +733,21 @@ const exportProgressSummary = computed(() => {
   return summaryParts.join($t('business.message.commaSeparator'));
 });
 
+onMounted(() => {
+  void restoreAdminExportSession();
+});
+
 onBeforeUnmount(() => {
+  saveAdminExportSession();
+  unregisterAdminExportSessionCleanup();
   stopAdminExportPolling();
 });
 
 // onStatusChange 切换用户状态。
 async function onStatusChange(newStatus: number, row: SystemAdminApi.Item) {
+  if (!row.manageable || row.self) {
+    return false;
+  }
   const statusText: Record<number, string> = {
     0: $t('business.message.disable'),
     1: $t('business.message.enable'),
@@ -594,7 +760,7 @@ async function onStatusChange(newStatus: number, row: SystemAdminApi.Item) {
       ]),
       $t('business.message.switchUserStatus'),
     );
-    await submitWithMfaRetry(
+    const cacheSyncResult = await submitWithMfaRetry(
       MFA_SCENARIO_USER_STATUS,
       (ticket) =>
         updateAdminStatus(
@@ -604,6 +770,10 @@ async function onStatusChange(newStatus: number, row: SystemAdminApi.Item) {
         ),
       $t('business.message.switchUserStatusMfaTitle'),
     );
+    showCacheSyncResult(
+      cacheSyncResult,
+      $t('business.message.userStatusUpdated'),
+    );
     return true;
   } catch {
     return false;
@@ -612,8 +782,14 @@ async function onStatusChange(newStatus: number, row: SystemAdminApi.Item) {
 
 // onAssignRoles 打开角色配置弹窗并加载角色树和当前用户角色。
 async function onAssignRoles(row: SystemAdminApi.Item) {
+  if (!row.manageable || row.self) {
+    return;
+  }
+  const requestID = ++roleRequestID;
   currentAdmin.value = row;
   roleKeyword.value = '';
+  roleOptions.value = [];
+  selectedRoleIds.value = [];
   expandedRoleIds.value = [];
   roleModalApi.setState({
     title: $t('business.message.roleConfigTitle', [row.username]),
@@ -625,47 +801,69 @@ async function onAssignRoles(row: SystemAdminApi.Item) {
       fetchRoleTreeOptions(),
       fetchAdminRoles(row.id),
     ]);
-    roleOptions.value = buildAdminRoleTreeOptions(roles, buildRoleTitle);
-    selectedRoleIds.value = userRoles.map((item) => item.id);
+    if (requestID !== roleRequestID || currentAdmin.value?.id !== row.id) {
+      return;
+    }
+    const nextRoleOptions = buildAdminRoleTreeOptions(roles, buildRoleTitle);
+    const { nodeById } = buildAdminRoleRelationMaps(nextRoleOptions);
+    roleOptions.value = nextRoleOptions;
+    selectedRoleIds.value = userRoles
+      .map((item) => item.id)
+      .filter((roleID) => isAdminRoleNodeCheckable(nodeById.get(roleID)));
     expandedRoleIds.value = collectAllAdminRoleNodeIds(roleOptions.value);
   } finally {
-    roleModalApi.setState({ loading: false });
+    if (requestID === roleRequestID) {
+      roleModalApi.setState({ loading: false });
+    }
   }
 }
 
 // onSaveRoles 覆盖保存用户角色。
 async function onSaveRoles() {
-  if (!currentAdmin.value) {
+  if (
+    !currentAdmin.value ||
+    !currentAdmin.value.manageable ||
+    currentAdmin.value.self
+  ) {
     return;
   }
   const finalRoleIDs = pruneInheritedRoleIDs(selectedRoleIds.value);
-  if (finalRoleIDs.length === 0) {
-    message.error($t('business.message.selectAtLeastOneRole'));
-    return;
-  }
+  const savedAdminID = currentAdmin.value.id;
+  const requestID = roleRequestID;
   roleModalApi.setState({ loading: true });
-  submitWithMfaRetry(
-    MFA_SCENARIO_EDIT_USER,
-    (ticket) =>
-      updateAdminRoles(
-        currentAdmin.value!.id,
-        finalRoleIDs,
-        ticketPayload(ticket),
-      ),
-    $t('business.message.editUserRoleMfaTitle'),
-  )
-    .then(() => {
-      message.success($t('business.message.userRolesConfigured'));
+  try {
+    const cacheSyncResult = await submitWithMfaRetry(
+      MFA_SCENARIO_EDIT_USER,
+      (ticket) =>
+        updateAdminRoles(savedAdminID, finalRoleIDs, ticketPayload(ticket)),
+      $t('business.message.editUserRoleMfaTitle'),
+    );
+    showCacheSyncResult(
+      cacheSyncResult,
+      $t('business.message.userRolesConfigured'),
+    );
+    onRefresh();
+    if (
+      requestID === roleRequestID &&
+      currentAdmin.value?.id === savedAdminID
+    ) {
       roleModalApi.close();
-      onRefresh();
-    })
-    .finally(() => {
+    }
+  } finally {
+    if (
+      requestID === roleRequestID &&
+      currentAdmin.value?.id === savedAdminID
+    ) {
       roleModalApi.setState({ loading: false });
-    });
+    }
+  }
 }
 
 // onResetPassword 打开重置密码确认框。
 function onResetPassword(row: SystemAdminApi.Item) {
+  if (!row.manageable || row.self) {
+    return;
+  }
   const passwordState = reactive<PasswordEditorState>({
     value: generateRandomPassword(),
   });
@@ -678,29 +876,37 @@ function onResetPassword(row: SystemAdminApi.Item) {
       passwordValue: passwordState.value,
       placeholder: $t('business.message.strongPasswordPlaceholder'),
     }),
-    onOk: async () => {
-      const password = String(passwordState.value || '').trim();
-      const passwordError = validateStrongPassword(
-        password,
-        $t('business.message.password'),
-      );
-      if (passwordError) {
-        message.error(passwordError);
-        throw new Error(passwordError);
-      }
-      await submitWithMfaRetry(
-        MFA_SCENARIO_RESET_USER_PASSWORD,
-        (ticket) => resetAdminPassword(row.id, password, ticketPayload(ticket)),
-        $t('business.message.resetPasswordMfaTitle'),
-      );
-      message.success($t('business.message.userPasswordReset'));
-    },
+    onOk: () =>
+      ignoreMfaCancellation(async () => {
+        const password = String(passwordState.value || '').trim();
+        const passwordError = validateStrongPassword(
+          password,
+          $t('business.message.password'),
+        );
+        if (passwordError) {
+          message.error(passwordError);
+          throw new Error(passwordError);
+        }
+        const cacheSyncResult = await submitWithMfaRetry(
+          MFA_SCENARIO_RESET_USER_PASSWORD,
+          (ticket) =>
+            resetAdminPassword(row.id, password, ticketPayload(ticket)),
+          $t('business.message.resetPasswordMfaTitle'),
+        );
+        showCacheSyncResult(
+          cacheSyncResult,
+          $t('business.message.userPasswordReset'),
+        );
+      }),
     title: $t('business.message.resetUserPassword'),
   });
 }
 
 // onResetInitialState 把账号重置到首次登录前状态，并清空 MFA 绑定信息。
 function onResetInitialState(row: SystemAdminApi.Item) {
+  if (!row.manageable || row.self) {
+    return;
+  }
   const passwordState = reactive<PasswordEditorState>({
     value: generateRandomPassword(),
   });
@@ -715,42 +921,53 @@ function onResetInitialState(row: SystemAdminApi.Item) {
       passwordValue: passwordState.value,
       placeholder: $t('business.message.temporaryPasswordPlaceholder'),
     }),
-    onOk: async () => {
-      const password = String(passwordState.value || '').trim();
-      const passwordError = validateStrongPassword(
-        password,
-        $t('business.message.temporaryPassword'),
-      );
-      if (passwordError) {
-        message.error(passwordError);
-        throw new Error(passwordError);
-      }
-      await submitWithMfaRetry(
-        MFA_SCENARIO_RESET_USER_INITIAL_STATE,
-        (ticket) =>
-          resetAdminInitialState(row.id, password, ticketPayload(ticket)),
-        $t('business.message.resetInitialStateMfaTitle'),
-      );
-      message.success($t('business.message.accountResetBeforeFirstLogin'));
-      onRefresh();
-    },
+    onOk: () =>
+      ignoreMfaCancellation(async () => {
+        const password = String(passwordState.value || '').trim();
+        const passwordError = validateStrongPassword(
+          password,
+          $t('business.message.temporaryPassword'),
+        );
+        if (passwordError) {
+          message.error(passwordError);
+          throw new Error(passwordError);
+        }
+        const cacheSyncResult = await submitWithMfaRetry(
+          MFA_SCENARIO_RESET_USER_INITIAL_STATE,
+          (ticket) =>
+            resetAdminInitialState(row.id, password, ticketPayload(ticket)),
+          $t('business.message.resetInitialStateMfaTitle'),
+        );
+        showCacheSyncResult(
+          cacheSyncResult,
+          $t('business.message.accountResetBeforeFirstLogin'),
+        );
+        onRefresh();
+      }),
     title: $t('business.message.resetInitialState'),
   });
 }
 
 // onDelete 删除用户。
 function onDelete(row: SystemAdminApi.Item) {
+  if (!row.manageable || row.self) {
+    return;
+  }
   Modal.confirm({
     content: $t('business.message.confirmDeleteUser', [row.username]),
-    onOk: async () => {
-      await submitWithMfaRetry(
-        MFA_SCENARIO_DELETE_USER,
-        (ticket) => deleteAdmin(row.id, ticketPayload(ticket)),
-        $t('business.message.deleteUserMfaTitle'),
-      );
-      message.success($t('business.message.userDeleted'));
-      onRefresh();
-    },
+    onOk: () =>
+      ignoreMfaCancellation(async () => {
+        const cacheSyncResult = await submitWithMfaRetry(
+          MFA_SCENARIO_DELETE_USER,
+          (ticket) => deleteAdmin(row.id, ticketPayload(ticket)),
+          $t('business.message.deleteUserMfaTitle'),
+        );
+        showCacheSyncResult(
+          cacheSyncResult,
+          $t('business.message.userDeleted'),
+        );
+        onRefresh();
+      }),
     title: $t('business.message.deleteUser'),
   });
 }
@@ -798,6 +1015,19 @@ function confirm(content: string, title: string) {
     });
   });
 }
+/** 为角色配置树内置的键盘焦点输入补齐浏览器表单标识。 */
+function bindRoleModalTreeFocusInput(element: unknown) {
+  if (!(element instanceof HTMLElement)) return;
+
+  const input = element.querySelector<HTMLInputElement>(
+    'input[aria-label="for screen reader"]',
+  );
+  if (!input) return;
+
+  input.id = 'admin-role-modal-tree-focus';
+  input.name = 'admin-role-modal-tree-focus';
+  input.autocomplete = 'off';
+}
 </script>
 
 <template>
@@ -814,7 +1044,10 @@ function confirm(content: string, title: string) {
           <Input
             v-model:value="roleKeyword"
             allow-clear
+            autocomplete="off"
             class="w-[240px]"
+            id="admin-role-assignment-search"
+            name="admin-role-assignment-search"
             :placeholder="$t('business.message.searchRoleName')"
           />
           <Space wrap>
@@ -835,6 +1068,7 @@ function confirm(content: string, title: string) {
           </Space>
         </div>
         <div
+          :ref="bindRoleModalTreeFocusInput"
           class="max-h-[420px] overflow-auto rounded-md border border-[var(--ant-color-border-secondary)] px-2 py-2"
         >
           <Tree
@@ -865,23 +1099,21 @@ function confirm(content: string, title: string) {
             {{ exportProgressSummary }}
           </span>
           <VbenButton
-            v-if="exportStatus?.jobId"
+            v-if="canQueryAdminExport && exportStatus?.jobId"
             :disabled="exportSubmitting"
             @click="refreshAdminExportStatus(true)"
           >
             {{ $t('business.message.refreshProgress') }}
           </VbenButton>
           <VbenButton
-            v-if="exportStatus?.downloadReady"
+            v-if="canDownloadAdminExport && exportStatus?.downloadReady"
             :loading="exportDownloading"
             @click="onDownloadExport"
           >
             {{ $t('business.message.downloadFile') }}
           </VbenButton>
           <VbenButton
-            v-access="
-              asActionPermission(SYSTEM_ACTION_PERMISSION_CODES.ADMIN_EXPORT)
-            "
+            v-if="canTriggerAdminExport"
             :loading="exportSubmitting"
             @click="onTriggerExport"
           >

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, useId, watch } from 'vue';
 
 import { VbenButton } from '@vben/common-ui';
 
@@ -19,9 +19,10 @@ const props = withDefaults(
     childrenField?: string;
     collapseAllHandler?: TreeExpandHandler;
     collapseLevelHandler?: TreeExpandLevelHandler;
+    disabled?: boolean; // 禁用全部层级操作
     expandAllHandler?: TreeExpandHandler;
     expandLevelHandler?: TreeExpandLevelHandler;
-    gridApi: TreeExpandGridApi;
+    gridApi?: TreeExpandGridApi;
     maxLevel?: number;
     minLevel?: number;
   }>(),
@@ -29,14 +30,19 @@ const props = withDefaults(
     childrenField: 'children',
     collapseAllHandler: undefined,
     collapseLevelHandler: undefined,
+    disabled: false,
     expandAllHandler: undefined,
     expandLevelHandler: undefined,
+    gridApi: undefined,
     maxLevel: 10,
     minLevel: 1,
   },
 );
 
-const level = ref<number | undefined>(2);
+// level 保存当前层级输入，并允许同一视图的多个工具栏共享状态。
+const level = defineModel<number | undefined>('level', { default: 2 });
+// levelInputId 为每个工具栏实例提供唯一表单标识，避免同页多个树工具栏发生重复。
+const levelInputId = `tree-expand-level-${useId()}`;
 // operating 表示当前是否正在执行树展开/折叠批量操作，避免重复点击叠加渲染任务。
 const operating = ref(false);
 
@@ -49,6 +55,14 @@ function clampLevel(value: null | number | undefined) {
 }
 
 const safeLevel = computed(() => clampLevel(level.value));
+
+watch(
+  () => [props.minLevel, props.maxLevel],
+  () => {
+    level.value = safeLevel.value;
+  },
+  { immediate: true },
+);
 
 // stepLevel 在 N 层操作成功后联动输入框，并复用同一套边界限制。
 function stepLevel(delta: number) {
@@ -92,7 +106,7 @@ function collectExpandableNodes(
 
 // runTreeOperation 串行执行树操作，保证一次操作完成后再允许下一次触发。
 async function runTreeOperation(handler: () => Promise<void>) {
-  if (operating.value) {
+  if (operating.value || props.disabled) {
     return;
   }
   operating.value = true;
@@ -213,10 +227,14 @@ async function collapseN() {
 
 <template>
   <div class="inline-flex flex-wrap items-center justify-end gap-2">
-    <VbenButton :disabled="operating" size="sm" @click="expandAll">
+    <VbenButton :disabled="disabled || operating" size="sm" @click="expandAll">
       {{ $t('business.message.treeExpandAll') }}
     </VbenButton>
-    <VbenButton :disabled="operating" size="sm" @click="collapseAll">
+    <VbenButton
+      :disabled="disabled || operating"
+      size="sm"
+      @click="collapseAll"
+    >
       {{ $t('business.message.treeCollapseAll') }}
     </VbenButton>
     <InputNumber
@@ -225,15 +243,24 @@ async function collapseN() {
       :min="minLevel"
       :precision="0"
       :step="1"
-      class="w-[86px]"
-      :disabled="operating"
-      size="small"
+      :id="levelInputId"
+      :name="levelInputId"
+      class="tree-expand-toolbar__level"
+      :disabled="disabled || operating"
     />
-    <VbenButton :disabled="operating" size="sm" @click="expandN">
+    <VbenButton :disabled="disabled || operating" size="sm" @click="expandN">
       {{ $t('business.message.treeExpandLevel') }}
     </VbenButton>
-    <VbenButton :disabled="operating" size="sm" @click="collapseN">
+    <VbenButton :disabled="disabled || operating" size="sm" @click="collapseN">
       {{ $t('business.message.treeCollapseLevel') }}
     </VbenButton>
   </div>
 </template>
+
+<style scoped>
+.tree-expand-toolbar__level {
+  flex: 0 0 64px;
+  width: 64px !important;
+  min-width: 64px;
+}
+</style>

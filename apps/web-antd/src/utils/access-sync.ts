@@ -6,12 +6,14 @@ import { useAccessStore, useUserStore } from '@vben/stores';
 
 import { getAccessCodesApi } from '#/api/core/auth';
 import { getUserInfoApi } from '#/api/core/user';
+import { createSessionBoundRequestConfig } from '#/api/request';
 import { ACCESS_SYNC_THROTTLE_MS } from '#/constants/access-sync';
 import { APP_DEFAULT_HOME_PATH } from '#/constants/app';
 import { buildEffectiveAccessCodes } from '#/constants/permission-codes';
 import { resetRoutes } from '#/router';
 import { generateAccess } from '#/router/access';
 import { accessRoutes } from '#/router/routes';
+import { runSessionStateMutation } from '#/utils/session-state-gate';
 
 // AccessSyncReason 表示触发权限态刷新的来源，用于后续排查定时器和 403 兜底链路。
 export type AccessSyncReason =
@@ -32,10 +34,16 @@ export interface AccessSyncResult {
   skipped: boolean; // 是否因为未登录、节流或已有请求而跳过。
 }
 
-// accessSyncPromise 保存当前正在执行的权限同步请求，合并并发触发，避免短时间重复拉取权限码。
-let accessSyncPromise: null | Promise<AccessSyncResult> = null;
-// lastAccessSyncAt 记录上次权限同步发起时间，用于定时器和 403 触发的统一节流。
-let lastAccessSyncAt = 0;
+// AccessSyncTask 表示绑定到发起时会话的权限同步任务。
+interface AccessSyncTask {
+  promise: Promise<AccessSyncResult>;
+  sourceToken: string;
+}
+
+// accessSyncTask 仅合并同一会话的并发触发，账号切换后必须启动新任务。
+let accessSyncTask: AccessSyncTask | null = null;
+// lastAccessSync 按会话记录上次同步时间，避免旧账号的节流窗口阻塞新账号。
+let lastAccessSync = { at: 0, sourceToken: '' };
 
 // normalizedStringList 归一化字符串集合，保证权限码和角色名比较不受顺序、空值影响。
 function normalizedStringList(values: readonly string[] | undefined) {
@@ -78,23 +86,19 @@ async function ensureCurrentRouteStillAccessible(router: Router) {
   }
 }
 
-// rebuildAccessMenus 根据最新用户资料和权限码重建动态路由与侧边栏菜单。
+// rebuildAccessMenus 根据指定用户资料和权限码重建动态路由与侧边栏菜单。
 async function rebuildAccessMenus(
   router: Router,
   userInfo: AdminUserInfo,
-  latestAccessCodes: string[],
+  accessCodes: string[],
 ) {
   const userRoles = Array.isArray(userInfo.roles) ? userInfo.roles : [];
   resetRoutes();
-  const { accessibleMenus, accessibleRoutes } = await generateAccess({
-    roles: [...userRoles, ...latestAccessCodes],
+  return generateAccess({
+    roles: [...userRoles, ...accessCodes],
     router,
     routes: accessRoutes,
   });
-  const accessStore = useAccessStore();
-  accessStore.setAccessMenus(accessibleMenus);
-  accessStore.setAccessRoutes(accessibleRoutes);
-  accessStore.setIsAccessChecked(true);
 }
 
 // refreshAccessState 从后端低频同步最新用户角色和权限码，解决后端权限变更后前端菜单仍使用旧缓存的问题。
@@ -105,51 +109,138 @@ export async function refreshAccessState(
   const accessStore = useAccessStore();
   const userStore = useUserStore();
   const now = Date.now();
+  const sourceToken = String(accessStore.accessToken || '');
 
-  if (!accessStore.accessToken) {
+  if (!sourceToken) {
     return { changed: false, reason: options.reason, skipped: true };
   }
-  if (!options.force && now - lastAccessSyncAt < ACCESS_SYNC_THROTTLE_MS) {
+  if (
+    !options.force &&
+    lastAccessSync.sourceToken === sourceToken &&
+    now - lastAccessSync.at < ACCESS_SYNC_THROTTLE_MS
+  ) {
     return { changed: false, reason: options.reason, skipped: true };
   }
-  if (accessSyncPromise) {
-    return accessSyncPromise;
-  }
-
-  lastAccessSyncAt = now;
-  accessSyncPromise = (async () => {
-    const currentUserInfo = userStore.userInfo as AdminUserInfo | null;
-    const currentFingerprint = buildAccessFingerprint(
-      currentUserInfo,
-      accessStore.accessCodes,
-    );
-    const [latestUserInfo, rawAccessCodes] = await Promise.all([
-      getUserInfoApi(),
-      getAccessCodesApi(),
-    ]);
-    const latestAccessCodes = buildEffectiveAccessCodes(
-      latestUserInfo,
-      rawAccessCodes,
-    );
-    const latestFingerprint = buildAccessFingerprint(
-      latestUserInfo,
-      latestAccessCodes,
-    );
-    const changed =
-      currentFingerprint !== latestFingerprint || !accessStore.isAccessChecked;
-
-    userStore.setUserInfo(latestUserInfo);
-    accessStore.setAccessCodes(latestAccessCodes);
-
-    if (changed) {
-      await rebuildAccessMenus(router, latestUserInfo, latestAccessCodes);
-      await ensureCurrentRouteStillAccessible(router);
+  if (accessSyncTask?.sourceToken === sourceToken) {
+    if (!options.force) {
+      return accessSyncTask.promise;
     }
+    // 保存权限后的强制同步不能复用保存前已发出的旧请求；等待旧任务收口后重新拉取。
+    await accessSyncTask.promise.catch(() => undefined);
+    return refreshAccessState(router, options);
+  }
 
-    return { changed, reason: options.reason, skipped: false };
-  })().finally(() => {
-    accessSyncPromise = null;
+  lastAccessSync = { at: now, sourceToken };
+  const sessionRequestConfig = () => ({
+    ...createSessionBoundRequestConfig(sourceToken),
+    skipGlobalErrorMessage: true,
   });
+  const task: AccessSyncTask = {
+    promise: (async (): Promise<AccessSyncResult> => {
+      const skippedResult: AccessSyncResult = {
+        changed: false,
+        reason: options.reason,
+        skipped: true,
+      };
+      const isCurrentSession = () =>
+        String(accessStore.accessToken || '') === sourceToken;
+      if (!isCurrentSession()) {
+        return skippedResult;
+      }
+      const [latestUserInfo, rawAccessCodes] = await Promise.all([
+        getUserInfoApi(sessionRequestConfig()),
+        getAccessCodesApi(sessionRequestConfig()),
+      ]);
+      if (!isCurrentSession()) {
+        return skippedResult;
+      }
+      const latestAccessCodes = buildEffectiveAccessCodes(
+        latestUserInfo,
+        rawAccessCodes,
+      );
+      return runSessionStateMutation(async () => {
+        if (!isCurrentSession()) {
+          return skippedResult;
+        }
+        const currentUserInfo = userStore.userInfo as AdminUserInfo | null;
+        const currentFingerprint = buildAccessFingerprint(
+          currentUserInfo,
+          accessStore.accessCodes,
+        );
+        const latestFingerprint = buildAccessFingerprint(
+          latestUserInfo,
+          latestAccessCodes,
+        );
+        const changed =
+          currentFingerprint !== latestFingerprint ||
+          !accessStore.isAccessChecked;
 
-  return accessSyncPromise;
+        if (changed) {
+          const previousAccessCodes = [...accessStore.accessCodes];
+          const previousChecked = accessStore.isAccessChecked;
+          accessStore.setIsAccessChecked(false);
+          try {
+            const { accessibleMenus, accessibleRoutes } =
+              await rebuildAccessMenus(
+                router,
+                latestUserInfo,
+                latestAccessCodes,
+              );
+            if (!isCurrentSession()) {
+              return skippedResult;
+            }
+            userStore.setUserInfo(latestUserInfo);
+            accessStore.setAccessCodes(latestAccessCodes);
+            accessStore.setAccessMenus(accessibleMenus);
+            accessStore.setAccessRoutes(accessibleRoutes);
+            accessStore.setIsAccessChecked(true);
+          } catch (error) {
+            if (!isCurrentSession()) {
+              return skippedResult;
+            }
+            // 新权限构建失败时尽力恢复旧路由，但保持未校验状态，确保下一次同步能够自愈。
+            userStore.setUserInfo(currentUserInfo);
+            accessStore.setAccessCodes(previousAccessCodes);
+            if (currentUserInfo && previousChecked) {
+              try {
+                const { accessibleMenus, accessibleRoutes } =
+                  await rebuildAccessMenus(
+                    router,
+                    currentUserInfo,
+                    previousAccessCodes,
+                  );
+                accessStore.setAccessMenus(accessibleMenus);
+                accessStore.setAccessRoutes(accessibleRoutes);
+              } catch {
+                accessStore.setAccessMenus([]);
+                accessStore.setAccessRoutes([]);
+              }
+            }
+            accessStore.setIsAccessChecked(false);
+            throw error;
+          }
+          if (!isCurrentSession()) {
+            return skippedResult;
+          }
+          await ensureCurrentRouteStillAccessible(router);
+        } else {
+          if (!isCurrentSession()) {
+            return skippedResult;
+          }
+          userStore.setUserInfo(latestUserInfo);
+          accessStore.setAccessCodes(latestAccessCodes);
+        }
+
+        return { changed, reason: options.reason, skipped: false };
+      });
+    })().finally(() => {
+      if (accessSyncTask === task) {
+        accessSyncTask = null;
+      }
+    }),
+    sourceToken,
+  };
+  accessSyncTask = task;
+
+  return task.promise;
 }

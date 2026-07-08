@@ -9,8 +9,13 @@ import { useVbenDrawer } from '@vben/common-ui';
 import { Alert, message } from 'ant-design-vue';
 
 import { useVbenForm } from '#/adapter/form';
-import { createConfig, fetchConfigList, updateConfig } from '#/api/system';
+import {
+  createConfig,
+  fetchBoundedConfigItems,
+  updateConfig,
+} from '#/api/system';
 import { $t } from '#/locales';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 import { resolveRequestErrorMessage } from '#/utils/file/download';
 
 import FormTips from '../../components/form-tips.vue';
@@ -106,13 +111,18 @@ const [Drawer, drawerApi] = useVbenDrawer({
     const data = drawerApi.getData<Partial<SystemConfigApi.Item>>();
     formApi.resetForm();
     formData.value = data?.id ? data : {};
-    const configList = await fetchConfigList({ page: 1, pageSize: 1000 }).catch(
-      () => ({
-        list: [],
-        total: 0,
-      }),
-    );
-    configTree.value = buildConfigTreeOptions(configList.list || [], data?.id);
+    let configItems: SystemConfigApi.Item[];
+    try {
+      configItems = await fetchBoundedConfigItems();
+    } catch (error) {
+      const errorMessage = await resolveRequestErrorMessage(error);
+      message.error(
+        $t('business.message.dictionaryOptionsLoadFailed', [errorMessage]),
+      );
+      drawerApi.close();
+      return;
+    }
+    configTree.value = buildConfigTreeOptions(configItems, data?.id);
     formApi.updateSchema(useFormSchema(configTree.value));
     formApi.setValues(
       data?.id
@@ -173,10 +183,11 @@ async function onSubmit() {
   };
   drawerApi.lock();
   try {
-    await (formData.value?.id
+    const cacheSyncResult = await (formData.value?.id
       ? updateConfig(formData.value.id, payload)
       : createConfig(payload));
-    message.success(
+    showCacheSyncResult(
+      cacheSyncResult,
       formData.value?.id
         ? $t('business.message.dictionaryUpdated')
         : $t('business.message.dictionaryCreated'),

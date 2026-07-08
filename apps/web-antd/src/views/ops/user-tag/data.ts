@@ -1,11 +1,23 @@
 import type { VbenFormSchema } from '#/adapter/form';
 
+import { TASK_API_LIMITS } from '#/api/ops/task-types';
 import { $t } from '#/locales';
 
 type QueueOption = {
   label: string;
   value: string;
 };
+
+// USER_TAG_FORM_LIMITS 与后端 usertag options 硬上限保持一致，避免无效任务进入队列。
+export const USER_TAG_FORM_LIMITS = {
+  batchSize: 10_000,
+  retry: TASK_API_LIMITS.retry,
+  shardTotal: TASK_API_LIMITS.shardTotal,
+  tagTypes: 500,
+  timeoutSeconds: TASK_API_LIMITS.timeoutSeconds,
+  uids: 10_000,
+  workerCount: 64,
+} as const;
 
 // useUserTagWorkflowSchema 返回“用户标签工作流触发”表单配置。
 export function useUserTagWorkflowSchema(
@@ -47,7 +59,7 @@ export function useUserTagWorkflowSchema(
       fieldName: 'tagTypesText',
       label: $t('business.message.userTagTagTypesLabel'),
       componentProps: {
-        autoSize: { minRows: 3, maxRows: 6 },
+        rows: 3,
         placeholder: $t('business.message.userTagTagTypesPlaceholder'),
       },
     },
@@ -56,7 +68,7 @@ export function useUserTagWorkflowSchema(
       fieldName: 'uidsText',
       label: $t('business.message.userTagUidsLabel'),
       componentProps: {
-        autoSize: { minRows: 3, maxRows: 6 },
+        rows: 3,
         placeholder: $t('business.message.userTagUidsPlaceholder'),
       },
     },
@@ -76,6 +88,7 @@ export function useUserTagWorkflowSchema(
       fieldName: 'shardTotal',
       label: $t('business.message.shardTotal'),
       componentProps: {
+        max: USER_TAG_FORM_LIMITS.shardTotal,
         min: 1,
         addonAfter: $t('business.message.shardUnit'),
         style: { width: '100%' },
@@ -86,6 +99,7 @@ export function useUserTagWorkflowSchema(
       fieldName: 'batchSize',
       label: $t('business.message.batchSize'),
       componentProps: {
+        max: USER_TAG_FORM_LIMITS.batchSize,
         min: 1,
         addonAfter: $t('business.message.itemUnit'),
         style: { width: '100%' },
@@ -96,6 +110,7 @@ export function useUserTagWorkflowSchema(
       fieldName: 'workerCount',
       label: $t('business.message.workerCount'),
       componentProps: {
+        max: USER_TAG_FORM_LIMITS.workerCount,
         min: 1,
         addonAfter: $t('business.message.countUnit'),
         style: { width: '100%' },
@@ -105,8 +120,12 @@ export function useUserTagWorkflowSchema(
       component: 'Switch',
       fieldName: 'dryRun',
       label: $t('business.message.dryRunOnly'),
-      defaultValue: false,
-      componentProps: { checkedValue: true, unCheckedValue: false },
+      defaultValue: true,
+      componentProps: {
+        checkedValue: true,
+        disabled: true,
+        unCheckedValue: false,
+      },
     },
     {
       component: 'Input',
@@ -129,9 +148,21 @@ export function useUserTagWorkflowSchema(
     },
     {
       component: 'InputNumber',
+      fieldName: 'retry',
+      label: $t('business.message.retryCount'),
+      componentProps: {
+        max: USER_TAG_FORM_LIMITS.retry,
+        min: 0,
+        addonAfter: $t('business.message.countUnit'),
+        style: { width: '100%' },
+      },
+    },
+    {
+      component: 'InputNumber',
       fieldName: 'timeoutSeconds',
       label: $t('business.message.timeoutSeconds'),
       componentProps: {
+        max: USER_TAG_FORM_LIMITS.timeoutSeconds,
         min: 1,
         addonAfter: $t('business.message.secondUnit'),
         style: { width: '100%' },
@@ -151,7 +182,7 @@ export function useUserTagRecalculateSchema(
       label: $t('business.message.userTagTagTypesLabel'),
       rules: 'required',
       componentProps: {
-        autoSize: { minRows: 4, maxRows: 8 },
+        rows: 4,
         placeholder: $t('business.message.userTagTagTypesSimplePlaceholder'),
       },
     },
@@ -171,6 +202,7 @@ export function useUserTagRecalculateSchema(
       fieldName: 'shardTotal',
       label: $t('business.message.shardTotal'),
       componentProps: {
+        max: USER_TAG_FORM_LIMITS.shardTotal,
         min: 1,
         addonAfter: $t('business.message.shardUnit'),
         style: { width: '100%' },
@@ -181,6 +213,7 @@ export function useUserTagRecalculateSchema(
       fieldName: 'batchSize',
       label: $t('business.message.batchSize'),
       componentProps: {
+        max: USER_TAG_FORM_LIMITS.batchSize,
         min: 1,
         addonAfter: $t('business.message.itemUnit'),
         style: { width: '100%' },
@@ -191,6 +224,7 @@ export function useUserTagRecalculateSchema(
       fieldName: 'workerCount',
       label: $t('business.message.workerCount'),
       componentProps: {
+        max: USER_TAG_FORM_LIMITS.workerCount,
         min: 1,
         addonAfter: $t('business.message.countUnit'),
         style: { width: '100%' },
@@ -200,8 +234,12 @@ export function useUserTagRecalculateSchema(
       component: 'Switch',
       fieldName: 'dryRun',
       label: $t('business.message.dryRunOnly'),
-      defaultValue: false,
-      componentProps: { checkedValue: true, unCheckedValue: false },
+      defaultValue: true,
+      componentProps: {
+        checkedValue: true,
+        disabled: true,
+        unCheckedValue: false,
+      },
     },
     {
       component: 'InputNumber',
@@ -215,9 +253,21 @@ export function useUserTagRecalculateSchema(
     },
     {
       component: 'InputNumber',
+      fieldName: 'retry',
+      label: $t('business.message.retryCount'),
+      componentProps: {
+        max: USER_TAG_FORM_LIMITS.retry,
+        min: 0,
+        addonAfter: $t('business.message.countUnit'),
+        style: { width: '100%' },
+      },
+    },
+    {
+      component: 'InputNumber',
       fieldName: 'timeoutSeconds',
       label: $t('business.message.timeoutSeconds'),
       componentProps: {
+        max: USER_TAG_FORM_LIMITS.timeoutSeconds,
         min: 1,
         addonAfter: $t('business.message.secondUnit'),
         style: { width: '100%' },
@@ -273,7 +323,7 @@ export function useUserTagLeaseReleaseSchema(): VbenFormSchema[] {
       label: $t('business.message.userTagLeaseReleaseReasonLabel'),
       rules: 'required',
       componentProps: {
-        autoSize: { minRows: 3, maxRows: 6 },
+        rows: 3,
         maxlength: 500,
         placeholder: $t(
           'business.message.userTagLeaseReleaseReasonPlaceholder',

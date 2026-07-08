@@ -13,10 +13,12 @@ import { message, Modal } from 'ant-design-vue';
 
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
 import {
+  downloadConfigImportBackup,
   downloadConfigExcel,
+  fetchBoundedConfigItems,
   fetchConfigCache,
-  fetchConfigList,
   importConfigExcel,
+  prepareConfigImportBackup,
   renewConfigCache,
 } from '#/api/system';
 import {
@@ -28,6 +30,7 @@ import {
   buildConfigCacheTargets,
   openSystemCachePage,
 } from '#/utils/cache/navigation';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 import {
   downloadBlobFile,
   ensureDownloadBlobSuccess,
@@ -39,12 +42,15 @@ import { showStructuredValueModal } from '../cache/helper';
 import TreeExpandToolbar from '../components/tree-expand-toolbar.vue';
 import { resolveBackendMessage } from '../shared';
 import { useColumns, useGridFormSchema } from './data';
+import { resolveConfigHiddenEditor } from './editors/registry';
 import Form from './modules/form.vue';
 
 type SystemConfigTreeItem = SystemConfigApi.Item & {
   children?: SystemConfigTreeItem[];
   groupPath?: string;
   levelText?: string;
+  pageLink?: string;
+  pageLinkLabel?: string;
   parentTitle?: string;
 };
 
@@ -94,7 +100,7 @@ function matchConfigNode(
       .includes(title);
   const matchedPage =
     pagePath === '' ||
-    String(item.page || '')
+    String(item.pageLink || item.page || '')
       .toLowerCase()
       .includes(pagePath);
 
@@ -120,11 +126,17 @@ function buildConfigTree(
       .toSorted((left, right) => left.id - right.id)
       .map((item) => {
         const nextAncestors = [...ancestors, item];
+        const hiddenEditor = resolveConfigHiddenEditor(item.uuid);
+        const pageLink = item.page || hiddenEditor?.path || '';
         return {
           ...item,
           children: walk(item.id, nextAncestors, item.title),
           groupPath: nextAncestors.map((node) => node.title).join(' / '),
           levelText: `L${ancestors.length + 1}`,
+          pageLink,
+          pageLinkLabel: hiddenEditor
+            ? $t('business.message.configEditorPageEntry')
+            : '',
           parentTitle,
         };
       });
@@ -182,11 +194,8 @@ const [Grid, gridApi] = useVbenVxeGrid({
         // 查询完整配置列表，并在前端按 pid 组装成树形结构。
         query: async (_params: any, formValues: any) => {
           Object.assign(lastConfigQuery, formValues || {});
-          const response = await fetchConfigList({
-            page: 1,
-            pageSize: 1000,
-          });
-          const tree = buildConfigTree(response.list || []);
+          const items = await fetchBoundedConfigItems();
+          const tree = buildConfigTree(items);
           const list = filterConfigTree(tree, formValues || {});
           return {
             list,
@@ -299,7 +308,28 @@ function onChooseImportFile() {
   configImportInputRef.value?.click();
 }
 
-// onImportFileChange 上传并导入字典配置 Excel。
+// confirmConfigImportAfterBackup 在备份下载后等待操作员确认继续导入。
+function confirmConfigImportAfterBackup(
+  backup: SystemConfigApi.ImportBackupResp,
+) {
+  return new Promise<boolean>((resolve) => {
+    Modal.confirm({
+      content: $t('business.message.dictionaryImportBackupConfirm', [
+        backup.fileName,
+        new Date(backup.expiresAt).toLocaleString(),
+      ]),
+      onCancel() {
+        resolve(false);
+      },
+      onOk() {
+        resolve(true);
+      },
+      title: $t('business.message.dictionaryImportBackupConfirmTitle'),
+    });
+  });
+}
+
+// onImportFileChange 上传文件、下载导入前备份并在确认后正式导入。
 async function onImportFileChange(event: Event) {
   const input = event.target as HTMLInputElement | null;
   const file = input?.files?.[0];
@@ -313,8 +343,24 @@ async function onImportFileChange(event: Event) {
       concurrency: 2,
       file,
     });
-    const result = await importConfigExcel(session.uploadId);
-    message.success(
+    const backup = await prepareConfigImportBackup(session.uploadId);
+    const backupBlob = await ensureDownloadBlobSuccess(
+      await downloadConfigImportBackup(backup.backupId),
+      $t('business.message.dictionaryImportBackupDownloadFailed'),
+    );
+    downloadBlobFile(backupBlob, backup.fileName);
+    const confirmed = await confirmConfigImportAfterBackup(backup);
+    if (!confirmed) {
+      message.info(
+        $t('business.message.dictionaryImportCanceledAfterBackup', [
+          backup.fileName,
+        ]),
+      );
+      return;
+    }
+    const result = await importConfigExcel(session.uploadId, backup.backupId);
+    showCacheSyncResult(
+      result,
       $t('business.message.dictionaryImportCompleted', [
         result.created,
         result.updated,
@@ -380,13 +426,15 @@ function onRenew(row: SystemConfigApi.Item) {
             ref="configImportInputRef"
             accept=".xlsx"
             class="hidden"
+            id="system-config-import-file"
+            name="system-config-import-file"
             type="file"
             @change="onImportFileChange"
           />
           <VbenButton
             v-access="
               asActionPermission(
-                SYSTEM_ACTION_PERMISSION_CODES.SYSTEM_CONFIG_UPDATE,
+                SYSTEM_ACTION_PERMISSION_CODES.SYSTEM_CONFIG_IMPORT,
               )
             "
             :loading="configImporting"
@@ -397,7 +445,7 @@ function onRenew(row: SystemConfigApi.Item) {
           <VbenButton
             v-access="
               asActionPermission(
-                SYSTEM_ACTION_PERMISSION_CODES.SYSTEM_CONFIG_UPDATE,
+                SYSTEM_ACTION_PERMISSION_CODES.SYSTEM_CONFIG_EXPORT,
               )
             "
             :loading="configExporting"

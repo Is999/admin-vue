@@ -26,13 +26,9 @@ const [Drawer, drawerApi] = useVbenDrawer({
   connectedComponent: PreferencesDrawer,
 });
 
-function openPreferences() {
-  drawerApi.open();
-}
-
 // 暴露打开抽屉的方法
 defineExpose({
-  open: openPreferences,
+  open: () => drawerApi.open(),
 });
 
 /**
@@ -83,12 +79,12 @@ const listen = computed(() => {
     />
 
     <!-- 触发打开抽屉的按钮(可覆盖) -->
-    <slot :open="openPreferences">
+    <slot>
       <VbenButton
         v-if="props.showButton"
         :title="$t('preferences.title')"
         class="flex-col-center size-10 cursor-pointer rounded-l-lg rounded-r-none border-none bg-primary"
-        @click="openPreferences"
+        @click="() => drawerApi.open()"
       >
         <Settings class="size-5" />
       </VbenButton>

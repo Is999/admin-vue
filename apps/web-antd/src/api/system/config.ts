@@ -1,6 +1,11 @@
 import type { CommonApi } from '#/api/common';
 
 import { requestClient } from '#/api/request';
+import { fetchBoundedPages } from '#/utils/request/bounded-pagination';
+
+// CONFIG_LIST_MAX_ITEMS 与 CONFIG_LIST_MAX_PAGES 限制配置树聚合范围，禁止无边界全量请求。
+const CONFIG_LIST_MAX_ITEMS = 1000;
+const CONFIG_LIST_MAX_PAGES = 10;
 
 // SystemConfigApi 定义字典配置相关接口类型。
 export namespace SystemConfigApi {
@@ -49,6 +54,14 @@ export namespace SystemConfigApi {
     created: number; // 新增数量
     updated: number; // 更新数量
     skipped: number; // 跳过数量
+    syncPending: boolean; // 是否仍需操作员手动刷新配置缓存
+  }
+
+  // ImportBackupResp 表示字典导入前备份结果。
+  export interface ImportBackupResp {
+    backupId: string; // 备份ID
+    expiresAt: string; // 服务器备份过期时间
+    fileName: string; // 用户下载文件名
   }
 }
 
@@ -62,9 +75,19 @@ export async function fetchConfigList(params: SystemConfigApi.ListParams) {
   );
 }
 
+// fetchBoundedConfigItems 按后端单页上限聚合完整配置列表，异常或超限时直接失败。
+export async function fetchBoundedConfigItems() {
+  return fetchBoundedPages<SystemConfigApi.Item>({
+    fetchPage: (page, pageSize) => fetchConfigList({ page, pageSize }),
+    getItemKey: (item) => item.id,
+    maxItems: CONFIG_LIST_MAX_ITEMS,
+    maxPages: CONFIG_LIST_MAX_PAGES,
+  });
+}
+
 // createConfig 新增字典配置。
 export async function createConfig(data: SystemConfigApi.SaveParams) {
-  return requestClient.post('/dicts', data);
+  return requestClient.post<CommonApi.CacheSyncResp>('/dicts', data);
 }
 
 // downloadConfigExcel 导出字典配置 Excel。
@@ -74,16 +97,29 @@ export async function downloadConfigExcel(params: SystemConfigApi.ListParams) {
   });
 }
 
-// importConfigExcel 导入字典配置 Excel。
-export async function importConfigExcel(
-  uploadIdOrPayload: string | { fileUrl?: string; uploadId?: string },
-) {
-  const payload =
-    typeof uploadIdOrPayload === 'string'
-      ? { uploadId: uploadIdOrPayload }
-      : uploadIdOrPayload;
+// prepareConfigImportBackup 预检上传文件并生成导入前全量备份。
+export async function prepareConfigImportBackup(uploadId: string) {
+  return requestClient.post<SystemConfigApi.ImportBackupResp>(
+    '/dicts/import/backup',
+    {
+      uploadId,
+    },
+  );
+}
+
+// downloadConfigImportBackup 下载当前管理员生成的私有导入前备份。
+export async function downloadConfigImportBackup(backupId: string) {
+  const pathBackupId = encodeURIComponent(backupId);
+  return requestClient.download<Blob>(`/dicts/import/backup/${pathBackupId}`, {
+    params: { backupId },
+  });
+}
+
+// importConfigExcel 使用已下载的备份凭证导入字典配置 Excel。
+export async function importConfigExcel(uploadId: string, backupId: string) {
   return requestClient.post<SystemConfigApi.ImportResp>('/dicts/import', {
-    ...payload,
+    backupId,
+    uploadId,
   });
 }
 
@@ -92,7 +128,7 @@ export async function updateConfig(
   id: number,
   data: SystemConfigApi.SaveParams,
 ) {
-  return requestClient.patch(`/dicts/${id}`, data);
+  return requestClient.patch<CommonApi.CacheSyncResp>(`/dicts/${id}`, data);
 }
 
 // fetchConfigCache 查看字典配置缓存。

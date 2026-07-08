@@ -11,6 +11,11 @@ import { APP_DEFAULT_HOME_PATH } from '#/constants/app';
 import { buildEffectiveAccessCodes } from '#/constants/permission-codes';
 import { accessRoutes, coreRouteNames } from '#/router/routes';
 import { useAuthStore } from '#/store';
+import {
+  currentSessionStateVersion,
+  runSessionStateMutation,
+  SESSION_STATE_CHANGED,
+} from '#/utils/session-state-gate';
 
 import { generateAccess } from './access';
 
@@ -131,6 +136,8 @@ function setupAccessGuard(router: Router) {
     if (accessStore.isAccessChecked) {
       return true;
     }
+    const sourceToken = String(accessStore.accessToken || '');
+    const sourceSessionVersion = currentSessionStateVersion();
 
     // 生成动态路由前，先读取当前登录用户资料。
     // 这里的角色信息仅用于 Vben 路由过滤入参；真正的页面/按钮/API 权限显隐仍以 accessCodes 为主。
@@ -147,6 +154,9 @@ function setupAccessGuard(router: Router) {
           replace: true,
         };
       }
+      if (error instanceof Error && error.message === SESSION_STATE_CHANGED) {
+        return false;
+      }
       throw error;
     }
     // 获取当前登录账号的角色名称、角色 ID与权限码。
@@ -160,23 +170,44 @@ function setupAccessGuard(router: Router) {
       userInfo,
       accessStore.accessCodes,
     );
-    // 将兜底后的权限码回写到 accessStore，保证按钮、表格和运行时显隐判断使用同一份数据。
-    accessStore.setAccessCodes(accessCodes);
+    const generatedAccess = await runSessionStateMutation(async () => {
+      if (
+        !sourceToken ||
+        sourceToken !== accessStore.accessToken ||
+        sourceSessionVersion !== currentSessionStateVersion()
+      ) {
+        return null;
+      }
+      // 将兜底后的权限码回写到 accessStore，保证按钮、表格和运行时显隐判断使用同一份数据。
+      accessStore.setAccessCodes(accessCodes);
 
-    // 生成菜单和路由
-    // Vben 默认使用 roles 过滤路由，这里我们将 roles 和 accessCodes 合并传入，
-    // 使得 meta.authority 既能匹配角色，也能匹配权限码。
-    const { accessibleMenus, accessibleRoutes } = await generateAccess({
-      roles: [...userRoles, ...accessCodes],
-      router,
-      // 则会在菜单中显示，但是访问会被重定向到403
-      routes: accessRoutes,
+      // Vben 默认使用 roles 过滤路由，这里将角色和权限码合并传入。
+      const generated = await generateAccess({
+        roles: [...userRoles, ...accessCodes],
+        router,
+        // 无权限但要求保留菜单时，由路由组件显示 403 页面。
+        routes: accessRoutes,
+      });
+      if (
+        sourceToken !== accessStore.accessToken ||
+        sourceSessionVersion !== currentSessionStateVersion()
+      ) {
+        return null;
+      }
+      accessStore.setAccessMenus(generated.accessibleMenus);
+      accessStore.setAccessRoutes(generated.accessibleRoutes);
+      accessStore.setIsAccessChecked(true);
+      return generated;
     });
-
-    // 保存菜单信息和路由信息
-    accessStore.setAccessMenus(accessibleMenus);
-    accessStore.setAccessRoutes(accessibleRoutes);
-    accessStore.setIsAccessChecked(true);
+    if (!generatedAccess) {
+      return false;
+    }
+    if (
+      sourceToken !== accessStore.accessToken ||
+      sourceSessionVersion !== currentSessionStateVersion()
+    ) {
+      return false;
+    }
 
     const needResetPassword = Number(userInfo.needResetPassword || 0) === 1;
     if (needResetPassword && to.name !== 'SystemProfile') {

@@ -35,6 +35,10 @@ import { router } from '#/router';
 import { copyTextToClipboard } from '#/utils/security/password';
 
 import { useVbenForm } from './form';
+import { createRowFieldSingleFlight } from './row-field-single-flight';
+
+// runCellSwitchChange 合并同一行字段的并发开关请求，避免重复提交与回写乱序。
+const runCellSwitchChange = createRowFieldSingleFlight();
 
 // OnActionClickParams 定义表格操作列点击事件参数。
 export interface OnActionClickParams<T = any> {
@@ -64,6 +68,16 @@ export interface ClampTextRenderAttrs {
   getText?: (params: ClampTextRenderParams) => any; // 自定义文本提取逻辑
   lines?: number; // 显示行数，默认 2 行
   placeholder?: string; // 空值占位文案
+}
+
+// RoutePathLinkAttrs 定义前端路由链接单元格的展示与复制配置。
+export interface RoutePathLinkAttrs {
+  labelField?: string; // labelField 指向行数据中的短展示文案字段。
+  copyButtonText?: string; // Tooltip 内复制按钮文案。
+  copiedButtonText?: string; // 复制成功后的按钮文案。
+  copySuccessMessage?: string; // 复制成功提示文案。
+  copyEmptyMessage?: string; // 无内容可复制提示文案。
+  placeholder?: string; // 空值占位文案。
 }
 
 // buildClampTextColumn 为列表页长文本列统一补齐“多行省略 + 悬浮查看全文”渲染配置。
@@ -174,6 +188,19 @@ function resolveRoutePathText(params: Record<string, any>) {
   const row = (params?.row || {}) as Record<string, any>;
   const column = (params?.column || {}) as Record<string, any>;
   return String(row[String(column.field || '')] ?? '').trim();
+}
+
+// resolveRoutePathLabel 解析路由链接短文案，避免长路径撑开表格。
+function resolveRoutePathLabel(
+  renderOpts: Record<string, any>,
+  params: Record<string, any>,
+  path: string,
+) {
+  const attrs = (renderOpts?.attrs || {}) as RoutePathLinkAttrs;
+  const row = (params?.row || {}) as Record<string, any>;
+  const labelField = String(attrs.labelField || '').trim();
+  const label = labelField ? String(row[labelField] ?? '').trim() : '';
+  return label || path;
 }
 
 // resolveRoutablePath 校验当前文本是否为可跳转的前端路由路径。
@@ -324,34 +351,67 @@ setupVbenVxeTable({
 
     // 表格配置项可以用 cellRender: { name: 'CellRoutePathLink' }，仅对真实前端路由渲染跳转链接。
     vxeUI.renderer.add('CellRoutePathLink', {
-      renderTableDefault(_renderOpts, params) {
+      renderTableDefault(renderOpts, params) {
+        const attrs = (renderOpts?.attrs || {}) as RoutePathLinkAttrs;
         const text = resolveRoutePathText(params);
         if (!text) {
-          return '-';
+          return attrs.placeholder || '-';
         }
         const routablePath = resolveRoutablePath(text);
+        const label = resolveRoutePathLabel(renderOpts, params, text);
+        const tooltipAttrs: ClampTextRenderAttrs = {
+          copiedButtonText: attrs.copiedButtonText,
+          copyButtonText: attrs.copyButtonText,
+          copyEmptyMessage: attrs.copyEmptyMessage,
+          copySuccessMessage: attrs.copySuccessMessage,
+        };
+        const title = () =>
+          h(ClampTextTooltipContent, {
+            attrs: tooltipAttrs,
+            text,
+          });
         if (!routablePath) {
           return h(
-            'span',
+            Tooltip,
             {
-              class: 'whitespace-pre-wrap break-all text-left',
+              placement: 'topLeft',
             },
-            text,
+            {
+              default: () =>
+                h(
+                  'span',
+                  {
+                    class: 'block max-w-full truncate text-left',
+                  },
+                  label,
+                ),
+              title,
+            },
           );
         }
+        const routeHref = router.resolve(routablePath).href;
         return h(
-          Button,
+          Tooltip,
           {
-            class: 'h-auto px-0 text-left whitespace-pre-wrap break-all',
-            size: 'small',
-            type: 'link',
-            onClick: (event: MouseEvent) => {
-              event.stopPropagation();
-              void router.push(routablePath);
-            },
+            placement: 'topLeft',
           },
           {
-            default: () => text,
+            default: () =>
+              h(
+                'a',
+                {
+                  class:
+                    'inline-block max-w-full truncate text-left text-primary hover:underline',
+                  href: routeHref,
+                  onClick: (event: MouseEvent) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void router.push(routablePath);
+                  },
+                },
+                label,
+              ),
+            title,
           },
         );
       },
@@ -419,12 +479,14 @@ setupVbenVxeTable({
           unCheckedChildren,
           async onChange(checked: any) {
             const nextValue = checked ? checkedValue : uncheckedValue;
-            const allowChange = attrs?.beforeChange
-              ? await attrs.beforeChange(nextValue, row)
-              : true;
-            if (allowChange !== false) {
-              rowMap[field] = nextValue;
-            }
+            await runCellSwitchChange(rowMap, field, async () => {
+              const allowChange = attrs?.beforeChange
+                ? await attrs.beforeChange(nextValue, row)
+                : true;
+              if (allowChange !== false) {
+                rowMap[field] = nextValue;
+              }
+            });
           },
         });
       },
@@ -498,6 +560,16 @@ setupVbenVxeTable({
           if (typeof item !== 'string' && item?.visible === false) {
             return false;
           }
+          // allAuth 用于必须同时具备多个接口权限的复合行操作；auth 继续保留原有任一权限语义。
+          const allAuth = item?.allAuth;
+          if (allAuth) {
+            const requiredCodes = Array.isArray(allAuth) ? allAuth : [allAuth];
+            if (
+              !requiredCodes.every((code: string) => hasAccessByCodes([code]))
+            ) {
+              return false;
+            }
+          }
           const auth = item?.auth;
           if (!auth) return true;
           const auths = Array.isArray(auth) ? auth : [auth];
@@ -510,24 +582,28 @@ setupVbenVxeTable({
           (item: any) => typeof item !== 'string' && Boolean(item?.iconOnly),
         );
         const shouldWrap = visibleOptions.length > 3;
-        const columnCount = visibleOptions.length === 4 ? 2 : 3;
-        const itemStyle = shouldWrap
-          ? {
-              width: allIconOnly
-                ? `${100 / columnCount}%`
-                : `calc(${100 / columnCount}% - 4px)`,
-            }
-          : undefined;
-        const containerClass = shouldWrap
-          ? [
-              'flex w-full flex-wrap items-center gap-y-1',
-              allIconOnly ? 'justify-center' : '',
-            ]
-              .filter(Boolean)
-              .join(' ')
-          : 'flex flex-wrap items-center gap-x-1 gap-y-1';
+        const useIconGrid = shouldWrap && allIconOnly;
+        const iconGridColumns = Number(attrs?.iconGridColumns) === 3 ? 3 : 2;
+        const columnCount = 3;
+        const itemStyle =
+          shouldWrap && !allIconOnly
+            ? {
+                width: `calc(${100 / columnCount}% - 4px)`,
+              }
+            : undefined;
+        let containerClass = 'flex flex-wrap items-center gap-x-1 gap-y-1';
+        if (useIconGrid) {
+          containerClass =
+            iconGridColumns === 3
+              ? 'mx-auto grid w-fit grid-cols-3 justify-items-center gap-x-1 gap-y-0.5'
+              : 'mx-auto grid w-fit grid-cols-2 justify-items-center gap-x-1 gap-y-0.5';
+        } else if (shouldWrap) {
+          containerClass = 'flex w-full flex-wrap items-center gap-x-2 gap-y-1';
+        }
         let itemClass: string | undefined;
-        if (shouldWrap) {
+        if (useIconGrid) {
+          itemClass = 'flex h-6 w-6 items-center justify-center';
+        } else if (shouldWrap) {
           itemClass = allIconOnly ? 'flex justify-center' : 'pr-1';
         }
         return h(
@@ -554,7 +630,7 @@ setupVbenVxeTable({
                 // buttonClass 按操作按钮展示方式计算样式，避免模板中出现嵌套三元表达式。
                 let buttonClass = 'px-0';
                 if (iconOnly) {
-                  buttonClass = 'px-1';
+                  buttonClass = 'h-6 w-6 px-0 text-sm leading-none';
                 } else if (shouldWrap) {
                   buttonClass = 'w-full justify-start px-0 text-left';
                 }

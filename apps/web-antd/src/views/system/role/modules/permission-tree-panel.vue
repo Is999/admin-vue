@@ -16,12 +16,14 @@ import {
 
 import { $t, $te } from '#/locales';
 
+import TreeExpandToolbar from '../../components/tree-expand-toolbar.vue';
 import { typeOptions, typeTagMeta } from '../../permission/data';
 import {
   buildDisplayedPermissionCheckedIds,
   buildPermissionRelationMaps,
   buildPermissionViewTree,
   collectAllPermissionIds,
+  collectPermissionIdsByDepth,
   collectPermissionState,
   isPermissionNodeCheckable,
   updateSelectedPermissionIds,
@@ -29,13 +31,21 @@ import {
 
 interface Props {
   canWrite: boolean;
+  idPrefix?: string;
   readOnlyDescription?: string;
+  searchPlaceholder?: string;
+  showTypeFilter?: boolean;
+  title?: string;
   treeData: SystemPermissionApi.Item[];
   modelValue: number[];
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  idPrefix: 'role-permission',
   readOnlyDescription: $t('business.message.permissionTreeReadOnlyDesc'),
+  searchPlaceholder: $t('business.message.searchPermissionKeyword'),
+  showTypeFilter: true,
+  title: $t('business.message.rolePermissions'),
 });
 
 const emit = defineEmits<{
@@ -70,7 +80,7 @@ const selectedPermissionIds = computed({
   set: (value: number[]) => emit('update:modelValue', value),
 });
 
-// permissionState 缓存权限树勾选与可编辑范围，避免展示态误覆盖只读授权。
+// permissionState 缓存权限树勾选与可编辑范围，避免操作时丢失锁定节点的展示态。
 const permissionState = computed(() => collectPermissionState(props.treeData));
 
 // translateOptionLabel 优先翻译已登记 key，未登记时保留后端或枚举原文。
@@ -127,7 +137,9 @@ function resolvePermissionStateHints(item: SystemPermissionApi.Item) {
 
 // buildPermissionTitle 构造权限树节点标题，直接内联展示关键信息，避免悬浮提示遮挡界面。
 function buildPermissionTitle(item: SystemPermissionApi.Item) {
-  const typeLabel = resolvePermissionKindLabel(item.type);
+  const typeLabel = props.showTypeFilter
+    ? resolvePermissionKindLabel(item.type)
+    : '';
   const moduleLabel = resolvePermissionKindLabel(item.module);
   const stateTags = resolvePermissionStateHints(item);
   return h(
@@ -141,11 +153,13 @@ function buildPermissionTitle(item: SystemPermissionApi.Item) {
       },
     },
     [
-      h(
-        Tag,
-        { bordered: false, color: 'default' },
-        { default: () => `ID:${item.id}` },
-      ),
+      item.virtual
+        ? null
+        : h(
+            Tag,
+            { bordered: false, color: 'default' },
+            { default: () => `ID:${item.id}` },
+          ),
       h(
         'span',
         {
@@ -239,11 +253,36 @@ function onCollapseAll() {
   expandedPermissionIds.value = [];
 }
 
+// onExpandLevel 补充展开前 N 层节点，同时保留用户已手动展开的更深层节点。
+function onExpandLevel(level: number) {
+  const targetIds = collectPermissionIdsByDepth(
+    filteredPermissionTree.value,
+    1,
+    level - 1,
+  );
+  expandedPermissionIds.value = [
+    ...new Set([...expandedPermissionIds.value, ...targetIds]),
+  ];
+}
+
+// onCollapseLevel 从第 N 层开始折叠节点及后代，保留更高层级的展开状态。
+function onCollapseLevel(level: number) {
+  const collapsedIds = new Set(
+    collectPermissionIdsByDepth(filteredPermissionTree.value, level),
+  );
+  expandedPermissionIds.value = expandedPermissionIds.value.filter(
+    (item) => !collapsedIds.has(item),
+  );
+}
+
 // onCheckAllEnabled 勾选全部可用权限。
 function onCheckAllEnabled() {
   const walk = (items: SystemPermissionApi.Item[]): number[] =>
     items.flatMap((item) => {
-      const current = isPermissionNodeCheckable(item) ? [item.id] : [];
+      const current =
+        isPermissionNodeCheckable(item) && item.id > 0 && !item.virtual
+          ? [item.id]
+          : [];
       return [...current, ...walk(item.children || [])];
     });
   const enabledIds = walk(props.treeData);
@@ -271,12 +310,13 @@ function onPermissionCheck(_checkedKeys: unknown, event: any) {
   if (!nodeID) {
     return;
   }
+  const { nodeById } = buildPermissionRelationMaps(props.treeData);
   selectedPermissionIds.value = updateSelectedPermissionIds(
     props.treeData,
     selectedPermissionIds.value,
     nodeID,
     Boolean(event?.checked),
-    false,
+    Boolean(nodeById.get(nodeID)?.virtual),
   );
 }
 
@@ -315,6 +355,19 @@ watch(
   },
   { deep: true, immediate: true },
 );
+/** 为权限树内置的键盘焦点输入补齐浏览器表单标识。 */
+function bindPermissionTreeFocusInput(element: unknown) {
+  if (!(element instanceof HTMLElement)) return;
+
+  const input = element.querySelector<HTMLInputElement>(
+    'input[aria-label="for screen reader"]',
+  );
+  if (!input) return;
+
+  input.id = `${props.idPrefix}-tree-focus`;
+  input.name = `${props.idPrefix}-tree-focus`;
+  input.autocomplete = 'off';
+}
 </script>
 
 <template>
@@ -323,7 +376,7 @@ watch(
   >
     <div class="mb-3 flex items-center gap-2">
       <span class="text-sm font-medium text-[var(--ant-color-text)]">
-        {{ $t('business.message.rolePermissions') }}
+        {{ title }}
       </span>
       <Tag v-if="canWrite" color="processing">
         {{ $t('business.message.pendingSaveCount', [selectedPermissionCount]) }}
@@ -353,15 +406,19 @@ watch(
         </span>
       </template>
     </Alert>
-    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-      <Space wrap>
+    <div class="permission-tree-toolbar mb-3 flex flex-wrap items-center gap-2">
+      <Space class="permission-tree-toolbar__filters" wrap>
         <Input
+          :id="`${idPrefix}-search`"
+          :name="`${idPrefix}-search`"
+          autocomplete="off"
           v-model:value="permissionKeyword"
           allow-clear
           class="w-[240px]"
-          :placeholder="$t('business.message.searchPermissionKeyword')"
+          :placeholder="searchPlaceholder"
         />
         <Select
+          v-if="showTypeFilter"
           v-model:value="permissionTypeFilter"
           allow-clear
           class="w-[150px]"
@@ -373,13 +430,13 @@ watch(
           {{ $t('business.message.onlyChecked') }}
         </Checkbox>
       </Space>
-      <Space wrap>
-        <Button size="small" @click="onExpandAll">
-          {{ $t('business.message.expand') }}
-        </Button>
-        <Button size="small" @click="onCollapseAll">
-          {{ $t('business.message.collapse') }}
-        </Button>
+      <Space class="permission-tree-toolbar__actions" wrap>
+        <TreeExpandToolbar
+          :collapse-all-handler="onCollapseAll"
+          :collapse-level-handler="onCollapseLevel"
+          :expand-all-handler="onExpandAll"
+          :expand-level-handler="onExpandLevel"
+        />
         <Button v-if="canWrite" size="small" @click="onCheckAllEnabled">
           {{ $t('business.message.checkAllEnabled') }}
         </Button>
@@ -388,7 +445,10 @@ watch(
         </Button>
       </Space>
     </div>
-    <div class="role-permission-tree-scroll max-h-[420px] overflow-auto pr-1">
+    <div
+      :ref="bindPermissionTreeFocusInput"
+      class="role-permission-tree-scroll max-h-[420px] overflow-auto pr-1"
+    >
       <Tree
         :checked-keys="displayedPermissionIds"
         :expanded-keys="expandedPermissionIds"
@@ -403,3 +463,36 @@ watch(
     </div>
   </div>
 </template>
+
+<style scoped>
+.role-permission-panel {
+  container: role-permission-panel / inline-size;
+}
+
+.permission-tree-toolbar__filters,
+.permission-tree-toolbar__actions {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.permission-tree-toolbar__filters {
+  flex: 1 1 450px;
+}
+
+.permission-tree-toolbar__actions {
+  flex: 1 1 508px;
+  justify-content: flex-end;
+}
+
+@container role-permission-panel (max-width: 980px) {
+  .permission-tree-toolbar__filters,
+  .permission-tree-toolbar__actions {
+    flex-basis: 100%;
+    width: 100%;
+  }
+
+  .permission-tree-toolbar__actions {
+    justify-content: flex-start;
+  }
+}
+</style>

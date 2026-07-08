@@ -45,12 +45,9 @@ export function buildAdminCacheTargets(adminID?: number) {
     return [];
   }
   return [
-    `admin_profile:${currentAdminID}`,
     `admin_roles_detail:${currentAdminID}`,
     `admin_role_ids:${currentAdminID}`,
-    `admin_permission_ids:${currentAdminID}`,
-    `admin_permission_uuids:${currentAdminID}`,
-    `admin:info:${currentAdminID}`,
+    `admin:session:${currentAdminID}`,
   ];
 }
 
@@ -60,12 +57,15 @@ export function buildRoleCacheTargets(roleID?: number) {
   if (!Number.isFinite(currentRoleID) || currentRoleID <= 0) {
     return [];
   }
-  return [`role_permission:${currentRoleID}`];
+  return [
+    `role_permission:${currentRoleID}`,
+    `role_doc_permission:${currentRoleID}`,
+  ];
 }
 
 // buildRoleCacheTemplateKeys 返回角色管理页关联的模板缓存 key 定义。
 export function buildRoleCacheTemplateKeys() {
-  return ['role_permission:{roleID}'];
+  return ['role_permission:{roleID}', 'role_doc_permission:{roleID}'];
 }
 
 // buildConfigCacheTargets 返回字典配置对应的模板缓存实例 key。
@@ -121,15 +121,5 @@ export function buildSecretKeyCacheTemplateKeys() {
 
 // buildPermissionCacheTargets 返回权限管理页相关的缓存 key 与模板实例搜索条件。
 export function buildPermissionCacheTargets() {
-  return [
-    'permission_tree',
-    'permission_uuid',
-    'permission_module',
-    'route_permission_ids:*',
-  ];
-}
-
-// buildPermissionCacheTemplateKeys 返回权限管理页关联的模板缓存 key 定义。
-export function buildPermissionCacheTemplateKeys() {
-  return ['route_permission_ids:{routeAlias}'];
+  return ['permission_tree', 'permission_uuid', 'route_permission_ids'];
 }

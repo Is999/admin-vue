@@ -1,8 +1,10 @@
 <script lang="ts" setup>
 // ================= 类型与依赖引入 =================
+import type { AdminFormValues } from '../form-payload';
+
 import type { SystemAdminApi } from '#/api/system';
 
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 
 import { useVbenDrawer } from '@vben/common-ui';
 
@@ -25,8 +27,10 @@ import {
   fetchRoleTreeOptions,
   updateAdmin,
   updateAdminMfaStatus,
+  updateAdminStatus,
 } from '#/api/system';
 import { $t } from '#/locales';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 import { resolveRequestErrorMessage } from '#/utils/file/download';
 import { cropAvatarFile, resolveDisplayFileURL } from '#/utils/file/image';
 import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
@@ -39,6 +43,11 @@ import { createResumableUpload } from '#/utils/transfer/resumable-upload';
 
 import FormTips from '../../components/form-tips.vue';
 import { useFormSchema } from '../data';
+import {
+  buildCreateAdminParams,
+  buildUpdateAdminParams,
+  hasAdminUpdateChanges,
+} from '../form-payload';
 import {
   buildAdminRoleRelationMaps,
   buildAdminRoleTreeOptions,
@@ -53,8 +62,12 @@ import {
 const emit = defineEmits<{ success: [] }>();
 // MFA_SCENARIO_ADD_USER 表示新增管理员二次校验场景。
 const MFA_SCENARIO_ADD_USER = 5;
-// MFA_SCENARIO_STATUS 表示修改管理员 MFA 状态二次校验场景。
-const MFA_SCENARIO_STATUS = 2;
+// MFA_SCENARIO_CHANGE_PASSWORD 表示修改管理员密码二次校验场景。
+const MFA_SCENARIO_CHANGE_PASSWORD = 1;
+// MFA_SCENARIO_MFA_STATUS 表示修改管理员 MFA 状态二次校验场景。
+const MFA_SCENARIO_MFA_STATUS = 2;
+// MFA_SCENARIO_USER_STATUS 表示修改管理员账号状态二次校验场景。
+const MFA_SCENARIO_USER_STATUS = 4;
 // MFA_SCENARIO_EDIT_USER 表示编辑管理员二次校验场景。
 const MFA_SCENARIO_EDIT_USER = 6;
 
@@ -68,6 +81,8 @@ const roleTree = ref<Array<Record<string, any>>>([]);
 const avatarUploading = ref(false);
 // avatarPreviewURL 保存当前头像预览地址。
 const avatarPreviewURL = ref('');
+// avatarLocalPreviewURL 保存上传后、资料保存前的本地预览地址。
+const avatarLocalPreviewURL = ref('');
 // avatarInputRef 绑定头像文件选择器。
 const avatarInputRef = ref<HTMLInputElement | null>(null);
 // roleKeyword 保存角色树筛选关键字。
@@ -76,6 +91,19 @@ const roleKeyword = ref('');
 const selectedRoleIds = ref<number[]>([]);
 // expandedRoleIds 保存角色树已展开节点。
 const expandedRoleIds = ref<number[]>([]);
+// drawerSessionID 标识当前抽屉会话，避免旧请求或旧提交覆盖新状态。
+let drawerSessionID = 0;
+
+// clearAvatarLocalPreviewURL 释放头像本地预览对象，避免反复打开抽屉积累 Blob URL。
+function clearAvatarLocalPreviewURL() {
+  if (avatarLocalPreviewURL.value) {
+    URL.revokeObjectURL(avatarLocalPreviewURL.value);
+    avatarLocalPreviewURL.value = '';
+  }
+}
+
+// onBeforeUnmount 组件销毁时释放头像本地预览对象。
+onBeforeUnmount(clearAvatarLocalPreviewURL);
 
 // [Form, formApi] 创建 Vben 表单实例。
 const [Form, formApi] = useVbenForm({
@@ -83,7 +111,7 @@ const [Form, formApi] = useVbenForm({
     colon: true,
     formItemClass: 'col-span-2 md:col-span-1',
   },
-  schema: useFormSchema(),
+  schema: useFormSchema(false),
   showDefaultActions: false,
   wrapperClass: 'grid-cols-1 md:grid-cols-2 gap-x-4',
 });
@@ -122,8 +150,8 @@ function updateCheckedRoleIds(
   return [...checkedSet].toSorted((a, b) => a - b);
 }
 
-// normalizeMfaStatus 把表单值收敛成后端支持的 MFA 状态枚举。
-function normalizeMfaStatus(value: unknown): SystemAdminApi.Status {
+// normalizeAdminStatus 把表单值收敛成后端支持的状态枚举。
+function normalizeAdminStatus(value: unknown): SystemAdminApi.Status {
   return Number(value) === 1 ? 1 : 0;
 }
 
@@ -160,57 +188,75 @@ const filteredRoleTree = computed<any[]>(() =>
 const [Drawer, drawerApi] = useVbenDrawer({
   onConfirm: onSubmit,
   async onOpenChange(isOpen) {
+    const sessionID = ++drawerSessionID;
     if (!isOpen) {
+      clearAvatarLocalPreviewURL();
+      loading.value = false;
+      drawerApi.unlock();
       return;
     }
-    const data = drawerApi.getData<Partial<SystemAdminApi.Item>>();
-    formApi.resetForm();
-    formData.value = {};
-    roleKeyword.value = '';
-    selectedRoleIds.value = [];
-    roleTree.value = buildAdminRoleTreeOptions(await fetchRoleTreeOptions());
-    expandedRoleIds.value = collectAllAdminRoleNodeIds(roleTree.value);
-    formApi.updateSchema(useFormSchema());
-    // 从列表页读取当前行数据，存在 ID 时查询详情并回填。
-    if (data?.id) {
-      loading.value = true;
-      fetchAdminDetail(data.id)
-        .then(async (res) => {
-          formData.value = res;
-          selectedRoleIds.value = pruneInheritedRoleIDs(
-            res.roleIDs ?? [],
-            roleTree.value,
-          );
-          avatarPreviewURL.value = resolveDisplayFileURL(
-            String(res.avatar || ''),
-            requestClient.getBaseUrl(),
-          );
-          // 编辑时不回填密码，避免误提交旧密码。
-          formApi.setValues({
-            ...res,
-            password: '',
-          });
-          await formApi.resetValidate();
-        })
-        .finally(() => {
-          loading.value = false;
+    drawerApi.lock();
+    loading.value = true;
+    try {
+      const data = drawerApi.getData<Partial<SystemAdminApi.Item>>();
+      clearAvatarLocalPreviewURL();
+      formApi.resetForm();
+      formData.value = data?.id ? data : {};
+      roleKeyword.value = '';
+      selectedRoleIds.value = [];
+      roleTree.value = [];
+      expandedRoleIds.value = [];
+      avatarPreviewURL.value = '';
+      formApi.updateSchema(
+        useFormSchema(Boolean(data?.id), data?.self === true),
+      );
+      // 编辑只加载基础资料；角色关系统一由列表的角色配置入口维护。
+      if (data?.id) {
+        const res = await fetchAdminDetail(data.id);
+        if (sessionID !== drawerSessionID) {
+          return;
+        }
+        formData.value = res;
+        formApi.updateSchema(useFormSchema(true, res.self === true));
+        avatarPreviewURL.value = resolveDisplayFileURL(
+          String(res.avatar || ''),
+          requestClient.getBaseUrl(),
+        );
+        // 编辑时不回填密码，避免误提交旧密码。
+        await formApi.setValues({
+          ...res,
+          password: '',
         });
-      return;
+        if (sessionID === drawerSessionID) {
+          await formApi.resetValidate();
+        }
+        return;
+      }
+      const roles = await fetchRoleTreeOptions();
+      if (sessionID !== drawerSessionID) {
+        return;
+      }
+      roleTree.value = buildAdminRoleTreeOptions(roles);
+      expandedRoleIds.value = collectAllAdminRoleNodeIds(roleTree.value);
+      await formApi.setValues({
+        avatar: '',
+        description: '',
+        email: '',
+        password: generateRandomPassword(),
+        phone: '',
+        realName: '',
+        username: '',
+      });
+      selectedRoleIds.value = [];
+      if (sessionID === drawerSessionID) {
+        await formApi.resetValidate();
+      }
+    } finally {
+      if (sessionID === drawerSessionID) {
+        loading.value = false;
+        drawerApi.unlock();
+      }
     }
-    formApi.setValues({
-      avatar: '',
-      description: '',
-      email: '',
-      mfaStatus: 0,
-      password: generateRandomPassword(),
-      phone: '',
-      realName: '',
-      status: 1,
-      username: '',
-    });
-    selectedRoleIds.value = [];
-    avatarPreviewURL.value = '';
-    await formApi.resetValidate();
   },
 });
 
@@ -293,10 +339,9 @@ async function onAvatarFileChange(event: Event) {
     if (!avatarURL) {
       throw new Error($t('business.message.avatarUploadNoAccessUrl'));
     }
-    avatarPreviewURL.value = resolveDisplayFileURL(
-      avatarURL,
-      requestClient.getBaseUrl(),
-    );
+    clearAvatarLocalPreviewURL();
+    avatarLocalPreviewURL.value = URL.createObjectURL(file);
+    avatarPreviewURL.value = avatarLocalPreviewURL.value;
     await formApi.setFieldValue('avatar', avatarURL, false);
     message.success($t('business.message.avatarUploadedSaveToApply'));
   } catch (error) {
@@ -315,16 +360,31 @@ async function onAvatarFileChange(event: Event) {
 
 // onSubmit 校验表单并提交新增或编辑请求。
 async function onSubmit() {
+  const sessionID = drawerSessionID;
   const { valid } = await formApi.validate();
-  if (!valid) {
+  if (!valid || sessionID !== drawerSessionID) {
     return;
   }
-  const values = await formApi.getValues<SystemAdminApi.SaveParams>();
+  const values = await formApi.getValues<AdminFormValues>();
   const isEdit = Boolean(formData.value?.id);
-  const nextMfaStatus = normalizeMfaStatus(values.mfaStatus);
+  const adminID = Number(formData.value?.id || 0);
+  const nextStatus = normalizeAdminStatus(values.status);
+  const shouldUpdateStatus =
+    isEdit &&
+    formData.value?.self !== true &&
+    nextStatus !== normalizeAdminStatus(formData.value?.status);
+  const nextMfaStatus = normalizeAdminStatus(values.mfaStatus);
   const shouldUpdateMfaStatus =
-    isEdit && nextMfaStatus !== normalizeMfaStatus(formData.value?.mfaStatus);
-  values.roleIDs = pruneInheritedRoleIDs(selectedRoleIds.value, roleTree.value);
+    isEdit &&
+    formData.value?.self !== true &&
+    nextMfaStatus !== normalizeAdminStatus(formData.value?.mfaStatus);
+  const roleIDs = isEdit
+    ? []
+    : pruneInheritedRoleIDs(selectedRoleIds.value, roleTree.value);
+  const updatePayload = isEdit ? buildUpdateAdminParams(values) : undefined;
+  const shouldUpdateProfile =
+    updatePayload !== undefined &&
+    hasAdminUpdateChanges(updatePayload, formData.value);
   // 新增用户必须填写初始密码，编辑用户密码留空时不传给后端。
   if (!formData.value?.id && !String(values.password || '').trim()) {
     message.error($t('business.message.newUserPasswordRequired'));
@@ -340,49 +400,75 @@ async function onSubmit() {
     message.error(passwordError);
     return;
   }
-  if (formData.value?.id && !String(values.password || '').trim()) {
-    delete values.password;
-  }
-  delete values.mfaStatus;
-
   drawerApi.lock();
+  // 编辑包含资料、状态和 MFA 多步提交；任一步待同步都必须保留最终警告。
+  let syncPending = false;
   try {
-    const payloadBase = {
-      ...values,
-      isUpdateRoles: isEdit,
-    };
-    await submitWithMfaRetry(
-      isEdit ? MFA_SCENARIO_EDIT_USER : MFA_SCENARIO_ADD_USER,
-      (ticket) => {
-        const payload = { ...payloadBase, ...ticketPayload(ticket) };
-        return isEdit
-          ? updateAdmin(formData.value.id!, payload)
-          : createAdmin(payload);
-      },
-      isEdit
-        ? $t('business.message.editUserMfaTitle')
-        : $t('business.message.addUserMfaTitle'),
-    );
-    if (shouldUpdateMfaStatus) {
+    if (isEdit) {
+      if (updatePayload && shouldUpdateProfile) {
+        const updateMfaScenario = updatePayload.password
+          ? MFA_SCENARIO_CHANGE_PASSWORD
+          : MFA_SCENARIO_EDIT_USER;
+        const cacheSyncResult = await submitWithMfaRetry(
+          updateMfaScenario,
+          (ticket) =>
+            updateAdmin(adminID, {
+              ...updatePayload,
+              ...ticketPayload(ticket),
+            }),
+          updatePayload.password
+            ? $t('business.message.resetPasswordMfaTitle')
+            : $t('business.message.editUserMfaTitle'),
+        );
+        syncPending = syncPending || Boolean(cacheSyncResult?.syncPending);
+      }
+    } else {
+      const createPayload = buildCreateAdminParams(values, roleIDs);
       await submitWithMfaRetry(
-        MFA_SCENARIO_STATUS,
+        MFA_SCENARIO_ADD_USER,
         (ticket) =>
-          updateAdminMfaStatus(formData.value.id!, {
+          createAdmin({
+            ...createPayload,
+            ...ticketPayload(ticket),
+          }),
+        $t('business.message.addUserMfaTitle'),
+      );
+    }
+    if (shouldUpdateStatus) {
+      const cacheSyncResult = await submitWithMfaRetry(
+        MFA_SCENARIO_USER_STATUS,
+        (ticket) =>
+          updateAdminStatus(adminID, nextStatus, ticketPayload(ticket)),
+        $t('business.message.switchUserStatusMfaTitle'),
+      );
+      syncPending = syncPending || Boolean(cacheSyncResult?.syncPending);
+    }
+    if (shouldUpdateMfaStatus) {
+      const cacheSyncResult = await submitWithMfaRetry(
+        MFA_SCENARIO_MFA_STATUS,
+        (ticket) =>
+          updateAdminMfaStatus(adminID, {
             mfaStatus: nextMfaStatus,
             ...ticketPayload(ticket),
           }),
         $t('business.message.switchUserMfaStatusMfaTitle'),
       );
+      syncPending = syncPending || Boolean(cacheSyncResult?.syncPending);
     }
-    message.success(
-      isEdit
-        ? $t('business.message.userUpdated')
-        : $t('business.message.userCreated'),
-    );
-    drawerApi.close();
+    if (sessionID === drawerSessionID) {
+      showCacheSyncResult(
+        { syncPending },
+        isEdit
+          ? $t('business.message.userUpdated')
+          : $t('business.message.userCreated'),
+      );
+      drawerApi.close();
+    }
     emit('success');
   } finally {
-    drawerApi.unlock();
+    if (sessionID === drawerSessionID) {
+      drawerApi.unlock();
+    }
   }
 }
 
@@ -412,6 +498,19 @@ function onRoleCheck(_checkedKeys: unknown, event: any) {
     nodeID,
     Boolean(event?.checked),
   );
+}
+/** 为角色树内置的键盘焦点输入补齐浏览器表单标识。 */
+function bindRoleTreeFocusInput(element: unknown) {
+  if (!(element instanceof HTMLElement)) return;
+
+  const input = element.querySelector<HTMLInputElement>(
+    'input[aria-label="for screen reader"]',
+  );
+  if (!input) return;
+
+  input.id = 'admin-role-tree-focus';
+  input.name = 'admin-role-tree-focus';
+  input.autocomplete = 'off';
 }
 </script>
 
@@ -454,6 +553,8 @@ function onRoleCheck(_checkedKeys: unknown, event: any) {
           ref="avatarInputRef"
           accept=".jpg,.jpeg,.png,.gif,.webp"
           class="hidden"
+          id="admin-avatar-file"
+          name="admin-avatar-file"
           type="file"
           @change="onAvatarFileChange"
         />
@@ -467,12 +568,15 @@ function onRoleCheck(_checkedKeys: unknown, event: any) {
       </Space>
     </div>
     <Form class="mx-4 mt-4" />
-    <div class="mx-4 mt-4">
+    <div v-if="!formData?.id" class="mx-4 mt-4">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <Input
           v-model:value="roleKeyword"
           allow-clear
+          autocomplete="off"
           class="w-[240px]"
+          id="admin-role-search"
+          name="admin-role-search"
           :placeholder="$t('business.message.searchRoleName')"
         />
         <Space wrap>
@@ -491,6 +595,7 @@ function onRoleCheck(_checkedKeys: unknown, event: any) {
         </Space>
       </div>
       <div
+        :ref="bindRoleTreeFocusInput"
         class="mt-3 max-h-[320px] overflow-auto rounded-md border border-[var(--ant-color-border-secondary)] px-2 py-2"
       >
         <Tree
@@ -506,7 +611,7 @@ function onRoleCheck(_checkedKeys: unknown, event: any) {
         />
       </div>
     </div>
-    <div class="mx-4 mt-3">
+    <div v-if="!formData?.id || formData?.self !== true" class="mx-4 mt-3">
       <Space wrap>
         <Button type="primary" @click="fillRandomPassword()">
           {{

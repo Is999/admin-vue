@@ -10,27 +10,36 @@ export function splitTextToItems(text: string) {
     .filter(Boolean);
 }
 
-// TASK_QUEUE_OPTIONS 定义运维任务当前约定的内置队列说明。
-export const TASK_QUEUE_OPTIONS = [
+// TASK_QUEUE_DEFINITIONS 定义运维任务当前约定的内置队列及多语言键。
+const TASK_QUEUE_DEFINITIONS = [
   {
-    label: $t('business.message.queueCriticalLabel'),
+    descriptionKey: 'business.message.queueCriticalDesc',
+    labelKey: 'business.message.queueCriticalLabel',
     value: 'critical',
-    description: $t('business.message.queueCriticalDesc'),
   },
   {
-    label: $t('business.message.queueDefaultLabel'),
+    descriptionKey: 'business.message.queueDefaultDesc',
+    labelKey: 'business.message.queueDefaultLabel',
     value: 'default',
-    description: $t('business.message.queueDefaultDesc'),
   },
   {
-    label: $t('business.message.queueMaintenanceLabel'),
+    descriptionKey: 'business.message.queueMaintenanceDesc',
+    labelKey: 'business.message.queueMaintenanceLabel',
     value: 'maintenance',
-    description: $t('business.message.queueMaintenanceDesc'),
   },
 ] as const;
 
+// getTaskQueueOptions 按当前语言生成内置队列选项，避免切换语言后残留旧文案。
+export function getTaskQueueOptions() {
+  return TASK_QUEUE_DEFINITIONS.map((item) => ({
+    description: $t(item.descriptionKey),
+    label: $t(item.labelKey),
+    value: item.value,
+  }));
+}
+
 // TASK_QUEUE_FALLBACK_NAMES 定义“查全部”时的兜底队列清单。
-export const TASK_QUEUE_FALLBACK_NAMES = TASK_QUEUE_OPTIONS.map(
+export const TASK_QUEUE_FALLBACK_NAMES = TASK_QUEUE_DEFINITIONS.map(
   (item) => item.value,
 );
 
@@ -124,12 +133,14 @@ export function getProgressPercentValue(
   return Math.max(0, Math.min(100, value));
 }
 
-// getTaskQueueDescription 根据队列名返回中文说明，便于页面提示。
+// getTaskQueueDescription 根据队列名返回当前语言的用途说明。
 export function getTaskQueueDescription(queueName: string) {
-  const matchedQueue = TASK_QUEUE_OPTIONS.find(
+  const matchedQueue = TASK_QUEUE_DEFINITIONS.find(
     (item) => item.value === queueName,
   );
-  return matchedQueue?.description || $t('business.message.queueCustomDesc');
+  return matchedQueue
+    ? $t(matchedQueue.descriptionKey)
+    : $t('business.message.queueCustomDesc');
 }
 
 // buildHotReloadStatusLabel 根据热加载状态码生成更易懂的中文文案。

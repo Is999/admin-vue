@@ -152,7 +152,6 @@
       "screenButton": "Unlock",
       "password": "Password",
       "placeholder": "Please enter password",
-      "passwordMinLength": "Lock screen password must be longer than 4 characters",
       "unlock": "Click to unlock",
       "errorPasswordTip": "Password error, please re-enter",
       "backToLogin": "Back to login",

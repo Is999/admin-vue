@@ -223,7 +223,10 @@ function emitChange() {
   emit('optionsChange', unref(getOptions));
 }
 const componentRef = ref();
+// controlReady 表示最终业务控件已挂载，供表单延迟建立 label 关联。
+const controlReady = computed(() => Boolean(componentRef.value));
 defineExpose({
+  __vbenControlReady: controlReady,
   /** 获取options数据 */
   getOptions: () => unref(getOptions),
   /** 获取当前值 */

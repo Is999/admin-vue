@@ -32,12 +32,14 @@ import {
   buildRoleCacheTemplateKeys,
   openSystemCachePage,
 } from '#/utils/cache/navigation';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 
 import TreeExpandToolbar from '../components/tree-expand-toolbar.vue';
 import { useColumns, useGridFormSchema } from './data';
+import { buildDocPermissionTree } from './modules/doc-permission-tree';
 import Form from './modules/form.vue';
 import { collectPermissionState } from './modules/permission-tree';
-import PermissionTreePanel from './modules/permission-tree-panel.vue';
+import RolePermissionTabs from './modules/role-permission-tabs.vue';
 
 // ================= 抽屉表单配置 =================
 // FormDrawer 用于新增和编辑角色。
@@ -55,10 +57,18 @@ const router = useRouter();
 const accessStore = useAccessStore();
 // userStore 保存当前登录账号资料，角色权限变更后用于判断是否需要刷新当前菜单。
 const userStore = useUserStore();
-// permissionTree 保存角色权限树。
-const permissionTree = ref<SystemPermissionApi.Item[]>([]);
-// selectedPermissionIds 保存权限树勾选态，保存时再过滤到可编辑权限。
-const selectedPermissionIds = ref<number[]>([]);
+// routePermissionTree 保存正常路由权限树。
+const routePermissionTree = ref<SystemPermissionApi.Item[]>([]);
+// docPermissionTree 保存文档权限虚拟目录树。
+const docPermissionTree = ref<SystemPermissionApi.Item[]>([]);
+// selectedRoutePermissionIds 保存正常路由权限勾选态。
+const selectedRoutePermissionIds = ref<number[]>([]);
+// selectedDocPermissionIds 保存文档权限勾选态。
+const selectedDocPermissionIds = ref<number[]>([]);
+// permissionTreeWritable 保存后端计算的当前角色权限可写状态。
+const permissionTreeWritable = ref(false);
+// permissionRequestID 标识最后一次权限树请求，避免旧响应覆盖新角色。
+let permissionRequestID = 0;
 
 // canUpdateRoleStatus 控制角色状态列是否允许直接切换。
 const canUpdateRoleStatus = computed(() =>
@@ -75,11 +85,15 @@ const canUpdateRolePermission = computed(() =>
     SYSTEM_ACTION_PERMISSION_CODES.ROLE_PERMISSION_UPDATE,
   ),
 );
+// canWriteCurrentRolePermission 合并接口权限和角色管理范围，统一控制编辑与提交。
+const canWriteCurrentRolePermission = computed(
+  () => canUpdateRolePermission.value && permissionTreeWritable.value,
+);
 
 // PermissionModal 用于保存角色权限关系。
 const [PermissionModal, permissionModalApi] = useVbenModal({
   appendToMain: true,
-  class: 'w-[1120px] max-w-[calc(100vw-48px)]',
+  class: 'w-[calc(100%-24px)] max-w-[1120px]',
   destroyOnClose: true,
   draggable: true,
   onConfirm: onSavePermissions,
@@ -244,11 +258,17 @@ async function onOpenRoleCache(row: SystemRoleApi.Item) {
 
 // onCreate 打开新增角色抽屉，可从列表行直接新增子级。
 function onCreate(parent?: SystemRoleApi.Item) {
+  if (parent && !parent.canCreateChild) {
+    return;
+  }
   formDrawerApi.setData(parent?.id ? { pid: parent.id } : {}).open();
 }
 
 // onEdit 打开编辑角色抽屉。
 function onEdit(row: SystemRoleApi.Item) {
+  if (!row.manageable) {
+    return;
+  }
   formDrawerApi.setData(row).open();
 }
 
@@ -259,6 +279,9 @@ function onRefresh() {
 
 // onStatusChange 修改角色状态。
 async function onStatusChange(newStatus: number, row: SystemRoleApi.Item) {
+  if (!row.manageable || Number(row.id) === 1) {
+    return false;
+  }
   const statusText: Record<number, string> = {
     0: $t('business.message.disable'),
     1: $t('business.message.enable'),
@@ -302,7 +325,14 @@ async function onStatusChange(newStatus: number, row: SystemRoleApi.Item) {
           ]),
           $t('business.message.switchRoleStatus'),
         ));
-    await updateRoleStatus(row.id, newStatus as SystemRoleApi.Status);
+    const cacheSyncResult = await updateRoleStatus(
+      row.id,
+      newStatus as SystemRoleApi.Status,
+    );
+    showCacheSyncResult(
+      cacheSyncResult,
+      $t('business.message.roleStatusUpdated'),
+    );
     return true;
   } catch {
     return false;
@@ -311,20 +341,40 @@ async function onStatusChange(newStatus: number, row: SystemRoleApi.Item) {
 
 // onPermission 打开角色权限树弹窗。
 async function onPermission(row: SystemRoleApi.Item) {
+  const requestID = ++permissionRequestID;
   currentRole.value = row;
-  permissionTree.value = [];
-  selectedPermissionIds.value = [];
+  routePermissionTree.value = [];
+  docPermissionTree.value = [];
+  selectedRoutePermissionIds.value = [];
+  selectedDocPermissionIds.value = [];
+  permissionTreeWritable.value = false;
   permissionModalApi.setState({
+    confirmDisabled: true,
     title: $t('business.message.permissionConfigTitle', [row.title]),
   });
   permissionModalApi.open();
-  permissionModalApi.setState({ loading: true });
+  permissionModalApi.lock();
   try {
-    const tree = await fetchRolePermissionTree(row.id, false);
-    permissionTree.value = tree;
-    selectedPermissionIds.value = collectPermissionState(tree).checkedIds;
+    const result = await fetchRolePermissionTree(row.id);
+    if (requestID !== permissionRequestID || currentRole.value?.id !== row.id) {
+      return;
+    }
+    routePermissionTree.value = result.routePermissions;
+    docPermissionTree.value = buildDocPermissionTree(result.docPermissions);
+    permissionTreeWritable.value = result.writable;
+    selectedRoutePermissionIds.value = collectPermissionState(
+      routePermissionTree.value,
+    ).checkedIds;
+    selectedDocPermissionIds.value = collectPermissionState(
+      docPermissionTree.value,
+    ).checkedIds;
+    permissionModalApi.setState({
+      confirmDisabled: !canWriteCurrentRolePermission.value,
+    });
   } finally {
-    permissionModalApi.setState({ loading: false });
+    if (requestID === permissionRequestID) {
+      permissionModalApi.unlock();
+    }
   }
 }
 
@@ -333,19 +383,35 @@ async function onSavePermissions() {
   if (!currentRole.value) {
     return;
   }
-  if (!canUpdateRolePermission.value) {
+  if (!canWriteCurrentRolePermission.value) {
     message.warning($t('business.message.accountPermissionReadonly'));
     return;
   }
-  const enabledIds = collectPermissionState(permissionTree.value).enabledIds;
-  const permissionIDs = selectedPermissionIds.value.filter((item) =>
-    enabledIds.has(item),
+  const routeEnabledIds = collectPermissionState(
+    routePermissionTree.value,
+  ).enabledIds;
+  const docEnabledIds = collectPermissionState(
+    docPermissionTree.value,
+  ).enabledIds;
+  const routePermissionIds = selectedRoutePermissionIds.value.filter((item) =>
+    routeEnabledIds.has(item),
+  );
+  const docPermissionIds = selectedDocPermissionIds.value.filter((item) =>
+    docEnabledIds.has(item),
   );
   const savedRoleID = currentRole.value.id;
-  permissionModalApi.setState({ loading: true });
-  updateRolePermissions(savedRoleID, permissionIDs)
-    .then(async () => {
-      message.success($t('business.message.rolePermissionsConfigured'));
+  const requestID = permissionRequestID;
+  permissionModalApi.lock();
+  try {
+    const cacheSyncResult = await updateRolePermissions(savedRoleID, {
+      docPermissionIds,
+      routePermissionIds,
+    });
+    showCacheSyncResult(
+      cacheSyncResult,
+      $t('business.message.rolePermissionsConfigured'),
+    );
+    if (!cacheSyncResult?.syncPending) {
       await refreshCurrentAccessAfterRolePermissionSave(savedRoleID).catch(
         () => {
           accessStore.setIsAccessChecked(false);
@@ -354,12 +420,22 @@ async function onSavePermissions() {
           );
         },
       );
+    }
+    onRefresh();
+    if (
+      requestID === permissionRequestID &&
+      currentRole.value?.id === savedRoleID
+    ) {
       permissionModalApi.close();
-      onRefresh();
-    })
-    .finally(() => {
-      permissionModalApi.setState({ loading: false });
-    });
+    }
+  } finally {
+    if (
+      requestID === permissionRequestID &&
+      currentRole.value?.id === savedRoleID
+    ) {
+      permissionModalApi.unlock();
+    }
+  }
 }
 
 // refreshCurrentAccessAfterRolePermissionSave 在当前账号所属角色被改动时重建前端菜单，避免保存后侧边栏仍使用旧权限码。
@@ -383,15 +459,20 @@ async function refreshCurrentAccessAfterRolePermissionSave(roleID?: number) {
   ) {
     return;
   }
-  await refreshAccessState(router, {
+  const result = await refreshAccessState(router, {
     force: true,
     reason: 'role-permission-save',
   });
-  message.info($t('business.message.currentMenuPermissionsRefreshed'));
+  if (!result.skipped) {
+    message.info($t('business.message.currentMenuPermissionsRefreshed'));
+  }
 }
 
 // onDelete 删除角色。
 function onDelete(row: SystemRoleApi.Item) {
+  if (!row.manageable || Number(row.id) === 1) {
+    return;
+  }
   Modal.confirm({
     content: () =>
       h('div', { class: 'space-y-2' }, [
@@ -404,8 +485,8 @@ function onDelete(row: SystemRoleApi.Item) {
       ]),
     okType: 'danger',
     onOk: async () => {
-      await deleteRole(row.id);
-      message.success($t('business.message.roleDeleted'));
+      const cacheSyncResult = await deleteRole(row.id);
+      showCacheSyncResult(cacheSyncResult, $t('business.message.roleDeleted'));
       onRefresh();
     },
     title: $t('business.message.deleteRoleDangerTitle'),
@@ -433,14 +514,17 @@ function confirm(content: string, title: string) {
   <Page auto-content-height>
     <PermissionModal>
       <div class="px-2 py-3">
-        <PermissionTreePanel
-          v-model="selectedPermissionIds"
+        <RolePermissionTabs
+          v-model:doc-permission-ids="selectedDocPermissionIds"
+          v-model:route-permission-ids="selectedRoutePermissionIds"
           class="role-permission-panel--modal"
-          :can-write="canUpdateRolePermission"
-          :tree-data="permissionTree"
+          :can-write="canWriteCurrentRolePermission"
+          :doc-tree="docPermissionTree"
+          id-prefix="role-modal-permission"
           :read-only-description="
             $t('business.message.permissionTreeReadOnlyDesc')
           "
+          :route-tree="routePermissionTree"
         />
       </div>
     </PermissionModal>
@@ -456,7 +540,7 @@ function confirm(content: string, title: string) {
               asActionPermission(SYSTEM_ACTION_PERMISSION_CODES.ROLE_ADD)
             "
             type="primary"
-            @click="onCreate"
+            @click="onCreate()"
           >
             <Plus class="size-5" /> {{ $t('business.message.addRole') }}
           </VbenButton>

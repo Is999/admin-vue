@@ -13,9 +13,10 @@ export interface PermissionTreeNode {
   title: any;
   type?: number;
   uuid?: string;
+  virtual?: boolean;
 }
 
-// collectPermissionState 从权限树提取已授权节点与可编辑节点。
+// collectPermissionState 从权限树提取已授权节点、可编辑节点和锁定展示节点。
 export function collectPermissionState(items: SystemPermissionApi.Item[]) {
   const checkedIds: number[] = [];
   const enabledIds = new Set<number>();
@@ -23,13 +24,14 @@ export function collectPermissionState(items: SystemPermissionApi.Item[]) {
   const walk = (nodes: SystemPermissionApi.Item[]) => {
     for (const item of nodes) {
       const checkable = isPermissionNodeCheckable(item);
-      if (item.checked) {
+      const realPermission = item.id > 0 && !item.virtual;
+      if (item.checked && realPermission) {
         checkedIds.push(item.id);
         if (!checkable) {
           readonlyCheckedIds.push(item.id);
         }
       }
-      if (checkable) {
+      if (checkable && realPermission) {
         enabledIds.add(item.id);
       }
       if (item.children?.length) {
@@ -45,29 +47,40 @@ export function collectPermissionState(items: SystemPermissionApi.Item[]) {
   };
 }
 
-// collectAllPermissionIds 收集整棵权限树的节点 ID，用于统一展开与收起。
-export function collectAllPermissionIds(
-  items: Array<{
-    children?: Array<{ children?: any[]; id: number }>;
-    id: number;
-  }>,
+interface PermissionTreeIDNode {
+  children?: PermissionTreeIDNode[];
+  id: number;
+}
+
+// collectPermissionIdsByDepth 按根节点为第 1 层收集指定深度范围内的权限节点 ID。
+export function collectPermissionIdsByDepth(
+  items: PermissionTreeIDNode[],
+  minDepth = 1,
+  maxDepth = Number.MAX_SAFE_INTEGER,
 ) {
+  const safeMinDepth = Math.max(1, Math.trunc(Number(minDepth) || 1));
+  const safeMaxDepth = Math.max(0, Math.trunc(Number(maxDepth) || 0));
+  if (safeMaxDepth < safeMinDepth) {
+    return [];
+  }
   const result: number[] = [];
-  const walk = (
-    nodes: Array<{
-      children?: Array<{ children?: any[]; id: number }>;
-      id: number;
-    }>,
-  ) => {
+  const walk = (nodes: PermissionTreeIDNode[], depth: number) => {
     for (const item of nodes) {
-      result.push(item.id);
+      if (depth >= safeMinDepth && depth <= safeMaxDepth) {
+        result.push(item.id);
+      }
       if (item.children?.length) {
-        walk(item.children);
+        walk(item.children, depth + 1);
       }
     }
   };
-  walk(items);
+  walk(items, 1);
   return result;
+}
+
+// collectAllPermissionIds 收集整棵权限树的节点 ID，用于统一展开与收起。
+export function collectAllPermissionIds(items: PermissionTreeIDNode[]) {
+  return collectPermissionIdsByDepth(items);
 }
 
 // buildPermissionRelationMaps 构造权限树父子关系，用于自定义勾选联动逻辑。
@@ -112,7 +125,12 @@ export function collectPermissionSubtreeIds(
   const result: number[] = [];
   const walk = (currentID: number) => {
     const node = nodeById.get(currentID);
-    if (isPermissionNodeCheckable(node)) {
+    if (
+      isPermissionNodeCheckable(node) &&
+      node &&
+      node.id > 0 &&
+      !node.virtual
+    ) {
       result.push(currentID);
     }
     for (const childID of childrenById.get(currentID) || []) {
@@ -246,6 +264,7 @@ export function buildPermissionViewTree(
           title: options.renderTitle(item),
           type: item.type,
           uuid: item.uuid,
+          virtual: item.virtual,
         });
       }
     }
