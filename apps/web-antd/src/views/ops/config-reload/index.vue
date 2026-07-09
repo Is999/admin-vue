@@ -3,7 +3,7 @@
 import type { OpsAPIRuntimeApi } from '#/api/ops/runtime';
 import type { TaskApi } from '#/api/ops/task';
 
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 
 import { Page, VbenButton } from '@vben/common-ui';
 import { useAccessStore } from '@vben/stores';
@@ -65,6 +65,8 @@ type ConfigItemTablePagination = {
 };
 // ConfigItemViewMode 控制配置项结果在 YAML 与表格之间切换。
 type ConfigItemViewMode = 'table' | 'yaml';
+// ReloadTabKey 标识当前查看的是后台或 API 进程热加载状态。
+type ReloadTabKey = 'admin' | 'api';
 // ConfigYamlViewMode 控制 YAML 视图展示运行期结构或完整快照。
 type ConfigYamlViewMode = 'runtime' | 'snapshot';
 // ConfigYamlTokenType 表示 YAML 只读高亮视图中的词法类型。
@@ -122,7 +124,11 @@ const configYamlTokenClassMap: Record<ConfigYamlTokenType, string> = {
 // accessStore 保存当前登录账号的 uuid 权限码集合，用于判断是否自动拉取热加载状态。
 const accessStore = useAccessStore();
 // activeReloadTab 控制 Admin 与 API 热加载分区，避免两类运行态混在同一屏卡片里。
-const activeReloadTab = ref('admin');
+const activeReloadTab = ref<ReloadTabKey>('admin');
+// adminReloadStatusLoaded 标记后台热加载状态是否已经由页面自动拉取过。
+const adminReloadStatusLoaded = ref(false);
+// apiReloadStatusLoaded 标记 API 热加载状态是否已经由页面自动拉取过。
+const apiReloadStatusLoaded = ref(false);
 // submitting 避免查询与执行热加载时重复点击。
 const submitting = ref(false);
 // configReloadStatusText 保存热加载接口原始响应，便于排障复制。
@@ -1394,6 +1400,27 @@ function handleCopyActiveConfigYaml() {
   return handleCopyConfigYaml();
 }
 
+// loadActiveReloadStatusOnce 按当前 Tab 首次进入时加载对应进程状态，避免打开页面同时请求后台与 API。
+function loadActiveReloadStatusOnce() {
+  if (activeReloadTab.value === 'api') {
+    if (
+      apiReloadStatusLoaded.value ||
+      !canQueryAPIRuntimeConfigReloadStatus.value
+    ) {
+      return;
+    }
+    apiReloadStatusLoaded.value = true;
+    void handleFetchAPIRuntimeConfigReloadStatus();
+    return;
+  }
+
+  if (adminReloadStatusLoaded.value || !canQueryConfigReloadStatus.value) {
+    return;
+  }
+  adminReloadStatusLoaded.value = true;
+  void handleFetchConfigReloadStatus();
+}
+
 watch(activeConfigSearchKeyword, () => {
   configYamlMatchIndex.value = 0;
 });
@@ -1412,14 +1439,15 @@ watch(
   { flush: 'post' },
 );
 
-onMounted(() => {
-  if (canQueryConfigReloadStatus.value) {
-    void handleFetchConfigReloadStatus();
-  }
-  if (canQueryAPIRuntimeConfigReloadStatus.value) {
-    void handleFetchAPIRuntimeConfigReloadStatus();
-  }
-});
+watch(
+  [
+    activeReloadTab,
+    canQueryConfigReloadStatus,
+    canQueryAPIRuntimeConfigReloadStatus,
+  ],
+  loadActiveReloadStatusOnce,
+  { immediate: true },
+);
 </script>
 
 <template>
