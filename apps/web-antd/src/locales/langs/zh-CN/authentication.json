@@ -1,0 +1,8 @@
+{
+  "captcha": "图形验证码",
+  "captchaTip": "请输入图形验证码",
+  "captchaRefreshAriaLabel": "刷新图形验证码",
+  "captchaImageAlt": "登录图形验证码",
+  "captchaLoading": "加载中...",
+  "captchaClickToLoad": "点击获取"
+}

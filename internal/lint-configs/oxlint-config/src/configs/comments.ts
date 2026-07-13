@@ -1,16 +1,10 @@
 import type { OxlintConfig } from 'oxlint';
 
-import { fileURLToPath } from 'node:url';
-
-const commentsPlugin = fileURLToPath(
-  import.meta.resolve('@eslint-community/eslint-plugin-eslint-comments'),
-);
-
 const comments: OxlintConfig = {
   jsPlugins: [
     {
       name: 'eslint-comments',
-      specifier: commentsPlugin,
+      specifier: '@eslint-community/eslint-plugin-eslint-comments',
     },
   ],
   rules: {

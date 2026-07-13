@@ -37,10 +37,10 @@ import { cropAvatarFile, resolveDisplayFileURL } from '#/utils/file/image';
 import {
   extractMfaManualInfo,
   extractMfaSecret,
-  isMfaAgainError,
   mfaAccountLabel,
   mfaIssuerLabel,
   requestMfaTwoStep,
+  submitWithMfaRetry,
   ticketPayload,
 } from '#/utils/security/mfa';
 import {
@@ -50,6 +50,10 @@ import {
   isValidStrongPassword,
   validateStrongPassword,
 } from '#/utils/security/password';
+import {
+  currentSessionStateIdentity,
+  SESSION_STATE_CHANGED,
+} from '#/utils/session-state-gate';
 import { createResumableUpload } from '#/utils/transfer/resumable-upload';
 
 // MFA_SCENARIO_CHANGE_PASSWORD 表示修改密码二次校验场景。
@@ -278,7 +282,8 @@ async function onSaveProfile() {
     message.error($t('business.message.currentUserIdMissing'));
     return;
   }
-  const values = await profileFormApi.getValues<SystemAdminApi.SaveParams>();
+  const values =
+    await profileFormApi.getValues<SystemProfileApi.UpdateMineParams>();
   await updateProfileInfo({
     avatar: String(profile.value.avatar || '').trim(),
     description: values.description,
@@ -383,7 +388,9 @@ async function onCopyNewPassword() {
 
 // onUpdatePassword 修改当前账号密码。
 async function onUpdatePassword() {
+  const sessionIdentity = currentSessionStateIdentity();
   const { valid } = await passwordFormApi.validate();
+  assertProfileSessionIdentity(sessionIdentity);
   if (!valid) {
     return;
   }
@@ -396,6 +403,7 @@ async function onUpdatePassword() {
     passwordNew: string;
     passwordOld: string;
   }>();
+  assertProfileSessionIdentity(sessionIdentity);
   const passwordError = validateStrongPassword(
     values.passwordNew,
     $t('business.message.newPassword'),
@@ -408,14 +416,18 @@ async function onUpdatePassword() {
     message.error($t('business.message.passwordConfirmMismatch'));
     return;
   }
-  await submitWithMfa(MFA_SCENARIO_CHANGE_PASSWORD, (ticket) =>
-    updateProfilePassword({
-      confirmPassword: values.confirmPassword,
-      passwordNew: values.passwordNew,
-      passwordOld: values.passwordOld,
-      ...ticketPayload(ticket),
-    }),
+  await submitProfileWithMfa(
+    MFA_SCENARIO_CHANGE_PASSWORD,
+    (ticket) =>
+      updateProfilePassword({
+        confirmPassword: values.confirmPassword,
+        passwordNew: values.passwordNew,
+        passwordOld: values.passwordOld,
+        ...ticketPayload(ticket),
+      }),
+    sessionIdentity,
   );
+  assertProfileSessionIdentity(sessionIdentity);
   profile.value = {
     ...profile.value,
     needResetPassword: 0,
@@ -436,6 +448,7 @@ async function onUpdatePassword() {
 
 // onToggleMfa 启用或关闭当前账号MFA。
 async function onToggleMfa(nextStatus: number) {
+  const sessionIdentity = currentSessionStateIdentity();
   if (
     nextStatus === 0 &&
     profileForceMfaEnabled.value &&
@@ -443,22 +456,24 @@ async function onToggleMfa(nextStatus: number) {
   ) {
     return;
   }
-  const ticket = await requestMfaTwoStep(
+  assertProfileSessionIdentity(sessionIdentity);
+  await submitProfileWithMfa(
     MFA_SCENARIO_STATUS,
+    (ticket) =>
+      updateProfileMfaStatus({
+        mfaStatus: nextStatus,
+        mfaSecureKey:
+          nextStatus === 1
+            ? extractMfaSecret(profileMfaUrl.value) || undefined
+            : undefined,
+        ...ticketPayload(ticket),
+      }),
+    sessionIdentity,
     nextStatus === 1
       ? $t('business.message.mfaEnableShort')
       : $t('business.message.mfaDisableShort'),
-    profileMfaUrl.value,
-    { accountName: profileMfaAccountName.value },
   );
-  await updateProfileMfaStatus({
-    mfaStatus: nextStatus,
-    mfaSecureKey:
-      nextStatus === 1
-        ? extractMfaSecret(profileMfaUrl.value) || undefined
-        : undefined,
-    ...ticketPayload(ticket),
-  });
+  assertProfileSessionIdentity(sessionIdentity);
   let successMessage = $t('business.message.mfaDisabled');
   if (nextStatus === 1) {
     successMessage = $t('business.message.mfaEnabled');
@@ -492,33 +507,33 @@ async function onOpenMfaBinding() {
   await router.push({ name: 'SystemMfa' });
 }
 
-// submitWithMfa 在需要时获取MFA二次校验票据并重试业务操作。
-async function submitWithMfa<T>(
+// submitProfileWithMfa 为个人中心补齐弹窗上下文，并复用统一的身份隔离与重试逻辑。
+async function submitProfileWithMfa<T>(
   scenario: number,
   submit: (ticket?: AuthApi.TwoStepTicket) => Promise<T>,
+  sessionIdentity: string,
+  title = $t('business.message.mfaSecondConfirmTitle'),
 ) {
-  let firstTicket: AuthApi.TwoStepTicket | undefined;
+  assertProfileSessionIdentity(sessionIdentity);
   if (profileMfaStatus.value === 1) {
-    firstTicket = await requestMfaTwoStep(
-      scenario,
-      $t('business.message.mfaSecondConfirmTitle'),
-      profileMfaUrl.value,
-      { accountName: profileMfaAccountName.value },
-    );
+    await requestMfaTwoStep(scenario, title, profileMfaUrl.value, {
+      accountName: profileMfaAccountName.value,
+    });
+    assertProfileSessionIdentity(sessionIdentity);
   }
-  try {
-    return await submit(firstTicket);
-  } catch (error) {
-    if (!isMfaAgainError(error)) {
-      throw error;
-    }
-    const retryTicket = await requestMfaTwoStep(
-      scenario,
-      $t('business.message.mfaSecondConfirmTitle'),
-      profileMfaUrl.value,
-      { accountName: profileMfaAccountName.value },
-    );
-    return await submit(retryTicket);
+  const result = await submitWithMfaRetry(scenario, submit, title, {
+    accountName: profileMfaAccountName.value,
+    buildMfaUrl: profileMfaUrl.value,
+    loadProfileContext: false,
+  });
+  assertProfileSessionIdentity(sessionIdentity);
+  return result;
+}
+
+// assertProfileSessionIdentity 阻止旧个人中心页面继续修改新登录账号。
+function assertProfileSessionIdentity(sessionIdentity: string) {
+  if (sessionIdentity !== currentSessionStateIdentity()) {
+    throw new Error(SESSION_STATE_CHANGED);
   }
 }
 </script>

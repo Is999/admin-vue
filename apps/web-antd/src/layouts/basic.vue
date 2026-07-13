@@ -9,12 +9,17 @@ import { useWatermark } from '@vben/hooks';
 import { LockKeyhole } from '@vben/icons';
 import {
   BasicLayout,
+  LanguageToggle,
   LockScreenModal,
   Notification,
+  ThemeToggle,
+  TimezoneButton,
   UserDropdown,
 } from '@vben/layouts';
 import { preferences, usePreferences } from '@vben/preferences';
 import { useAccessStore, useUserStore } from '@vben/stores';
+
+import { message } from 'ant-design-vue';
 
 import {
   ADMIN_MESSAGE_NOTIFICATIONS_CHANGED_EVENT,
@@ -29,17 +34,21 @@ import {
 import { $t } from '#/locales';
 import { useAuthStore } from '#/store';
 import { refreshAccessState } from '#/utils/access-sync';
+import { currentSessionStateIdentity } from '#/utils/session-state-gate';
 import LoginForm from '#/views/_core/authentication/login.vue';
-import {
-  messageContentText,
-  sanitizeMessageContentHtml,
-} from '#/views/system/message/content';
+import { messageContentText } from '#/views/system/message/content';
 
 import AppIdBadge from './components/app-id-badge.vue';
 import AppLockScreen from './components/app-lock-screen.vue';
 
 // notifications 保存顶部铃铛展示的通知列表。
 const notifications = ref<NotificationItem[]>([]);
+// loginFormKey 在每次重认证弹窗打开时重建登录表单，确保验证码不会复用上一次的 key。
+const loginFormKey = ref(0);
+// notificationSessionIdentity 记录通知列表所属账号，token 续签不改变该标记。
+let notificationSessionIdentity = currentSessionStateIdentity();
+// LOCK_SCREEN_PASSWORD_MIN_LENGTH 表示应用层锁屏临时密码的最小长度。
+const LOCK_SCREEN_PASSWORD_MIN_LENGTH = 4;
 // notificationPoller 保存通知轮询定时器句柄。
 let notificationPoller: null | number = null;
 // accessSyncPoller 保存权限态同步定时器句柄，后端角色/权限变更后前端菜单可自动收敛。
@@ -81,11 +90,16 @@ function handleOpenLock() {
 
 // handleSubmitLock 提交锁屏临时密码并进入锁屏状态。
 function handleSubmitLock(lockScreenPassword: string) {
+  if (lockScreenPassword.length < LOCK_SCREEN_PASSWORD_MIN_LENGTH) {
+    message.error($t('business.message.lockPasswordMinLength'));
+    return;
+  }
   lockModalApi.close();
   accessStore.lockScreen(lockScreenPassword);
 }
 
 function handleNoticeClear() {
+  const sessionIdentity = currentSessionStateIdentity();
   const ids = notifications.value
     .map((item) => Number(item.id))
     .filter((id) => Number.isFinite(id));
@@ -94,6 +108,9 @@ function handleNoticeClear() {
     return;
   }
   deleteAdminMessage({ ids }).finally(() => {
+    if (sessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     notifications.value = [];
   });
 }
@@ -141,7 +158,7 @@ function navigateTo(
   state?: Record<string, any>,
 ) {
   if (link.startsWith('http://') || link.startsWith('https://')) {
-    window.open(link, '_blank');
+    window.open(link, '_blank', 'noopener,noreferrer');
     return;
   }
 
@@ -156,8 +173,19 @@ function navigateTo(
 
 // refreshNotifications 拉取最新通知列表并刷新本地状态。
 async function refreshNotifications() {
+  const sessionIdentity = currentSessionStateIdentity();
+  if (!accessStore.accessToken) {
+    notifications.value = [];
+    return;
+  }
   try {
     const items = await fetchAdminMessageNotifications({ limit: 10 });
+    if (
+      sessionIdentity !== currentSessionStateIdentity() ||
+      !accessStore.accessToken
+    ) {
+      return;
+    }
     notifications.value = (items || [])
       .filter((item) => !item.isRead)
       .map((item) => ({
@@ -167,10 +195,12 @@ async function refreshNotifications() {
         isRead: false,
         link: item.link || undefined,
         message: messageContentText(item.content) || '',
-        messageHtml: sanitizeMessageContentHtml(item.content),
         title: item.title || '',
       }));
   } catch {
+    if (sessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     notifications.value = [];
   }
 }
@@ -227,12 +257,35 @@ onBeforeUnmount(() => {
   );
 });
 watch(
+  () => [accessStore.accessToken, accessStore.loginExpired] as const,
+  ([accessToken, loginExpired]) => {
+    const sessionIdentity = currentSessionStateIdentity();
+    if (notificationSessionIdentity !== sessionIdentity) {
+      notificationSessionIdentity = sessionIdentity;
+      notifications.value = [];
+    }
+    if (accessToken && !loginExpired) {
+      refreshNotifications().catch(() => undefined);
+    }
+  },
+);
+watch(
+  () => accessStore.loginExpired,
+  (loginExpired) => {
+    if (loginExpired) {
+      loginFormKey.value += 1;
+    }
+  },
+);
+watch(
   () => ({
     enable: preferences.app.watermark,
     content: preferences.app.watermarkContent,
     isDark: isDark.value,
+    realName: String(userStore.userInfo?.realName || '').trim(),
+    username: String(userStore.userInfo?.username || '').trim(),
   }),
-  async ({ enable, content, isDark: isDarkValue }) => {
+  async ({ content, enable, isDark: isDarkValue, realName, username }) => {
     if (enable) {
       const watermarkColor = isDarkValue
         ? 'rgba(255, 255, 255, 0.12)'
@@ -254,7 +307,8 @@ watch(
         },
         content:
           content ||
-          `${userStore.userInfo?.username} - ${userStore.userInfo?.realName}`,
+          [username, realName].filter(Boolean).join(' - ') ||
+          preferences.app.name,
       });
     } else {
       destroyWatermark();
@@ -283,6 +337,24 @@ watch(
         :avatar
         :text="userStore.userInfo?.realName"
         @submit="handleSubmitLock"
+      />
+    </template>
+    <template #header-right-120>
+      <ThemeToggle
+        v-if="preferences.widget.themeToggle"
+        class="mt-0.5 mr-1 hidden lg:block"
+      />
+    </template>
+    <template #header-right-130>
+      <LanguageToggle
+        v-if="preferences.widget.languageToggle"
+        class="mr-1 hidden lg:block"
+      />
+    </template>
+    <template #header-right-140>
+      <TimezoneButton
+        v-if="preferences.widget.timezone"
+        class="mt-0.5 mr-1 hidden lg:block"
       />
     </template>
     <template #user-dropdown>
@@ -322,7 +394,7 @@ watch(
         v-model:open="accessStore.loginExpired"
         :avatar
       >
-        <LoginForm />
+        <LoginForm :key="loginFormKey" />
       </AuthenticationLoginExpiredModal>
     </template>
     <template #lock-screen>

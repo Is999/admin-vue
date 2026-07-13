@@ -69,6 +69,8 @@ import { isEmpty } from '@vben/utils';
 
 import { message, Modal, notification } from 'ant-design-vue';
 
+import { resolveSafeFilePreviewURL } from '#/utils/file/image';
+
 type AdapterUploadProps = UploadProps & {
   aspectRatio?: string;
   crop?: boolean;
@@ -256,9 +258,9 @@ async function previewImage(
 ) {
   // 非图片文件直接打开链接
   if (!isImageFile(file)) {
-    const url = file.url || file.preview;
+    const url = resolveSafeFilePreviewURL(file.url || file.preview);
     if (url) {
-      window.open(url, '_blank');
+      window.open(url, '_blank', 'noopener,noreferrer');
     } else {
       message.error($t('ui.formRules.previewWarning'));
     }

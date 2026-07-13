@@ -53,12 +53,20 @@ import {
   ensureDownloadBlobSuccess,
   resolveRequestErrorMessage,
 } from '#/utils/file/download';
-import { createAsyncJobPoller } from '#/utils/imex/job';
+import {
+  AsyncJobPollingTimeoutError,
+  createAsyncJobPoller,
+  isAsyncJobPollingAbortError,
+} from '#/utils/imex/job';
 import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
 import {
   copyTextToClipboard,
   generateRandomPassword,
 } from '#/utils/security/password';
+import {
+  currentSessionStateIdentity,
+  registerSessionStateCleanup,
+} from '#/utils/session-state-gate';
 
 import FormTips from '../system/components/form-tips.vue';
 import { resolveBackendMessage } from '../system/shared';
@@ -179,11 +187,37 @@ const downloadingUserExportParts = ref<Set<number>>(new Set());
 // userExportPoller 统一轮询用户导出任务状态。
 const userExportPoller = createAsyncJobPoller<UserApi.ExportStatusResp>({
   fetchStatus: fetchUserExportStatus,
+  getScopeKey: currentSessionStateIdentity,
   intervalMs: USER_EXPORT_POLL_INTERVAL_MS,
+  onError: async (error) => {
+    const sourceSessionIdentity = currentSessionStateIdentity();
+    const errorMessage =
+      error instanceof AsyncJobPollingTimeoutError
+        ? $t('business.message.exportStatusPollingTimeout')
+        : await resolveRequestErrorMessage(
+            error,
+            $t('business.message.userExportStatusApiUnavailable'),
+          );
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
+    message.error(
+      $t('business.message.userExportStatusRefreshFailed', [errorMessage]),
+    );
+  },
   onStatusChange: async (status) => {
     exportStatus.value = status;
     await downloadReadyUserExportFiles(status, false);
   },
+});
+
+// unregisterUserExportSessionCleanup 在账号切换时停止旧账号导出轮询并清空页面局部状态。
+const unregisterUserExportSessionCleanup = registerSessionStateCleanup(() => {
+  userExportPoller.stop();
+  exportStatus.value = null;
+  exportSubmitting.value = false;
+  exportDownloading.value = false;
+  resetUserExportDownloadState();
 });
 // editorForm 保存新增/编辑抽屉字段。
 const editorForm = reactive<UserFormState>({
@@ -392,11 +426,15 @@ function refreshGrid() {
 
 // onTriggerExport 提交用户列表异步导出任务，并启动轮询。
 async function onTriggerExport() {
+  const sourceSessionIdentity = currentSessionStateIdentity();
   exportSubmitting.value = true;
   stopUserExportPolling();
   resetUserExportDownloadState();
   try {
     const response = await triggerUserExport(lastUserQuery.value);
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     exportStatus.value = {
       averageRowsPerSec: 0,
       createdAt: '',
@@ -424,7 +462,9 @@ async function onTriggerExport() {
     message.success($t('business.message.userExportSubmitted'));
     await refreshUserExportStatus(false);
   } finally {
-    exportSubmitting.value = false;
+    if (sourceSessionIdentity === currentSessionStateIdentity()) {
+      exportSubmitting.value = false;
+    }
   }
 }
 
@@ -442,6 +482,7 @@ async function downloadReadyUserExportFiles(
   status: UserApi.ExportStatusResp,
   manual: boolean,
 ) {
+  const sourceSessionIdentity = currentSessionStateIdentity();
   const files = readyUserExportFiles(status).filter(
     (file) => !downloadedUserExportParts.value.has(file.partNo),
   );
@@ -454,10 +495,15 @@ async function downloadReadyUserExportFiles(
   exportDownloading.value = true;
   try {
     for (const file of files) {
+      if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+        return;
+      }
       await downloadUserExportFile(status.jobId, file, manual);
     }
   } finally {
-    exportDownloading.value = false;
+    if (sourceSessionIdentity === currentSessionStateIdentity()) {
+      exportDownloading.value = false;
+    }
   }
 }
 
@@ -467,6 +513,7 @@ async function downloadUserExportFile(
   file: UserApi.ExportFileItem,
   manual: boolean,
 ) {
+  const sourceSessionIdentity = currentSessionStateIdentity();
   if (
     downloadedUserExportParts.value.has(file.partNo) ||
     downloadingUserExportParts.value.has(file.partNo)
@@ -479,6 +526,9 @@ async function downloadUserExportFile(
       await downloadUserExport(jobId, file.partNo),
       $t('business.message.userExportDownloadFailed'),
     );
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     const fileName = file.fileName || `user_export_part_${file.partNo}.xlsx`;
     downloadBlobFile(blob, fileName);
     setUserExportPartSet(downloadedUserExportParts, file.partNo, true);
@@ -486,10 +536,16 @@ async function downloadUserExportFile(
       $t('business.message.userExportPartDownloadSucceeded', [fileName]),
     );
   } catch (error) {
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     const errorMessage = await resolveRequestErrorMessage(
       error,
       $t('business.message.userExportDownloadApiUnavailable'),
     );
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     if (manual) {
       message.error(
         $t('business.message.userExportDownloadFailedWithReason', [
@@ -498,7 +554,9 @@ async function downloadUserExportFile(
       );
     }
   } finally {
-    setUserExportPartSet(downloadingUserExportParts, file.partNo, false);
+    if (sourceSessionIdentity === currentSessionStateIdentity()) {
+      setUserExportPartSet(downloadingUserExportParts, file.partNo, false);
+    }
   }
 }
 
@@ -535,10 +593,14 @@ async function refreshUserExportStatus(manual: boolean) {
   if (!exportStatus.value?.jobId) {
     return;
   }
+  const sourceSessionIdentity = currentSessionStateIdentity();
   try {
     const latestStatus = await userExportPoller.refresh(
       exportStatus.value.jobId,
     );
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     if (latestStatus.status === 'succeeded') {
       message.success($t('business.message.userExportCompleted'));
       return;
@@ -556,11 +618,20 @@ async function refreshUserExportStatus(manual: boolean) {
       message.success($t('business.message.userExportStatusRefreshed'));
     }
   } catch (error) {
+    if (isAsyncJobPollingAbortError(error)) {
+      return;
+    }
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     if (manual) {
       const errorMessage = await resolveRequestErrorMessage(
         error,
         $t('business.message.userExportStatusApiUnavailable'),
       );
+      if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+        return;
+      }
       message.error(
         $t('business.message.userExportStatusRefreshFailed', [errorMessage]),
       );
@@ -632,6 +703,7 @@ const exportProgressSummary = computed(() => {
 });
 
 onBeforeUnmount(() => {
+  unregisterUserExportSessionCleanup();
   stopUserExportPolling();
 });
 

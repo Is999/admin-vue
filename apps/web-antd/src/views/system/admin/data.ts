@@ -20,11 +20,14 @@ function statusOptions() {
   ];
 }
 
-// useFormSchema 返回用户新增与编辑表单配置。
-export function useFormSchema(): VbenFormSchema[] {
+// useFormSchema 返回用户新增与编辑表单配置，账号和 MFA 状态仅在编辑时展示。
+export function useFormSchema(isEdit = false): VbenFormSchema[] {
   return [
     {
       component: 'Input',
+      componentProps: {
+        disabled: isEdit,
+      },
       fieldName: 'username',
       label: $t('business.message.loginUsername'),
       rules: 'required',
@@ -57,31 +60,35 @@ export function useFormSchema(): VbenFormSchema[] {
       fieldName: 'avatar',
       label: $t('business.message.avatarUrl'),
     },
-    {
-      component: 'Select',
-      defaultValue: 1,
-      fieldName: 'status',
-      label: $t('business.message.accountStatus'),
-      componentProps: {
-        options: statusOptions(),
-        style: { width: '100%' },
-      },
-      formItemClass: 'col-span-1',
-    },
-    {
-      component: 'Select',
-      defaultValue: 0,
-      fieldName: 'mfaStatus',
-      label: $t('business.message.mfaStatus'),
-      componentProps: {
-        options: [
-          { label: $t('business.message.disabled'), value: 0 },
-          { label: $t('business.message.enabled'), value: 1 },
-        ],
-        style: { width: '100%' },
-      },
-      formItemClass: 'col-span-1',
-    },
+    ...(isEdit
+      ? [
+          {
+            component: 'Select' as const,
+            defaultValue: 1,
+            fieldName: 'status',
+            label: $t('business.message.accountStatus'),
+            componentProps: {
+              options: statusOptions(),
+              style: { width: '100%' },
+            },
+            formItemClass: 'col-span-1',
+          },
+          {
+            component: 'Select' as const,
+            defaultValue: 0,
+            fieldName: 'mfaStatus',
+            label: $t('business.message.mfaStatus'),
+            componentProps: {
+              options: [
+                { label: $t('business.message.disabled'), value: 0 },
+                { label: $t('business.message.enabled'), value: 1 },
+              ],
+              style: { width: '100%' },
+            },
+            formItemClass: 'col-span-1',
+          },
+        ]
+      : []),
     {
       component: 'Textarea',
       fieldName: 'description',
@@ -246,7 +253,7 @@ export function useColumns<T = SystemAdminApi.Item>(
             iconOnly: true,
             text: $t('business.message.roleConfig'),
             auth: asActionPermission(
-              SYSTEM_ACTION_PERMISSION_CODES.ADMIN_ROLE_LIST,
+              SYSTEM_ACTION_PERMISSION_CODES.ADMIN_ROLE_UPDATE,
             ),
           },
           {
@@ -271,7 +278,7 @@ export function useColumns<T = SystemAdminApi.Item>(
             iconOnly: true,
             text: $t('business.message.resetUser'),
             auth: asActionPermission(
-              SYSTEM_ACTION_PERMISSION_CODES.ADMIN_PASSWORD_RESET,
+              SYSTEM_ACTION_PERMISSION_CODES.ADMIN_RESET_INITIAL_STATE,
             ),
           },
         ],

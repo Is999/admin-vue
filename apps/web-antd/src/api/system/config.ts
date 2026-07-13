@@ -1,6 +1,11 @@
 import type { CommonApi } from '#/api/common';
 
 import { requestClient } from '#/api/request';
+import { fetchBoundedPages } from '#/utils/request/bounded-pagination';
+
+// CONFIG_LIST_MAX_ITEMS 与 CONFIG_LIST_MAX_PAGES 限制配置树聚合范围，禁止无边界全量请求。
+const CONFIG_LIST_MAX_ITEMS = 1000;
+const CONFIG_LIST_MAX_PAGES = 10;
 
 // SystemConfigApi 定义字典配置相关接口类型。
 export namespace SystemConfigApi {
@@ -60,6 +65,16 @@ export async function fetchConfigList(params: SystemConfigApi.ListParams) {
       params,
     },
   );
+}
+
+// fetchBoundedConfigItems 按后端单页上限聚合完整配置列表，异常或超限时直接失败。
+export async function fetchBoundedConfigItems() {
+  return fetchBoundedPages<SystemConfigApi.Item>({
+    fetchPage: (page, pageSize) => fetchConfigList({ page, pageSize }),
+    getItemKey: (item) => item.id,
+    maxItems: CONFIG_LIST_MAX_ITEMS,
+    maxPages: CONFIG_LIST_MAX_PAGES,
+  });
 }
 
 // createConfig 新增字典配置。

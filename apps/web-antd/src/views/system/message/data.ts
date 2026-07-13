@@ -11,6 +11,7 @@ import { Popover } from 'ant-design-vue';
 
 import { fetchAdminList } from '#/api/system';
 import { $t } from '#/locales';
+import { fetchBoundedPages } from '#/utils/request/bounded-pagination';
 
 import {
   countTagMeta,
@@ -106,8 +107,13 @@ function readStatusOptions() {
 
 // fetchAdminReceiverOptions 拉取管理员下拉列表（用于收件人选择）。
 export async function fetchAdminReceiverOptions() {
-  const resp = await fetchAdminList({ page: 1, pageSize: 200 });
-  return (resp?.list || []).map((item: SystemAdminApi.Item) => ({
+  const items = await fetchBoundedPages<SystemAdminApi.Item>({
+    fetchPage: (page, pageSize) => fetchAdminList({ page, pageSize }),
+    getItemKey: (item) => item.id,
+    maxItems: 500,
+    maxPages: 5,
+  });
+  return items.map((item) => ({
     label: `${item.realName || item.username}（${item.username}）`,
     value: item.id,
   }));

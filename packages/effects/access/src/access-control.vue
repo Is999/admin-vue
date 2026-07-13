@@ -1,5 +1,9 @@
 <!--
- AccessControl 按权限码或角色控制插槽可见性；传入多个值时任一命中即放行。
+ Access control component for fine-grained access control.
+ TODO: 可以扩展更完善的功能：
+ 1. 支持多个权限码，只要有一个权限码满足即可 或者 多个权限码全部满足
+ 2. 支持多个角色，只要有一个角色满足即可 或者 多个角色全部满足
+ 3. 支持自定义权限码和角色的判断逻辑
 -->
 <script lang="ts" setup>
 import { computed } from 'vue';
@@ -8,13 +12,13 @@ import { useAccess } from './use-access';
 
 interface Props {
   /**
-   * 可访问的权限码或角色。
+   * Specified codes is visible
    * @default []
    */
   codes?: string[];
 
   /**
-   * 访问控制类型。
+   * 通过什么方式来控制组件，如果是 role，则传入角色，如果是 code，则传入权限码
    * @default 'role'
    */
   type?: 'code' | 'role';

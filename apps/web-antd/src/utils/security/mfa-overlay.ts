@@ -56,6 +56,18 @@ export type MFAOverlayDialogResult<Result = unknown> = {
   secure: string; // 当前用户输入的 6 位动态验证码
 };
 
+// activeMfaOverlayDialogs 保存当前应用仍未结算的 MFA 遮罩销毁函数。
+const activeMfaOverlayDialogs = new Set<() => void>();
+// mfaOverlayBodyOverflow 保存首个遮罩打开前的 body 状态，仅在最后一个遮罩关闭时恢复。
+let mfaOverlayBodyOverflow: null | string = null;
+
+// destroyAllMfaOverlayDialogs 取消全部 MFA 遮罩；逆序销毁可正确恢复嵌套弹层前的 body 状态。
+export function destroyAllMfaOverlayDialogs() {
+  for (const destroy of [...activeMfaOverlayDialogs].toReversed()) {
+    destroy();
+  }
+}
+
 // buildMfaGuideSummary 渲染紧凑版 MFA 绑定说明，避免全屏遮罩里重复滚动过长。
 function buildMfaGuideSummary() {
   return h('div', { class: 'space-y-3' }, [
@@ -130,7 +142,9 @@ function buildMfaBindingMeta(
         h(
           'div',
           { class: 'mt-2 text-sm leading-6 text-foreground' },
-          getMfaAuthenticatorApps().join('、'),
+          getMfaAuthenticatorApps().join(
+            $t('business.message.mfaAppListSeparator'),
+          ),
         ),
       ],
     ),
@@ -222,6 +236,7 @@ function buildMfaVerificationContent(
   onSubmit?: () => void,
   onRefresh?: () => void,
   refreshLoading = false,
+  refreshDisabled = false,
   renderActions?: () => any,
 ) {
   const info = extractMfaManualInfo(buildMfaUrl);
@@ -308,7 +323,7 @@ function buildMfaVerificationContent(
             class:
               'text-xs font-semibold tracking-[0.18em] text-primary/80 uppercase',
           },
-          'MFA Security Check',
+          $t('business.message.mfaSecurityCheckLabel'),
         ),
         h(
           'div',
@@ -351,6 +366,7 @@ function buildMfaVerificationContent(
                 Button,
                 {
                   block: true,
+                  disabled: refreshDisabled,
                   loading: refreshLoading,
                   onClick: () => {
                     onRefresh?.();
@@ -478,12 +494,16 @@ export function createMfaOverlayDialog<Result = unknown>(
   let dialogErrorMessage = '';
   let destroyed = false;
   const container = document.createElement('div');
-  const previousBodyOverflow = document.body.style.overflow;
+  if (activeMfaOverlayDialogs.size === 0) {
+    mfaOverlayBodyOverflow = document.body.style.overflow;
+  }
   document.body.style.overflow = 'hidden';
   document.body.append(container);
   let resolveDialog: ((value: MFAOverlayDialogResult<Result>) => void) | null =
     null;
   let rejectDialog: ((reason?: any) => void) | null = null;
+  let settled = false;
+  let cancelDialog = () => {};
 
   // destroyOverlay 卸载遮罩层并恢复 body 状态。
   const destroyOverlay = () => {
@@ -493,8 +513,36 @@ export function createMfaOverlayDialog<Result = unknown>(
     destroyed = true;
     render(null, container);
     container.remove();
-    document.body.style.overflow = previousBodyOverflow;
+    activeMfaOverlayDialogs.delete(cancelDialog);
+    if (activeMfaOverlayDialogs.size === 0) {
+      document.body.style.overflow = mfaOverlayBodyOverflow ?? '';
+      mfaOverlayBodyOverflow = null;
+    } else {
+      document.body.style.overflow = 'hidden';
+    }
   };
+
+  // rejectOnce 取消弹窗并只拒绝一次 Promise，避免仅卸载 DOM 后调用方永久等待。
+  const rejectOnce = (error: Error) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    destroyOverlay();
+    rejectDialog?.(error);
+  };
+
+  // resolveOnce 完成弹窗并只提交一次结果。
+  const resolveOnce = (result: MFAOverlayDialogResult<Result>) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    destroyOverlay();
+    resolveDialog?.(result);
+  };
+
+  cancelDialog = () => rejectOnce(new Error(cancelErrorMessage));
 
   // refreshOverlay 重新渲染当前全屏 MFA 遮罩层。
   const refreshOverlay = (needFocus = false) => {
@@ -636,15 +684,15 @@ export function createMfaOverlayDialog<Result = unknown>(
                                 }
                               : undefined,
                             refreshLoading,
+                            submitting,
                             () =>
                               buildMfaDialogActions({
                                 cancelText: $t('business.message.mfaCancel'),
-                                disabled: submitting,
+                                disabled: submitting || refreshLoading,
                                 loading: submitting,
                                 okText,
                                 onCancel: () => {
-                                  destroyOverlay();
-                                  rejectDialog?.(new Error(cancelErrorMessage));
+                                  cancelDialog();
                                 },
                                 onSubmit: () => {
                                   void submitCheck();
@@ -670,7 +718,13 @@ export function createMfaOverlayDialog<Result = unknown>(
 
   // handleRefresh 重新生成当前账号的 MFA 二维码，并同步刷新弹窗上下文。
   const handleRefresh = async () => {
-    if (refreshLoading || !currentOptions.onRefresh) {
+    if (
+      destroyed ||
+      settled ||
+      refreshLoading ||
+      submitting ||
+      !currentOptions.onRefresh
+    ) {
       return;
     }
     dialogErrorMessage = '';
@@ -678,6 +732,9 @@ export function createMfaOverlayDialog<Result = unknown>(
     refreshOverlay();
     try {
       const nextContext = await currentOptions.onRefresh();
+      if (destroyed || settled) {
+        return;
+      }
       currentBuildMfaUrl =
         String(nextContext?.buildMfaUrl || '').trim() || currentBuildMfaUrl;
       currentOptions = {
@@ -688,19 +745,24 @@ export function createMfaOverlayDialog<Result = unknown>(
       };
       message.success(refreshSuccessMessage);
     } catch (error) {
+      if (destroyed || settled) {
+        return;
+      }
       dialogErrorMessage = resolveDialogErrorMessage(
         error,
         $t('business.message.mfaRefreshQrFailed'),
       );
     } finally {
       refreshLoading = false;
-      refreshOverlay(true);
+      if (!destroyed && !settled) {
+        refreshOverlay(true);
+      }
     }
   };
 
   // submitCheck 执行 MFA 动态码校验。
   const submitCheck = async () => {
-    if (submitting) {
+    if (destroyed || settled || submitting || refreshLoading) {
       return;
     }
     dialogErrorMessage = '';
@@ -722,17 +784,21 @@ export function createMfaOverlayDialog<Result = unknown>(
         secure,
       });
       dialogErrorMessage = '';
-      destroyOverlay();
-      resolveDialog?.({
+      resolveOnce({
         result,
         secure,
       });
     } catch (error) {
+      if (destroyed || settled) {
+        return;
+      }
       dialogErrorMessage = resolveDialogErrorMessage(error, submitErrorMessage);
       refreshOverlay(true);
     } finally {
       submitting = false;
-      refreshOverlay();
+      if (!destroyed && !settled) {
+        refreshOverlay();
+      }
     }
   };
 
@@ -743,10 +809,9 @@ export function createMfaOverlayDialog<Result = unknown>(
       refreshOverlay(true);
     },
   );
+  activeMfaOverlayDialogs.add(cancelDialog);
   return {
-    destroy() {
-      destroyOverlay();
-    },
+    destroy: cancelDialog,
     promise,
   };
 }

@@ -153,7 +153,8 @@ const [Grid, gridApi] = useVbenVxeGrid({
 // onActionClick 处理操作列点击事件。
 function onActionClick(e: TableActionParams<TaskApi.TaskQueueItem>) {
   switch (e.code) {
-    case 'toggleConsume': {
+    case 'pauseConsume':
+    case 'resumeConsume': {
       void handleToggleQueueConsume(e.row);
       break;
     }

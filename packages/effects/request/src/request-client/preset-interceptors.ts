@@ -64,10 +64,6 @@ export const authenticateResponseInterceptor = ({
       if (response?.status !== 401) {
         throw error;
       }
-      // 允许少量身份校验接口自行处理 401，避免“密码/MFA 验证失败”被误判为登录态失效。
-      if (config?.skipReAuthenticate) {
-        throw error;
-      }
       // 判断是否启用了 refreshToken 功能
       // 如果没有启用或者已经是重试请求了，直接跳转到重新登录
       if (!enableRefreshToken || config.__isRetryRequest) {
@@ -102,7 +98,7 @@ export const authenticateResponseInterceptor = ({
         // 如果刷新 token 失败，处理错误（如强制登出或跳转登录页面）
         client.refreshTokenQueue.forEach((callback) => callback(''));
         client.refreshTokenQueue = [];
-        // 刷新失败统一交给错误拦截器和重新认证流程处理，避免生产环境日志口径分散。
+        console.error('Refresh token failed, please login again.');
         await doReAuthenticate();
 
         throw refreshError;
@@ -131,11 +127,6 @@ export const errorMessageResponseInterceptor = (
       }
       if (errMsg) {
         makeErrorMessage?.(errMsg, error);
-        return Promise.reject(error);
-      }
-
-      if (!error?.response && error?.message) {
-        makeErrorMessage?.(error.message, error);
         return Promise.reject(error);
       }
 

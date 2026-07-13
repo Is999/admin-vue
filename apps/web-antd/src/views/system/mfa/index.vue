@@ -38,6 +38,7 @@ import {
   mfaIssuerLabel,
   ticketPayload,
 } from '#/utils/security/mfa';
+import { currentSessionStateIdentity } from '#/utils/session-state-gate';
 
 // MFA_SCENARIO_STATUS 表示修改MFA状态二次校验场景。
 const MFA_SCENARIO_STATUS = 2;
@@ -48,8 +49,12 @@ const profile = ref<SystemProfileApi.Item>({});
 const loading = ref(false);
 // submitLoading 控制绑定与关闭按钮提交状态。
 const submitLoading = ref(false);
+// refreshLoading 控制二维码重新生成状态。
+const refreshLoading = ref(false);
 // secure 保存用户输入的 6 位 MFA 动态验证码。
 const secure = ref('');
+// profileRequestSeq 标记最后一次资料或秘钥读取意图，旧响应不得覆盖新状态。
+let profileRequestSeq = 0;
 
 // profileMfaStatus 读取 MFA 状态字段。
 const profileMfaStatus = computed(() => Number(profile.value.mfaStatus || 0));
@@ -159,45 +164,79 @@ function getMfaHelpUrl(appName: string) {
 
 // onMounted 进入页面时加载当前管理员 MFA 资料。
 onMounted(() => {
-  loadProfile();
+  void loadProfile();
 });
 
 // loadProfile 查询当前登录管理员资料并刷新二维码与手动秘钥。
 async function loadProfile(successMessage?: string) {
+  const requestSeq = ++profileRequestSeq;
+  const sessionIdentity = currentSessionStateIdentity();
   loading.value = true;
   try {
     const data = await fetchProfileInfo();
+    if (!isCurrentProfileRequest(requestSeq, sessionIdentity)) {
+      return;
+    }
     profile.value = data;
     if (typeof successMessage === 'string' && successMessage) {
       message.success(successMessage);
     }
   } finally {
-    loading.value = false;
+    if (requestSeq === profileRequestSeq) {
+      loading.value = false;
+    }
   }
+}
+
+// isCurrentProfileRequest 判断异步结果是否仍属于当前账号和最后一次读取意图。
+function isCurrentProfileRequest(requestSeq: number, sessionIdentity: string) {
+  return (
+    requestSeq === profileRequestSeq &&
+    sessionIdentity === currentSessionStateIdentity()
+  );
 }
 
 // onRefreshQr 手动刷新当前 MFA 二维码与手动秘钥。
 async function onRefreshQr() {
+  if (loading.value || refreshLoading.value || submitLoading.value) {
+    return;
+  }
   if (profileMfaStatus.value === 1) {
     message.warning($t('business.message.mfaSelfRebindDenied'));
     return;
   }
-  const data = await refreshProfileMfaSecretKey();
-  const buildMfaUrl = String(data?.buildMFAURL || '');
-  profile.value = {
-    ...profile.value,
-    buildMFAURL: buildMfaUrl,
-    mfaStatus: 0 as SystemAdminApi.Status,
-  };
-  await loadProfile(
-    profileForceMfaEnabled.value
-      ? $t('business.message.mfaQrRegeneratedForce')
-      : $t('business.message.mfaQrRegenerated'),
-  );
+  const requestSeq = ++profileRequestSeq;
+  const sessionIdentity = currentSessionStateIdentity();
+  refreshLoading.value = true;
+  try {
+    const data = await refreshProfileMfaSecretKey();
+    if (!isCurrentProfileRequest(requestSeq, sessionIdentity)) {
+      return;
+    }
+    const buildMfaUrl = String(data?.buildMFAURL || '');
+    profile.value = {
+      ...profile.value,
+      buildMFAURL: buildMfaUrl,
+      existMFA: false,
+      mfaStatus: 0 as SystemAdminApi.Status,
+    };
+    message.success(
+      profileForceMfaEnabled.value
+        ? $t('business.message.mfaQrRegeneratedForce')
+        : $t('business.message.mfaQrRegenerated'),
+    );
+  } finally {
+    if (requestSeq === profileRequestSeq) {
+      refreshLoading.value = false;
+    }
+  }
 }
 
 // onReloadProfile 手动刷新当前页面资料，避免点击事件对象误传给提示文案。
 async function onReloadProfile() {
+  if (loading.value || refreshLoading.value || submitLoading.value) {
+    return;
+  }
   await loadProfile();
 }
 
@@ -218,31 +257,66 @@ async function onCopySecret() {
 
 // onEnableMfa 校验动态码并启用当前账号 MFA。
 async function onEnableMfa() {
-  if (bindDisabled.value) {
+  if (
+    bindDisabled.value ||
+    loading.value ||
+    refreshLoading.value ||
+    submitLoading.value
+  ) {
+    if (!bindDisabled.value) {
+      return;
+    }
     message.error($t('business.message.accountMfaSecretUnavailable'));
     return;
   }
-  const ticket = await verifyMfaCode();
-  await updateMfaStatus(1, ticket);
-  message.success($t('business.message.mfaStaticBindingSucceeded'));
-  secure.value = '';
-  await loadProfile();
+  const sessionIdentity = currentSessionStateIdentity();
+  submitLoading.value = true;
+  try {
+    const ticket = await verifyMfaCode();
+    if (sessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
+    await updateMfaStatus(1, ticket);
+    if (sessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
+    message.success($t('business.message.mfaStaticBindingSucceeded'));
+    secure.value = '';
+    await loadProfile();
+  } finally {
+    submitLoading.value = false;
+  }
 }
 
 // onDisableMfa 校验动态码并关闭当前账号 MFA。
 async function onDisableMfa() {
-  if (profileForceMfaEnabled.value && !(await confirmForceDisableMfa())) {
+  if (loading.value || refreshLoading.value || submitLoading.value) {
     return;
   }
-  const ticket = await verifyMfaCode();
-  await updateMfaStatus(0, ticket);
-  message.success(
-    profileForceMfaEnabled.value
-      ? $t('business.message.mfaDisabledForce')
-      : $t('business.message.mfaDisabled'),
-  );
-  secure.value = '';
-  await loadProfile();
+  const sessionIdentity = currentSessionStateIdentity();
+  submitLoading.value = true;
+  try {
+    if (profileForceMfaEnabled.value && !(await confirmForceDisableMfa())) {
+      return;
+    }
+    const ticket = await verifyMfaCode();
+    if (sessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
+    await updateMfaStatus(0, ticket);
+    if (sessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
+    message.success(
+      profileForceMfaEnabled.value
+        ? $t('business.message.mfaDisabledForce')
+        : $t('business.message.mfaDisabled'),
+    );
+    secure.value = '';
+    await loadProfile();
+  } finally {
+    submitLoading.value = false;
+  }
 }
 
 // verifyMfaCode 校验当前输入的 MFA 动态码并换取二次校验票据。
@@ -252,26 +326,21 @@ async function verifyMfaCode() {
     message.error($t('business.message.mfaCodeRequired'));
     throw new Error($t('business.message.mfaCodeRequired'));
   }
-  submitLoading.value = true;
-  try {
-    const result = await checkMfaSecureApi(
-      {
-        mfaSecureKey: extractMfaSecret(profileMfaUrl.value) || undefined,
-        scenarios: MFA_SCENARIO_STATUS,
-        secure: code,
-      },
-      {
-        skipGlobalErrorMessage: true,
-      },
-    );
-    if (!result?.isOk || !result.twoStep) {
-      message.error($t('business.message.mfaCodeInvalid'));
-      throw new Error($t('business.message.mfaCodeInvalid'));
-    }
-    return result.twoStep;
-  } finally {
-    submitLoading.value = false;
+  const result = await checkMfaSecureApi(
+    {
+      mfaSecureKey: extractMfaSecret(profileMfaUrl.value) || undefined,
+      scenarios: MFA_SCENARIO_STATUS,
+      secure: code,
+    },
+    {
+      skipGlobalErrorMessage: true,
+    },
+  );
+  if (!result?.isOk || !result.twoStep) {
+    message.error($t('business.message.mfaCodeInvalid'));
+    throw new Error($t('business.message.mfaCodeInvalid'));
   }
+  return result.twoStep;
 }
 
 // updateMfaStatus 提交 MFA 状态更新，后端会校验二次校验票据。
@@ -395,6 +464,8 @@ function confirmForceDisableMfa() {
                 v-if="profileMfaStatus !== 1"
                 block
                 class="mfa-qr-refresh"
+                :disabled="loading || submitLoading"
+                :loading="refreshLoading"
                 @click="onRefreshQr"
               >
                 {{ $t('business.message.mfaRegenerateQr') }}
@@ -437,6 +508,7 @@ function confirmForceDisableMfa() {
                 <Input
                   v-model:value="secure"
                   class="mfa-code-input"
+                  :disabled="loading || refreshLoading || submitLoading"
                   :maxlength="6"
                   :placeholder="$t('business.message.mfaCodePlaceholder')"
                   size="large"
@@ -446,7 +518,7 @@ function confirmForceDisableMfa() {
                 />
                 <VbenButton
                   v-if="profileMfaStatus !== 1"
-                  :disabled="bindDisabled"
+                  :disabled="bindDisabled || loading || refreshLoading"
                   :loading="submitLoading"
                   type="primary"
                   @click="onEnableMfa"
@@ -456,12 +528,17 @@ function confirmForceDisableMfa() {
                 <VbenButton
                   v-else
                   danger
+                  :disabled="loading || refreshLoading"
                   :loading="submitLoading"
                   @click="onDisableMfa"
                 >
                   {{ $t('business.message.mfaDisableButton') }}
                 </VbenButton>
-                <VbenButton @click="onReloadProfile">
+                <VbenButton
+                  :disabled="refreshLoading || submitLoading"
+                  :loading="loading"
+                  @click="onReloadProfile"
+                >
                   {{ $t('business.message.refresh') }}
                 </VbenButton>
               </div>

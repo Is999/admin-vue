@@ -390,7 +390,7 @@ export function useColumns<T extends PermissionTreeTitleRow>(
 ): VxeTableGridOptions['columns'] {
   const { hasAccessByCodes } = useAccess();
   const canUpdateStatus = hasAccessByCodes(
-    asActionPermission(SYSTEM_ACTION_PERMISSION_CODES.PERMISSION_UPDATE),
+    asActionPermission(SYSTEM_ACTION_PERMISSION_CODES.PERMISSION_STATUS_UPDATE),
   );
 
   return [

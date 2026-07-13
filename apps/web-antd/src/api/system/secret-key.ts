@@ -64,7 +64,7 @@ export namespace SystemSecretKeyApi {
   }
 
   // SaveParams 表示新增或编辑秘钥参数。
-  export interface SaveParams {
+  export interface SaveParams extends CommonApi.TwoStepReq {
     uuid?: string; // AppID/API KEY唯一标识
     title?: string; // 秘钥标题
     keyVersion?: string; // 当前编辑的版本号

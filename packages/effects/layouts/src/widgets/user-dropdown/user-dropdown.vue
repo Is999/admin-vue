@@ -52,10 +52,6 @@ interface Props {
     icon?: Component | Function | string;
     text: string;
   }>;
-  /**
-   * 是否显示锁屏菜单
-   */
-  showLockScreen?: boolean;
 
   /**
    * 标签文本
@@ -80,7 +76,6 @@ const props = withDefaults(defineProps<Props>(), {
   description: '',
   enableShortcutKey: true,
   menus: () => [],
-  showLockScreen: true,
   showShortcutKey: true,
   tagText: '',
   text: '',
@@ -191,7 +186,7 @@ if (enableShortcutKey.value) {
 
 <template>
   <LockModal
-    v-if="preferences.widget.lockScreen && props.showLockScreen"
+    v-if="preferences.widget.lockScreen"
     :avatar="avatar"
     :text="text"
     @submit="handleSubmitLock"
@@ -272,7 +267,7 @@ if (enableShortcutKey.value) {
           {{ $t('preferences.title') }}
         </DropdownMenuItem>
         <DropdownMenuItem
-          v-if="preferences.widget.lockScreen && props.showLockScreen"
+          v-if="preferences.widget.lockScreen"
           class="mx-1 flex cursor-pointer items-center rounded-sm py-1 leading-8"
           @click="handleOpenLock"
         >
@@ -282,9 +277,7 @@ if (enableShortcutKey.value) {
             {{ altView }} L
           </DropdownMenuShortcut>
         </DropdownMenuItem>
-        <DropdownMenuSeparator
-          v-if="preferences.widget.lockScreen && props.showLockScreen"
-        />
+        <DropdownMenuSeparator v-if="preferences.widget.lockScreen" />
         <DropdownMenuItem
           class="mx-1 flex cursor-pointer items-center rounded-sm py-1 leading-8"
           @click="handleLogout"

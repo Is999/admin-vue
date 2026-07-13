@@ -1,5 +1,7 @@
 <script lang="ts" setup>
 // ================= 类型与依赖引入 =================
+import type { AdminFormValues } from '../form-payload';
+
 import type { SystemAdminApi } from '#/api/system';
 
 import { computed, ref } from 'vue';
@@ -25,6 +27,7 @@ import {
   fetchRoleTreeOptions,
   updateAdmin,
   updateAdminMfaStatus,
+  updateAdminStatus,
 } from '#/api/system';
 import { $t } from '#/locales';
 import { resolveRequestErrorMessage } from '#/utils/file/download';
@@ -40,6 +43,10 @@ import { createResumableUpload } from '#/utils/transfer/resumable-upload';
 import FormTips from '../../components/form-tips.vue';
 import { useFormSchema } from '../data';
 import {
+  buildCreateAdminParams,
+  buildUpdateAdminParams,
+} from '../form-payload';
+import {
   buildAdminRoleRelationMaps,
   buildAdminRoleTreeOptions,
   collectAdminRoleIds,
@@ -53,8 +60,10 @@ import {
 const emit = defineEmits<{ success: [] }>();
 // MFA_SCENARIO_ADD_USER 表示新增管理员二次校验场景。
 const MFA_SCENARIO_ADD_USER = 5;
-// MFA_SCENARIO_STATUS 表示修改管理员 MFA 状态二次校验场景。
-const MFA_SCENARIO_STATUS = 2;
+// MFA_SCENARIO_MFA_STATUS 表示修改管理员 MFA 状态二次校验场景。
+const MFA_SCENARIO_MFA_STATUS = 2;
+// MFA_SCENARIO_USER_STATUS 表示修改管理员账号状态二次校验场景。
+const MFA_SCENARIO_USER_STATUS = 4;
 // MFA_SCENARIO_EDIT_USER 表示编辑管理员二次校验场景。
 const MFA_SCENARIO_EDIT_USER = 6;
 
@@ -83,7 +92,7 @@ const [Form, formApi] = useVbenForm({
     colon: true,
     formItemClass: 'col-span-2 md:col-span-1',
   },
-  schema: useFormSchema(),
+  schema: useFormSchema(false),
   showDefaultActions: false,
   wrapperClass: 'grid-cols-1 md:grid-cols-2 gap-x-4',
 });
@@ -122,8 +131,8 @@ function updateCheckedRoleIds(
   return [...checkedSet].toSorted((a, b) => a - b);
 }
 
-// normalizeMfaStatus 把表单值收敛成后端支持的 MFA 状态枚举。
-function normalizeMfaStatus(value: unknown): SystemAdminApi.Status {
+// normalizeAdminStatus 把表单值收敛成后端支持的状态枚举。
+function normalizeAdminStatus(value: unknown): SystemAdminApi.Status {
   return Number(value) === 1 ? 1 : 0;
 }
 
@@ -170,7 +179,7 @@ const [Drawer, drawerApi] = useVbenDrawer({
     selectedRoleIds.value = [];
     roleTree.value = buildAdminRoleTreeOptions(await fetchRoleTreeOptions());
     expandedRoleIds.value = collectAllAdminRoleNodeIds(roleTree.value);
-    formApi.updateSchema(useFormSchema());
+    formApi.updateSchema(useFormSchema(Boolean(data?.id)));
     // 从列表页读取当前行数据，存在 ID 时查询详情并回填。
     if (data?.id) {
       loading.value = true;
@@ -201,11 +210,9 @@ const [Drawer, drawerApi] = useVbenDrawer({
       avatar: '',
       description: '',
       email: '',
-      mfaStatus: 0,
       password: generateRandomPassword(),
       phone: '',
       realName: '',
-      status: 1,
       username: '',
     });
     selectedRoleIds.value = [];
@@ -319,12 +326,16 @@ async function onSubmit() {
   if (!valid) {
     return;
   }
-  const values = await formApi.getValues<SystemAdminApi.SaveParams>();
+  const values = await formApi.getValues<AdminFormValues>();
   const isEdit = Boolean(formData.value?.id);
-  const nextMfaStatus = normalizeMfaStatus(values.mfaStatus);
+  const adminID = Number(formData.value?.id || 0);
+  const nextStatus = normalizeAdminStatus(values.status);
+  const shouldUpdateStatus =
+    isEdit && nextStatus !== normalizeAdminStatus(formData.value?.status);
+  const nextMfaStatus = normalizeAdminStatus(values.mfaStatus);
   const shouldUpdateMfaStatus =
-    isEdit && nextMfaStatus !== normalizeMfaStatus(formData.value?.mfaStatus);
-  values.roleIDs = pruneInheritedRoleIDs(selectedRoleIds.value, roleTree.value);
+    isEdit && nextMfaStatus !== normalizeAdminStatus(formData.value?.mfaStatus);
+  const roleIDs = pruneInheritedRoleIDs(selectedRoleIds.value, roleTree.value);
   // 新增用户必须填写初始密码，编辑用户密码留空时不传给后端。
   if (!formData.value?.id && !String(values.password || '').trim()) {
     message.error($t('business.message.newUserPasswordRequired'));
@@ -340,34 +351,44 @@ async function onSubmit() {
     message.error(passwordError);
     return;
   }
-  if (formData.value?.id && !String(values.password || '').trim()) {
-    delete values.password;
-  }
-  delete values.mfaStatus;
-
   drawerApi.lock();
   try {
-    const payloadBase = {
-      ...values,
-      isUpdateRoles: isEdit,
-    };
-    await submitWithMfaRetry(
-      isEdit ? MFA_SCENARIO_EDIT_USER : MFA_SCENARIO_ADD_USER,
-      (ticket) => {
-        const payload = { ...payloadBase, ...ticketPayload(ticket) };
-        return isEdit
-          ? updateAdmin(formData.value.id!, payload)
-          : createAdmin(payload);
-      },
-      isEdit
-        ? $t('business.message.editUserMfaTitle')
-        : $t('business.message.addUserMfaTitle'),
-    );
+    if (isEdit) {
+      const updatePayload = buildUpdateAdminParams(values, roleIDs);
+      await submitWithMfaRetry(
+        MFA_SCENARIO_EDIT_USER,
+        (ticket) =>
+          updateAdmin(adminID, {
+            ...updatePayload,
+            ...ticketPayload(ticket),
+          }),
+        $t('business.message.editUserMfaTitle'),
+      );
+    } else {
+      const createPayload = buildCreateAdminParams(values, roleIDs);
+      await submitWithMfaRetry(
+        MFA_SCENARIO_ADD_USER,
+        (ticket) =>
+          createAdmin({
+            ...createPayload,
+            ...ticketPayload(ticket),
+          }),
+        $t('business.message.addUserMfaTitle'),
+      );
+    }
+    if (shouldUpdateStatus) {
+      await submitWithMfaRetry(
+        MFA_SCENARIO_USER_STATUS,
+        (ticket) =>
+          updateAdminStatus(adminID, nextStatus, ticketPayload(ticket)),
+        $t('business.message.switchUserStatusMfaTitle'),
+      );
+    }
     if (shouldUpdateMfaStatus) {
       await submitWithMfaRetry(
-        MFA_SCENARIO_STATUS,
+        MFA_SCENARIO_MFA_STATUS,
         (ticket) =>
-          updateAdminMfaStatus(formData.value.id!, {
+          updateAdminMfaStatus(adminID, {
             mfaStatus: nextMfaStatus,
             ...ticketPayload(ticket),
           }),

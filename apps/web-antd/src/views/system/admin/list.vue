@@ -57,13 +57,21 @@ import {
   ensureDownloadBlobSuccess,
   resolveRequestErrorMessage,
 } from '#/utils/file/download';
-import { createAsyncJobPoller } from '#/utils/imex/job';
+import {
+  AsyncJobPollingTimeoutError,
+  createAsyncJobPoller,
+  isAsyncJobPollingAbortError,
+} from '#/utils/imex/job';
 import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
 import {
   copyTextToClipboard,
   generateRandomPassword,
   validateStrongPassword,
 } from '#/utils/security/password';
+import {
+  currentSessionStateIdentity,
+  registerSessionStateCleanup,
+} from '#/utils/session-state-gate';
 
 import { resolveBackendMessage } from '../shared';
 import { useColumns, useGridFormSchema } from './data';
@@ -225,12 +233,37 @@ const exportStatus = ref<null | SystemAdminApi.ExportStatusResp>(null);
 const adminExportPoller = createAsyncJobPoller<SystemAdminApi.ExportStatusResp>(
   {
     fetchStatus: fetchAdminExportStatus,
+    getScopeKey: currentSessionStateIdentity,
     intervalMs: ADMIN_EXPORT_POLL_INTERVAL_MS,
+    onError: async (error) => {
+      const sourceSessionIdentity = currentSessionStateIdentity();
+      const errorMessage =
+        error instanceof AsyncJobPollingTimeoutError
+          ? $t('business.message.exportStatusPollingTimeout')
+          : await resolveRequestErrorMessage(
+              error,
+              $t('business.message.adminExportStatusApiUnavailable'),
+            );
+      if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+        return;
+      }
+      message.error(
+        $t('business.message.adminExportStatusRefreshFailed', [errorMessage]),
+      );
+    },
     onStatusChange: (status) => {
       exportStatus.value = status;
     },
   },
 );
+
+// unregisterAdminExportSessionCleanup 在账号切换时停止旧账号导出轮询并清空页面局部状态。
+const unregisterAdminExportSessionCleanup = registerSessionStateCleanup(() => {
+  adminExportPoller.stop();
+  exportStatus.value = null;
+  exportSubmitting.value = false;
+  exportDownloading.value = false;
+});
 
 const [Grid, gridApi] = useVbenVxeGrid({
   formOptions: {
@@ -422,10 +455,14 @@ function onRefresh() {
 
 // onTriggerExport 提交管理员列表异步导出任务，并启动轮询。
 async function onTriggerExport() {
+  const sourceSessionIdentity = currentSessionStateIdentity();
   exportSubmitting.value = true;
   stopAdminExportPolling();
   try {
     const response = await triggerAdminExport(lastAdminQuery.value);
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     exportStatus.value = {
       averageRowsPerSec: 0,
       createdAt: '',
@@ -450,7 +487,9 @@ async function onTriggerExport() {
     message.success($t('business.message.adminExportSubmitted'));
     await refreshAdminExportStatus(false);
   } finally {
-    exportSubmitting.value = false;
+    if (sourceSessionIdentity === currentSessionStateIdentity()) {
+      exportSubmitting.value = false;
+    }
   }
 }
 
@@ -460,26 +499,40 @@ async function onDownloadExport() {
     message.warning($t('business.message.noExportFile'));
     return;
   }
+  const sourceSessionIdentity = currentSessionStateIdentity();
+  const jobId = exportStatus.value.jobId;
+  const fileName = exportStatus.value.fileName || 'admin_export.xlsx';
   exportDownloading.value = true;
   try {
     const blob = await ensureDownloadBlobSuccess(
-      await downloadAdminExport(exportStatus.value.jobId),
+      await downloadAdminExport(jobId),
       $t('business.message.adminExportDownloadFailed'),
     );
-    downloadBlobFile(blob, exportStatus.value.fileName || 'admin_export.xlsx');
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
+    downloadBlobFile(blob, fileName);
     message.success($t('business.message.adminExportDownloadSucceeded'));
   } catch (error) {
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     const errorMessage = await resolveRequestErrorMessage(
       error,
       $t('business.message.adminExportDownloadApiUnavailable'),
     );
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     message.error(
       $t('business.message.adminExportDownloadFailedWithReason', [
         errorMessage,
       ]),
     );
   } finally {
-    exportDownloading.value = false;
+    if (sourceSessionIdentity === currentSessionStateIdentity()) {
+      exportDownloading.value = false;
+    }
   }
 }
 
@@ -488,10 +541,14 @@ async function refreshAdminExportStatus(manual: boolean) {
   if (!exportStatus.value?.jobId) {
     return;
   }
+  const sourceSessionIdentity = currentSessionStateIdentity();
   try {
     const latestStatus = await adminExportPoller.refresh(
       exportStatus.value.jobId,
     );
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     if (latestStatus.status === 'succeeded') {
       message.success($t('business.message.adminExportCompleted'));
       return;
@@ -509,11 +566,20 @@ async function refreshAdminExportStatus(manual: boolean) {
       message.success($t('business.message.adminExportStatusRefreshed'));
     }
   } catch (error) {
+    if (isAsyncJobPollingAbortError(error)) {
+      return;
+    }
+    if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     if (manual) {
       const errorMessage = await resolveRequestErrorMessage(
         error,
         $t('business.message.adminExportStatusApiUnavailable'),
       );
+      if (sourceSessionIdentity !== currentSessionStateIdentity()) {
+        return;
+      }
       message.error(
         $t('business.message.adminExportStatusRefreshFailed', [errorMessage]),
       );
@@ -577,6 +643,7 @@ const exportProgressSummary = computed(() => {
 });
 
 onBeforeUnmount(() => {
+  unregisterAdminExportSessionCleanup();
   stopAdminExportPolling();
 });
 

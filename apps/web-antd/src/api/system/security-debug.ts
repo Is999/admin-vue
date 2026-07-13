@@ -32,7 +32,7 @@ export namespace SystemSecurityDebugApi {
     sign: string; // 生成的签名值
     signFields: string[]; // 实际参与签名的字段
     signText: string; // 最终签名串
-    signatureType: string; // 实际签名方式
+    signatureType: 'A' | 'M' | 'R'; // 实际签名方式
   }
 
   export interface VerifyResult extends SignResult {

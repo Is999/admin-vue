@@ -8,7 +8,7 @@ import { useRouter } from 'vue-router';
 
 import { Page, VbenButton } from '@vben/common-ui';
 
-import { Button, Card, message, Modal, Space } from 'ant-design-vue';
+import { Alert, Button, Card, message, Modal, Space } from 'ant-design-vue';
 
 import { useVbenForm } from '#/adapter/form';
 import { fetchTaskQueues } from '#/api/ops/task';
@@ -28,10 +28,12 @@ import {
   getTaskQueueDescription,
   normalizeOptionalNumber,
   safePrettyJson,
+  splitTextToItems,
   splitTextToNumberItems,
   TASK_QUEUE_OPTIONS,
 } from '../shared';
 import {
+  USER_TAG_FORM_LIMITS,
   useUserTagLeaseReleaseSchema,
   useUserTagRecalculateSchema,
   useUserTagWorkflowSchema,
@@ -234,7 +236,7 @@ const currentWorkflowReferenceRows = computed<ReferenceRow[]>(() => {
   const mode = selectedMode.value;
   const reference: WorkflowReferenceValues = {
     batchSize: '1000',
-    dryRun: $t('business.message.disabled'),
+    dryRun: $t('business.message.enabled'),
     queue: getSuggestedQueue(),
     retry: '2',
     shardTotal: '1',
@@ -421,7 +423,7 @@ async function applyWorkflowModeDefaults(
     mode,
     queue: getSuggestedQueue(),
     batchSize: 1000,
-    dryRun: false,
+    dryRun: true,
   };
   const values: Record<string, any> = {
     ...commonValues,
@@ -496,7 +498,7 @@ async function applyRecalculateDefaults() {
       shardTotal: 1,
       batchSize: 1000,
       workerCount: 4,
-      dryRun: false,
+      dryRun: true,
       uniqueTTLSeconds: 1800,
       retry: 2,
       timeoutSeconds: 1800,
@@ -583,8 +585,11 @@ async function fillLatestWorkflowForLeaseRelease() {
 function validateWorkflowModeInput(
   mode: UserTagModeValue,
   tagTypes: number[],
-  uids: number[],
+  uids: string[],
 ) {
+  if (!validateUserTagItemLimits(tagTypes, uids)) {
+    return false;
+  }
   if (mode === 'full' && (tagTypes.length > 0 || uids.length > 0)) {
     message.warning($t('business.message.userTagWorkflowFullScopeInvalid'));
     return false;
@@ -599,6 +604,27 @@ function validateWorkflowModeInput(
   }
   if (mode === 'recalculate' && tagTypes.length === 0) {
     message.warning($t('business.message.userTagWorkflowRecalculateRequired'));
+    return false;
+  }
+  return true;
+}
+
+// validateUserTagItemLimits 对齐后端标签类型和 UID 数量上限，避免提交后才被任务入口拒绝。
+function validateUserTagItemLimits(tagTypes: number[], uids: string[]) {
+  if (tagTypes.length > USER_TAG_FORM_LIMITS.tagTypes) {
+    message.warning(
+      $t('business.message.userTagTagTypesLimitExceeded', [
+        String(USER_TAG_FORM_LIMITS.tagTypes),
+      ]),
+    );
+    return false;
+  }
+  if (uids.length > USER_TAG_FORM_LIMITS.uids) {
+    message.warning(
+      $t('business.message.userTagUidsLimitExceeded', [
+        String(USER_TAG_FORM_LIMITS.uids),
+      ]),
+    );
     return false;
   }
   return true;
@@ -682,8 +708,7 @@ async function handleTriggerUserTagWorkflow() {
     const values = await workflowFormApi.getValues<Record<string, any>>();
     const mode = normalizeUserTagMode(values.mode);
     const tagTypes = splitTextToNumberItems(values.tagTypesText || '');
-    const uids = splitTextToNumberItems(values.uidsText || '');
-    const dryRun = !!values.dryRun;
+    const uids = splitTextToItems(values.uidsText || '');
     if (!validateWorkflowModeInput(mode, tagTypes, uids)) {
       return;
     }
@@ -696,7 +721,7 @@ async function handleTriggerUserTagWorkflow() {
       shardTotal: normalizeOptionalNumber(values.shardTotal),
       batchSize: normalizeOptionalNumber(values.batchSize),
       workerCount: normalizeOptionalNumber(values.workerCount),
-      dryRun,
+      dryRun: true,
       uniqueKey: values.uniqueKey || undefined,
       uniqueTTLSeconds: normalizeOptionalNumber(values.uniqueTTLSeconds),
       retry: normalizeOptionalNumber(values.retry),
@@ -728,6 +753,9 @@ async function handleRecalculateUserTag() {
   try {
     const values = await recalculateFormApi.getValues<Record<string, any>>();
     const tagTypes = splitTextToNumberItems(values.tagTypesText || '');
+    if (!validateUserTagItemLimits(tagTypes, [])) {
+      return;
+    }
     if (tagTypes.length === 0) {
       message.warning(
         $t('business.message.userTagWorkflowRecalculateRequired'),
@@ -740,7 +768,7 @@ async function handleRecalculateUserTag() {
       shard_total: normalizeOptionalNumber(values.shardTotal),
       batch_size: normalizeOptionalNumber(values.batchSize),
       worker_count: normalizeOptionalNumber(values.workerCount),
-      dry_run: !!values.dryRun,
+      dry_run: true,
       unique_ttl_seconds: normalizeOptionalNumber(values.uniqueTTLSeconds),
       retry: normalizeOptionalNumber(values.retry),
       timeout_seconds: normalizeOptionalNumber(values.timeoutSeconds),
@@ -873,6 +901,13 @@ onMounted(() => {
           </div>
         </div>
       </section>
+
+      <Alert
+        show-icon
+        type="warning"
+        :description="$t('business.message.userTagSkeletonValidationDesc')"
+        :message="$t('business.message.userTagSkeletonValidationTitle')"
+      />
 
       <div class="grid gap-2">
         <Card

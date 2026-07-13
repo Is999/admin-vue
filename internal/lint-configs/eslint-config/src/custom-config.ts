@@ -124,9 +124,9 @@ const customConfig: Linter.Config[] = [
       ],
     },
   },
-  // 文档脚本不参与运行时代码发布，保留较宽松的规则。
+  // 后端模拟代码，不需要太多规则
   {
-    files: ['docs/**/**'],
+    files: ['apps/backend-mock/**/**', 'docs/**/**'],
     rules: {
       'no-console': 'off',
     },

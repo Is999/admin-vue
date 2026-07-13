@@ -1,4 +1,17 @@
-import { baseRequestClient, requestClient } from '#/api/request';
+import {
+  baseRequestClient,
+  createSessionBoundRequestConfig,
+  requestClient,
+} from '#/api/request';
+
+import { AUTH_REFRESH_PATH } from '../token-refresh';
+
+// PUBLIC_AUTH_REQUEST_CONFIG 保证公共认证入口不参与已有会话的续签、重认证和登录 MFA 恢复流程。
+const PUBLIC_AUTH_REQUEST_CONFIG = {
+  skipAccessTokenRefresh: true,
+  skipLoginMfaHandler: true,
+  skipReAuthenticate: true,
+} as const;
 
 export namespace AuthApi {
   /** 登录接口参数 */
@@ -6,6 +19,7 @@ export namespace AuthApi {
     captcha?: string;
     key?: string;
     password?: string;
+    secureCode?: string;
     username?: string;
   }
 
@@ -22,6 +36,12 @@ export namespace AuthApi {
     user?: LoginUserInfo; // 登录后的用户资料与MFA状态
   }
 
+  /** RefreshTokenResult 表示有效会话主动续签后的令牌结果 */
+  export interface RefreshTokenResult {
+    isRefresh: boolean; // 是否已完成令牌轮换
+    token: string; // 新访问令牌
+  }
+
   /** LoginUserInfo 表示登录接口返回的MFA相关用户资料 */
   export interface LoginUserInfo {
     id?: number | string; // 用户 ID
@@ -35,11 +55,6 @@ export namespace AuthApi {
     needResetPassword?: number; // 是否必须先修改登录密码：1需要
     realName?: string; // 真实姓名
     username?: string; // 登录用户名
-  }
-
-  export interface RefreshTokenResult {
-    token: string;
-    isRefresh: boolean;
   }
 
   /** CheckMfaParams 表示校验MFA动态码请求参数 */
@@ -83,34 +98,36 @@ export namespace AuthApi {
  * 登录
  */
 export async function loginApi(data: AuthApi.LoginParams) {
-  return requestClient.post<AuthApi.LoginResult>('/auth/login', data);
+  return requestClient.post<AuthApi.LoginResult>(
+    '/auth/login',
+    data,
+    PUBLIC_AUTH_REQUEST_CONFIG,
+  );
 }
 
 /**
  * 获取登录图形验证码
  */
 export async function getLoginCaptchaApi() {
-  return requestClient.get<AuthApi.LoginCaptchaResult>('/auth/captcha');
+  return requestClient.get<AuthApi.LoginCaptchaResult>(
+    '/auth/captcha',
+    PUBLIC_AUTH_REQUEST_CONFIG,
+  );
 }
 
 /**
- * 刷新accessToken
+ * 为当前仍有效的会话主动续签访问令牌
  */
 export async function refreshTokenApi() {
-  return baseRequestClient.post<AuthApi.RefreshTokenResult>(
-    '/auth/refresh',
-    undefined,
-    {
-      withCredentials: true,
-    },
-  );
+  return baseRequestClient.post<AuthApi.RefreshTokenResult>(AUTH_REFRESH_PATH);
 }
 
 /**
  * 退出登录
  */
-export async function logoutApi() {
+export async function logoutApi(accessToken?: string) {
   return baseRequestClient.post('/auth/logout', undefined, {
+    ...(accessToken ? createSessionBoundRequestConfig(accessToken) : {}),
     withCredentials: true,
   });
 }
@@ -118,8 +135,8 @@ export async function logoutApi() {
 /**
  * 获取用户权限码
  */
-export async function getAccessCodesApi() {
-  return requestClient.get<string[]>('/auth/codes');
+export async function getAccessCodesApi(config?: Record<string, any>) {
+  return requestClient.get<string[]>('/auth/codes', config);
 }
 
 /**

@@ -22,17 +22,41 @@ const avatarCropExportOptions: CropExportOptions = {
   targetWidth: 512,
 };
 
+// SAFE_RASTER_DATA_URL_PATTERN 只允许浏览器直接显示的栅格图片 data URL，拒绝可执行文档。
+const SAFE_RASTER_DATA_URL_PATTERN =
+  /^data:image\/(?:gif|jpeg|jpg|png|webp);base64,/i;
+
+// resolveSafeFilePreviewURL 解析可新窗口预览的文件地址，只允许 HTTP(S)、相对地址和本地 Blob。
+export function resolveSafeFilePreviewURL(rawUrl?: string, baseURL?: string) {
+  const normalizedUrl = String(rawUrl || '').trim();
+  if (!normalizedUrl) {
+    return '';
+  }
+  const fallbackURL =
+    String(baseURL || '').trim() ||
+    (typeof window !== 'undefined' && window.location?.href
+      ? window.location.href
+      : 'http://localhost/');
+  try {
+    const resolvedURL = new URL(normalizedUrl, fallbackURL);
+    return ['blob:', 'http:', 'https:'].includes(resolvedURL.protocol)
+      ? resolvedURL.toString()
+      : '';
+  } catch {
+    return '';
+  }
+}
+
 // resolveDisplayFileURL 把相对文件地址转换为浏览器可直接访问的显示地址。
 export function resolveDisplayFileURL(rawUrl?: string, baseURL?: string) {
   const normalizedUrl = String(rawUrl || '').trim();
   if (!normalizedUrl) {
     return '';
   }
-  if (
-    /^https?:\/\//i.test(normalizedUrl) ||
-    normalizedUrl.startsWith('data:')
-  ) {
-    return normalizedUrl;
+  if (/^data:/i.test(normalizedUrl)) {
+    return SAFE_RASTER_DATA_URL_PATTERN.test(normalizedUrl)
+      ? normalizedUrl
+      : '';
   }
 
   const normalizedBaseURL = String(baseURL || '').trim();
@@ -47,19 +71,27 @@ export function resolveDisplayFileURL(rawUrl?: string, baseURL?: string) {
         normalizedUrl,
         normalizeDisplayFileBaseURL(normalizedBaseURL, fallbackOrigin),
       );
-      if (isInvalidManagedAccessURL(resolvedURL)) {
+      if (!isSafeDisplayFileURL(resolvedURL)) {
         return '';
       }
       return resolvedURL.toString();
     }
     const resolvedURL = new URL(normalizedUrl, fallbackOrigin);
-    if (isInvalidManagedAccessURL(resolvedURL)) {
+    if (!isSafeDisplayFileURL(resolvedURL)) {
       return '';
     }
     return resolvedURL.toString();
   } catch {
-    return normalizedUrl;
+    return '';
   }
+}
+
+// isSafeDisplayFileURL 校验显示地址协议和统一文件访问参数，禁止脚本型 URL 进入图片或链接属性。
+function isSafeDisplayFileURL(url: URL) {
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return false;
+  }
+  return !isInvalidManagedAccessURL(url);
 }
 
 // normalizeDisplayFileBaseURL 把 axios 的 baseURL 统一转换成可用于 URL 解析的绝对基址。

@@ -126,6 +126,7 @@ export namespace UserApi {
     userId: string; // 用户雪花 ID
     profileCacheInvalidated: boolean; // 是否处理资料缓存
     sessionsInvalidated: boolean; // 是否处理登录态
+    authVersion: string; // 本次会话失效使用的已提交认证版本十进制字符串
     message: string; // 同步说明
   }
 
@@ -149,9 +150,13 @@ export async function triggerUserExport(data: UserApi.ExportParams) {
 }
 
 // fetchUserExportStatus 查询用户列表异步导出进度。
-export async function fetchUserExportStatus(jobId: string) {
+export async function fetchUserExportStatus(
+  jobId: string,
+  signal?: AbortSignal,
+) {
   return requestClient.get<UserApi.ExportStatusResp>(
     `/users/exports/status/${encodeURIComponent(jobId)}`,
+    { signal, skipGlobalErrorMessage: true },
   );
 }
 

@@ -383,11 +383,13 @@ async function refreshCurrentAccessAfterRolePermissionSave(roleID?: number) {
   ) {
     return;
   }
-  await refreshAccessState(router, {
+  const result = await refreshAccessState(router, {
     force: true,
     reason: 'role-permission-save',
   });
-  message.info($t('business.message.currentMenuPermissionsRefreshed'));
+  if (!result.skipped) {
+    message.info($t('business.message.currentMenuPermissionsRefreshed'));
+  }
 }
 
 // onDelete 删除角色。

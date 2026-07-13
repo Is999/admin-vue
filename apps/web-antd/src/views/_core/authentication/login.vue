@@ -38,16 +38,25 @@ async function loadLoginCaptcha(resetField = false) {
     const result = await getLoginCaptchaApi();
     captchaImage.value = result?.image || '';
     captchaKey.value = result?.key || '';
-    if (resetField) {
-      await loginRef.value?.getFormApi().setFieldValue('captcha', '', false);
-    }
+  } catch {
+    captchaImage.value = '';
+    captchaKey.value = '';
   } finally {
     captchaLoading.value = false;
+  }
+  if (resetField) {
+    await loginRef.value?.getFormApi().setFieldValue('captcha', '', false);
   }
 }
 
 // handleLoginSubmit 在提交时把验证码 key 一并带给后端；登录失败后自动刷新验证码，避免复用已消费值。
 async function handleLoginSubmit(values: Record<string, any>) {
+  if (captchaLoading.value || !captchaKey.value) {
+    if (!captchaLoading.value) {
+      await loadLoginCaptcha(true);
+    }
+    return;
+  }
   try {
     await authStore.authLogin({
       ...values,
@@ -113,7 +122,7 @@ const formSchema = computed((): VbenFormSchema[] => {
           'button',
           {
             class:
-              'overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm transition hover:border-primary/50 disabled:cursor-not-allowed',
+              'inline-flex h-10 w-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200/90 bg-white p-0 align-middle leading-none shadow-sm transition hover:border-primary/50 disabled:cursor-not-allowed',
             'aria-label': $t('authentication.captchaRefreshAriaLabel'),
             disabled: captchaLoading.value,
             onClick: (event: Event) => {
@@ -125,14 +134,14 @@ const formSchema = computed((): VbenFormSchema[] => {
           captchaImage.value
             ? h('img', {
                 alt: $t('authentication.captchaImageAlt'),
-                class: 'block h-9 w-28 bg-white object-cover',
+                class: 'block h-full w-full bg-white object-fill',
                 src: captchaImage.value,
               })
             : h(
                 'span',
                 {
                   class:
-                    'flex h-9 w-28 items-center justify-center bg-white px-3 text-xs text-slate-500',
+                    'flex h-full w-full items-center justify-center bg-white px-3 text-xs text-slate-500',
                 },
                 captchaLoading.value
                   ? $t('authentication.captchaLoading')
@@ -148,14 +157,13 @@ const formSchema = computed((): VbenFormSchema[] => {
   <AuthenticationLogin
     ref="loginRef"
     :form-schema="formSchema"
-    :loading="authStore.loginLoading"
+    :loading="authStore.loginLoading || captchaLoading"
     :show-code-login="false"
     :show-forget-password="false"
     :show-qrcode-login="false"
     :show-register="false"
     :show-remember-me="false"
     :show-third-party-login="false"
-    :submit-button-disabled="captchaLoading || !captchaKey"
     @submit="handleLoginSubmit"
   />
 </template>

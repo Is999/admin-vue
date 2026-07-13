@@ -1,11 +1,7 @@
 import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import {
-  defaultResponseInterceptor,
-  errorMessageResponseInterceptor,
-} from './preset-interceptors';
 import { RequestClient } from './request-client';
 
 describe('requestClient', () => {
@@ -68,60 +64,6 @@ describe('requestClient', () => {
     });
   });
 
-  it('should preserve response context for business errors', async () => {
-    requestClient.addResponseInterceptor(
-      defaultResponseInterceptor({
-        codeField: 'status',
-        dataField: 'data',
-        successCode: (status) => status === true,
-      }),
-    );
-    mock.onGet('/test/business-error').reply(
-      200,
-      {
-        code: 42,
-        message: 'Business failed',
-        status: false,
-      },
-      { 'X-Trace-Id': '4bf92f3577b34da6a3ce929d0e0e4736' },
-    );
-
-    try {
-      await requestClient.get('/test/business-error', {
-        responseReturn: 'data',
-      });
-      expect(true).toBe(false);
-    } catch (error: any) {
-      // 兼容旧页面 catch(e).code，同时保留 response/config 供 trace 排障使用。
-      expect(error.code).toBe(42);
-      expect(error.message).toBe('Business failed');
-      expect(error.traceId).toBe('4bf92f3577b34da6a3ce929d0e0e4736');
-      expect(error.response?.config?.url).toBe('/test/business-error');
-      expect(error.config?.url).toBe('/test/business-error');
-    }
-  });
-
-  it('should surface local request interceptor errors to message handlers', async () => {
-    const makeErrorMessage = vi.fn();
-    const localError = new Error('Local config failed');
-    requestClient.addRequestInterceptor({
-      fulfilled: () => {
-        throw localError;
-      },
-    });
-    requestClient.addResponseInterceptor(
-      errorMessageResponseInterceptor(makeErrorMessage),
-    );
-
-    await expect(requestClient.get('/test/local-error')).rejects.toThrow(
-      'Local config failed',
-    );
-    expect(makeErrorMessage).toHaveBeenCalledWith(
-      'Local config failed',
-      localError,
-    );
-  });
-
   it('should successfully upload a file', async () => {
     const fileData = new Blob(['file contents'], { type: 'text/plain' });
 
@@ -138,13 +80,6 @@ describe('requestClient', () => {
   });
 
   it('should successfully download a file as a blob', async () => {
-    requestClient.addResponseInterceptor(
-      defaultResponseInterceptor({
-        codeField: 'code',
-        dataField: 'data',
-        successCode: 0,
-      }),
-    );
     const mockFileContent = new Blob(['mock file content'], {
       type: 'text/plain',
     });
@@ -153,6 +88,6 @@ describe('requestClient', () => {
 
     const res = await requestClient.download<any>('/test/download');
 
-    expect(res).toBeInstanceOf(Blob);
+    expect(res.data).toBeInstanceOf(Blob);
   });
 });

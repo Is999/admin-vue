@@ -1,7 +1,11 @@
-node_modules
+**/node_modules
 .git
 .gitignore
+**/.env
+!apps/web-antd/.env
+**/.env.local
+**/.env.*.local
 *.md
-dist
-.turbo
-dist.zip
+**/dist
+**/.turbo
+**/dist.zip

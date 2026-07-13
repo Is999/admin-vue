@@ -38,9 +38,10 @@ import {
   rsaPkcs1Verify,
 } from '#/utils/security/crypto';
 import {
-  buildSignString,
+  buildSignStringByType,
   resolvePolicyForAlias,
   resolveRouteSecurityRule,
+  resolveSignatureType,
 } from '#/utils/security/signature';
 
 import { resolveBackendMessage } from '../shared';
@@ -532,12 +533,13 @@ async function signRequestLocally(): Promise<SystemSecurityDebugApi.SignResult> 
   const payload = parseJSONObjectText(payloadText.value);
   const currentTraceId = resolveActionTraceId();
   const currentTimestamp = resolveActionTimestamp();
-  const signText = buildSignString(
+  const signText = buildSignStringByType(
     payload,
     effectiveSignFields.value,
     currentTraceId,
     currentTimestamp,
     appId.value.trim(),
+    signatureType.value,
   );
   const sign = await signTextLocally(signText, signatureType.value);
   return {
@@ -569,12 +571,13 @@ async function verifyResponseLocally(): Promise<SystemSecurityDebugApi.VerifyRes
     throw new Error($t('business.message.signValueRequired'));
   }
   const payload = parseJSONObjectText(payloadText.value);
-  const signText = buildSignString(
+  const signText = buildSignStringByType(
     payload,
     effectiveSignFields.value,
     currentTraceId,
     currentTimestamp,
     appId.value.trim(),
+    signatureType.value,
   );
   return {
     appId: appId.value.trim(),
@@ -1096,10 +1099,7 @@ function applyHeadersToForm(headers: Record<string, string>) {
   }
   const signatureHeader = headers['x-signature'] || '';
   if (signatureHeader) {
-    const type = String(signatureHeader).trim().toUpperCase();
-    if (type === 'A' || type === 'M' || type === 'R') {
-      signatureType.value = type;
-    }
+    signatureType.value = resolveSignatureType(signatureHeader);
   }
   const cryptoHeader = headers['x-crypto'] || '';
   if (cryptoHeader) {
