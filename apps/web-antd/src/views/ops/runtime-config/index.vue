@@ -67,6 +67,9 @@ import {
   safePrettyJson,
   splitTextToItems,
 } from '../shared';
+import ArchiveProgressDrawerView from './components/archive-progress-drawer.vue';
+import CopyableTextCell from './components/copyable-text-cell.vue';
+import PeriodicTaskDetailDrawerView from './components/periodic-task-detail-drawer.vue';
 import SnapshotDiffPanel from './components/snapshot-diff-panel.vue';
 
 type TablePage = {
@@ -288,9 +291,19 @@ const [PeriodicDrawer, periodicDrawerApi] = useVbenDrawer({
   onConfirm: submitPeriodic,
 });
 
+// PeriodicTaskDetailDrawer 承载周期任务运行态匹配和最近执行记录。
+const [PeriodicTaskDetailDrawer, periodicTaskDetailDrawerApi] = useVbenDrawer({
+  connectedComponent: PeriodicTaskDetailDrawerView,
+});
+
 // ArchiveDrawer 承载归档任务新增和编辑表单。
 const [ArchiveDrawer, archiveDrawerApi] = useVbenDrawer({
   onConfirm: submitArchive,
+});
+
+// ArchiveProgressDrawer 承载归档任务当前水位和最近区间详情。
+const [ArchiveProgressDrawer, archiveProgressDrawerApi] = useVbenDrawer({
+  connectedComponent: ArchiveProgressDrawerView,
 });
 
 const enabledOptions = computed(() => [
@@ -341,6 +354,21 @@ const archiveUsesAutoWindow = computed(
   () => archiveForm.archiveWindowMode === 'auto',
 );
 
+// copyValueLabel 返回配置列表提示卡中的复制操作文案。
+function copyValueLabel(label: string) {
+  return $t('business.message.copyValueLabel', [label]);
+}
+
+// copiedValueMessage 返回配置值复制成功后的反馈文案。
+function copiedValueMessage(label: string) {
+  return $t('business.message.valueCopiedToClipboard', [label]);
+}
+
+// emptyValueMessage 返回配置值为空时的反馈文案。
+function emptyValueMessage(label: string) {
+  return $t('business.message.noValueToCopy', [label]);
+}
+
 const periodicColumns = computed(() => [
   { title: rt('name'), dataIndex: 'name', key: 'name', width: 220 },
   { title: rt('workflow'), dataIndex: 'workflow', key: 'workflow', width: 240 },
@@ -359,7 +387,7 @@ const periodicColumns = computed(() => [
     key: 'updatedAt',
     width: 180,
   },
-  { title: rt('action'), key: 'action', width: 76 },
+  { title: rt('action'), key: 'action', width: 112 },
 ]);
 const archiveColumns = computed(() => [
   { title: rt('name'), dataIndex: 'name', key: 'name', width: 220 },
@@ -385,7 +413,7 @@ const archiveColumns = computed(() => [
     key: 'updatedAt',
     width: 180,
   },
-  { title: rt('action'), key: 'action', width: 76 },
+  { title: rt('action'), key: 'action', width: 112 },
 ]);
 const releaseColumns = computed(() => [
   {
@@ -435,6 +463,7 @@ onMounted(async () => {
 function newPeriodicForm(): RuntimeConfigApi.PeriodicTaskItem {
   return {
     cron: '',
+    deadline: '',
     enabled: true,
     everySeconds: undefined,
     grayPercent: 100,
@@ -614,6 +643,16 @@ function openPeriodicDrawer(row?: Record<string, any>) {
   periodicDrawerApi.open();
 }
 
+// openPeriodicTaskDetailDrawer 打开周期任务最近执行详情。
+function openPeriodicTaskDetailDrawer(row: Record<string, any>) {
+  periodicTaskDetailDrawerApi
+    .setData({
+      activeTasks: overview.value?.currentSnapshot?.taskPeriodic || [],
+      task: row as RuntimeConfigApi.PeriodicTaskItem,
+    })
+    .open();
+}
+
 // normalizeSnapshotDiffValue 归一化展示快照，避免编辑态字段和展示顺序制造假差异。
 function normalizeSnapshotDiffValue(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -759,13 +798,49 @@ function openArchiveDrawer(row?: Record<string, any>) {
   archiveDrawerApi.open();
 }
 
+// openArchiveProgressDrawer 打开指定归档任务的运行态详情。
+function openArchiveProgressDrawer(row: Record<string, any>) {
+  archiveProgressDrawerApi
+    .setData({
+      activeTasks: overview.value?.currentSnapshot?.taskPeriodic || [],
+      job: row as RuntimeConfigApi.ArchiveJobItem,
+    })
+    .open();
+}
+
 async function submitPeriodic() {
   if (!periodicForm.name.trim() || !periodicForm.workflow.trim()) {
     message.warning(rt('fillPeriodicRequired'));
     return;
   }
-  if (!periodicForm.cron?.trim() && !Number(periodicForm.everySeconds || 0)) {
+  const cron = periodicForm.cron?.trim() || '';
+  const everySeconds = Number(periodicForm.everySeconds || 0);
+  if (!cron && !everySeconds) {
     message.warning(rt('periodicScheduleRequired'));
+    return;
+  }
+  if (cron && everySeconds) {
+    message.warning(rt('periodicScheduleExclusive'));
+    return;
+  }
+  if (everySeconds > 0 && everySeconds < TASK_API_LIMITS.periodicEverySeconds) {
+    message.warning(
+      rt('periodicEverySecondsMinimum').replace(
+        '{seconds}',
+        String(TASK_API_LIMITS.periodicEverySeconds),
+      ),
+    );
+    return;
+  }
+  const deadline = periodicForm.deadline?.trim() || '';
+  if (
+    deadline &&
+    (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
+      deadline,
+    ) ||
+      Number.isNaN(Date.parse(deadline)))
+  ) {
+    message.warning(rt('periodicDeadlineInvalid'));
     return;
   }
   submitting.value = true;
@@ -773,8 +848,9 @@ async function submitPeriodic() {
   try {
     await saveRuntimePeriodicTask({
       ...periodicForm,
-      cron: periodicForm.cron?.trim() || undefined,
-      everySeconds: Number(periodicForm.everySeconds || 0) || undefined,
+      cron: cron || undefined,
+      deadline: deadline || undefined,
+      everySeconds: everySeconds || undefined,
       targets: splitTextToItems(periodicTargetsText.value),
     });
     periodicDrawerApi.close();
@@ -1124,7 +1200,31 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 @change="handlePeriodicTableChange"
               >
                 <template #bodyCell="{ column, record }">
-                  <template v-if="column.key === 'schedule'">
+                  <template v-if="column.key === 'name'">
+                    <CopyableTextCell
+                      :copy-label="copyValueLabel(rt('name'))"
+                      :copied-message="copiedValueMessage(rt('name'))"
+                      :empty-message="emptyValueMessage(rt('name'))"
+                      :text="record.name"
+                    />
+                  </template>
+                  <template v-else-if="column.key === 'workflow'">
+                    <CopyableTextCell
+                      :copy-label="copyValueLabel(rt('workflow'))"
+                      :copied-message="copiedValueMessage(rt('workflow'))"
+                      :empty-message="emptyValueMessage(rt('workflow'))"
+                      :text="record.workflow"
+                    />
+                  </template>
+                  <template v-else-if="column.key === 'queue'">
+                    <CopyableTextCell
+                      :copy-label="copyValueLabel(rt('queue'))"
+                      :copied-message="copiedValueMessage(rt('queue'))"
+                      :empty-message="emptyValueMessage(rt('queue'))"
+                      :text="record.queue"
+                    />
+                  </template>
+                  <template v-else-if="column.key === 'schedule'">
                     <Tag v-if="record.cron" color="blue">cron</Tag>
                     <Tag v-else color="green">every</Tag>
                     {{ record.cron || `${record.everySeconds || 0}s` }}
@@ -1136,6 +1236,20 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   </template>
                   <template v-else-if="column.key === 'action'">
                     <Space :size="4">
+                      <Tooltip :title="rt('periodicDetailView')">
+                        <Button
+                          v-access="
+                            asActionPermission(
+                              OPS_ACTION_PERMISSION_CODES.RUNTIME_CONFIG_LIST,
+                            )
+                          "
+                          size="small"
+                          type="text"
+                          @click="openPeriodicTaskDetailDrawer(record)"
+                        >
+                          <EyeOutlined />
+                        </Button>
+                      </Tooltip>
                       <Tooltip :title="rt('edit')">
                         <Button
                           v-access="
@@ -1238,7 +1352,31 @@ function runtimeActionSuccess(type: RuntimeActionType) {
               @change="handleArchiveTableChange"
             >
               <template #bodyCell="{ column, record }">
-                <template v-if="column.key === 'keepDays'">
+                <template v-if="column.key === 'name'">
+                  <CopyableTextCell
+                    :copy-label="copyValueLabel(rt('name'))"
+                    :copied-message="copiedValueMessage(rt('name'))"
+                    :empty-message="emptyValueMessage(rt('name'))"
+                    :text="record.name"
+                  />
+                </template>
+                <template v-else-if="column.key === 'database'">
+                  <CopyableTextCell
+                    :copy-label="copyValueLabel(rt('database'))"
+                    :copied-message="copiedValueMessage(rt('database'))"
+                    :empty-message="emptyValueMessage(rt('database'))"
+                    :text="record.database"
+                  />
+                </template>
+                <template v-else-if="column.key === 'tableName'">
+                  <CopyableTextCell
+                    :copy-label="copyValueLabel(rt('hotTable'))"
+                    :copied-message="copiedValueMessage(rt('hotTable'))"
+                    :empty-message="emptyValueMessage(rt('hotTable'))"
+                    :text="record.tableName"
+                  />
+                </template>
+                <template v-else-if="column.key === 'keepDays'">
                   {{ record.hotKeepDays || 0 }}d /
                   {{ record.archiveDelayDays || 0 }}d
                 </template>
@@ -1253,6 +1391,20 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 </template>
                 <template v-else-if="column.key === 'action'">
                   <Space :size="4">
+                    <Tooltip :title="rt('archiveProgressView')">
+                      <Button
+                        v-access="
+                          asActionPermission(
+                            OPS_ACTION_PERMISSION_CODES.RUNTIME_CONFIG_LIST,
+                          )
+                        "
+                        size="small"
+                        type="text"
+                        @click="openArchiveProgressDrawer(record)"
+                      >
+                        <EyeOutlined />
+                      </Button>
+                    </Tooltip>
                     <Tooltip :title="rt('edit')">
                       <Button
                         v-access="
@@ -1588,7 +1740,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     <InputNumber
                       v-model:value="periodicForm.everySeconds"
                       class="w-full"
-                      :min="0"
+                      :min="TASK_API_LIMITS.periodicEverySeconds"
                     />
                   </Form.Item>
                   <Form.Item
@@ -1774,62 +1926,106 @@ function runtimeActionSuccess(type: RuntimeActionType) {
           </div>
           <Form :model="archiveForm" layout="vertical" name="runtime-archive">
             <div class="runtime-editor__layout">
-              <section class="runtime-editor__section">
-                <div class="runtime-editor__section-head">
-                  <div>
-                    <div class="runtime-editor__section-title">
-                      {{ rt('runtimeFormBasic') }}
+              <div class="runtime-editor__column">
+                <section class="runtime-editor__section">
+                  <div class="runtime-editor__section-head">
+                    <div>
+                      <div class="runtime-editor__section-title">
+                        {{ rt('runtimeFormBasic') }}
+                      </div>
+                      <div class="runtime-editor__section-desc">
+                        {{ rt('runtimeFormArchiveBasicDesc') }}
+                      </div>
                     </div>
-                    <div class="runtime-editor__section-desc">
-                      {{ rt('runtimeFormArchiveBasicDesc') }}
+                    <div class="runtime-editor__section-toggle">
+                      <div class="runtime-editor__section-toggle-main">
+                        <span>{{ rt('enabled') }}</span>
+                        <Switch v-model:checked="archiveForm.enabled" />
+                      </div>
+                      <span class="runtime-editor__section-toggle-desc">
+                        {{ rt('archiveEnabledHelp') }}
+                      </span>
                     </div>
                   </div>
-                  <div class="runtime-editor__section-toggle">
-                    <div class="runtime-editor__section-toggle-main">
-                      <span>{{ rt('enabled') }}</span>
-                      <Switch v-model:checked="archiveForm.enabled" />
-                    </div>
-                    <span class="runtime-editor__section-toggle-desc">
-                      {{ rt('archiveEnabledHelp') }}
-                    </span>
+                  <div class="runtime-editor__grid">
+                    <Form.Item
+                      name="name"
+                      required
+                      :extra="rt('archiveNameHelp')"
+                      :label="rt('name')"
+                    >
+                      <Input v-model:value="archiveForm.name" />
+                    </Form.Item>
+                    <Form.Item
+                      name="database"
+                      :extra="rt('archiveDatabaseHelp')"
+                      :label="rt('database')"
+                    >
+                      <Input v-model:value="archiveForm.database" />
+                    </Form.Item>
+                    <Form.Item
+                      name="tableName"
+                      required
+                      :extra="rt('archiveTableNameHelp')"
+                      :label="rt('hotTableName')"
+                    >
+                      <Input v-model:value="archiveForm.tableName" />
+                    </Form.Item>
+                    <Form.Item
+                      name="sortOrder"
+                      :extra="rt('archiveSortOrderHelp')"
+                      :label="rt('sortOrder')"
+                    >
+                      <InputNumber
+                        v-model:value="archiveForm.sortOrder"
+                        class="w-full"
+                      />
+                    </Form.Item>
                   </div>
-                </div>
-                <div class="runtime-editor__grid">
-                  <Form.Item
-                    name="name"
-                    required
-                    :extra="rt('archiveNameHelp')"
-                    :label="rt('name')"
-                  >
-                    <Input v-model:value="archiveForm.name" />
-                  </Form.Item>
-                  <Form.Item
-                    name="database"
-                    :extra="rt('archiveDatabaseHelp')"
-                    :label="rt('database')"
-                  >
-                    <Input v-model:value="archiveForm.database" />
-                  </Form.Item>
-                  <Form.Item
-                    name="tableName"
-                    required
-                    :extra="rt('archiveTableNameHelp')"
-                    :label="rt('hotTableName')"
-                  >
-                    <Input v-model:value="archiveForm.tableName" />
-                  </Form.Item>
-                  <Form.Item
-                    name="sortOrder"
-                    :extra="rt('archiveSortOrderHelp')"
-                    :label="rt('sortOrder')"
-                  >
-                    <InputNumber
-                      v-model:value="archiveForm.sortOrder"
-                      class="w-full"
-                    />
-                  </Form.Item>
-                </div>
-              </section>
+                </section>
+
+                <section class="runtime-editor__section">
+                  <div class="runtime-editor__section-head">
+                    <div>
+                      <div class="runtime-editor__section-title">
+                        {{ rt('runtimeFormConditions') }}
+                      </div>
+                      <div class="runtime-editor__section-desc">
+                        {{ rt('runtimeFormConditionsDesc') }}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="runtime-editor__stack">
+                    <Form.Item
+                      name="archiveCondition"
+                      :extra="rt('archiveConditionHelp')"
+                      :label="rt('archiveCondition')"
+                    >
+                      <Textarea
+                        v-model:value="archiveForm.archiveCondition"
+                        :rows="2"
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name="deleteCondition"
+                      :extra="rt('archiveDeleteConditionHelp')"
+                      :label="rt('deleteCondition')"
+                    >
+                      <Textarea
+                        v-model:value="archiveForm.deleteCondition"
+                        :rows="2"
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name="remark"
+                      :extra="rt('archiveRemarkHelp')"
+                      :label="rt('remark')"
+                    >
+                      <Textarea v-model:value="archiveForm.remark" :rows="2" />
+                    </Form.Item>
+                  </div>
+                </section>
+              </div>
 
               <section class="runtime-editor__section">
                 <div class="runtime-editor__section-head">
@@ -2146,54 +2342,13 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   </Form.Item>
                 </div>
               </section>
-
-              <section
-                class="runtime-editor__section runtime-editor__section--wide"
-              >
-                <div class="runtime-editor__section-head">
-                  <div>
-                    <div class="runtime-editor__section-title">
-                      {{ rt('runtimeFormConditions') }}
-                    </div>
-                    <div class="runtime-editor__section-desc">
-                      {{ rt('runtimeFormConditionsDesc') }}
-                    </div>
-                  </div>
-                </div>
-                <div class="runtime-editor__stack">
-                  <Form.Item
-                    name="archiveCondition"
-                    :extra="rt('archiveConditionHelp')"
-                    :label="rt('archiveCondition')"
-                  >
-                    <Textarea
-                      v-model:value="archiveForm.archiveCondition"
-                      :rows="2"
-                    />
-                  </Form.Item>
-                  <Form.Item
-                    name="deleteCondition"
-                    :extra="rt('archiveDeleteConditionHelp')"
-                    :label="rt('deleteCondition')"
-                  >
-                    <Textarea
-                      v-model:value="archiveForm.deleteCondition"
-                      :rows="2"
-                    />
-                  </Form.Item>
-                  <Form.Item
-                    name="remark"
-                    :extra="rt('archiveRemarkHelp')"
-                    :label="rt('remark')"
-                  >
-                    <Textarea v-model:value="archiveForm.remark" :rows="2" />
-                  </Form.Item>
-                </div>
-              </section>
             </div>
           </Form>
         </div>
       </ArchiveDrawer>
+
+      <ArchiveProgressDrawer />
+      <PeriodicTaskDetailDrawer />
 
       <Modal
         v-model:open="actionModalOpen"
@@ -2556,6 +2711,13 @@ function runtimeActionSuccess(type: RuntimeActionType) {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.runtime-editor__column {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 12px;
+  min-width: 0;
 }
 
 .runtime-editor__section {

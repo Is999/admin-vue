@@ -200,6 +200,103 @@ export namespace RuntimeConfigApi {
     updatedAt?: string;
   }
 
+  /** 归档区间状态数量 */
+  export interface ArchiveProgressCounts {
+    /** 区间总数 */
+    total: number;
+    /** 待领取区间数 */
+    pending: number;
+    /** 正在归档区间数 */
+    running: number;
+    /** 已归档待删除区间数 */
+    done: number;
+    /** 正在删除区间数 */
+    deleting: number;
+    /** 已完成热表删除区间数 */
+    deleted: number;
+    /** 归档失败待重试区间数 */
+    failed: number;
+  }
+
+  /** 归档任务当前执行阶段 */
+  export type ArchiveProgressPhase =
+    | 'caught_up'
+    | 'deleting'
+    | 'failed'
+    | 'idle'
+    | 'inactive'
+    | 'lease_expired'
+    | 'not_started'
+    | 'pending'
+    | 'running'
+    | 'waiting_delete';
+
+  /** 单个归档区间执行详情 */
+  export interface ArchiveSegmentItem {
+    /** 区间 ID */
+    id: number;
+    /** 历史表名 */
+    historyTableName: string;
+    /** 区间起点（含） */
+    rangeStart: string;
+    /** 区间终点（不含） */
+    rangeEnd: string;
+    /** 区间状态 */
+    status: string;
+    /** 当前持有 worker */
+    workerId: string;
+    /** 当前租约过期时间 */
+    leaseExpiresAt: string;
+    /** 最近归档主键游标 */
+    lastArchivedId: string;
+    /** 最近归档时间游标 */
+    lastArchivedTime: string;
+    /** 累计归档行数 */
+    rowsArchived: number;
+    /** 领取次数 */
+    attemptCount: number;
+    /** 最近更新时间 */
+    updatedAt: string;
+    /** 归档完成时间 */
+    completedAt: string;
+    /** 复制阶段按时间游标估算的区间进度百分比 */
+    estimatedProgressPercent: null | number;
+  }
+
+  /** 归档任务执行详情 */
+  export interface ArchiveProgressResp {
+    /** 归档任务草稿 ID */
+    jobId: number;
+    /** 归档任务名 */
+    jobName: string;
+    /** 当前运行态是否存在同名任务 */
+    runtimeMatched: boolean;
+    /** 当前运行态归档模块和同名任务是否均已启用 */
+    runtimeEnabled: boolean;
+    /** 归档水位表和区间表是否均已创建 */
+    schemaReady: boolean;
+    /** 当前执行阶段 */
+    phase: ArchiveProgressPhase;
+    /** 已完整复制到历史表的排他上界 */
+    watermarkTime: string;
+    /** 水位最近更新时间 */
+    watermarkUpdatedAt: string;
+    /** 当前允许归档到的排他上界 */
+    eligibleUntil: string;
+    /** 已规划区间的最远排他上界 */
+    plannedUntil: string;
+    /** 有可靠基线时的滞后秒数 */
+    lagSeconds: null | number;
+    /** 各区间状态数量 */
+    counts: ArchiveProgressCounts;
+    /** 当前活动或最近租约过期的执行区间 */
+    currentSegment: ArchiveSegmentItem | null;
+    /** 最近区间，按起点倒序排列 */
+    recentSegments: ArchiveSegmentItem[];
+    /** 本次运行态快照生成时间 */
+    fetchedAt: string;
+  }
+
   /** 预检结果 */
   export interface ValidateResp {
     /** 是否通过预检 */
@@ -324,6 +421,13 @@ export async function fetchRuntimeArchiveJobs(
   return requestClient.get<
     CommonApi.ListResult<RuntimeConfigApi.ArchiveJobItem>
   >(`${RUNTIME_CONFIG_PREFIX}/archive-jobs`, { params });
+}
+
+// fetchRuntimeArchiveProgress 查询归档任务当前水位和区间执行详情。
+export async function fetchRuntimeArchiveProgress(id: number) {
+  return requestClient.get<RuntimeConfigApi.ArchiveProgressResp>(
+    `${RUNTIME_CONFIG_PREFIX}/archive-jobs/${id}/progress`,
+  );
 }
 
 // saveRuntimeArchiveJob 保存归档任务草稿。

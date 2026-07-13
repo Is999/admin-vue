@@ -1574,6 +1574,17 @@
       "responseCipher": []
     },
     {
+      "alias": "runtime.config.list",
+      "method": "GET",
+      "path": "/api/runtime-config/archive-jobs/:id/progress",
+      "access": "auth",
+      "describe": "查询归档任务执行详情",
+      "requestSign": null,
+      "requestCipher": [],
+      "responseSign": null,
+      "responseCipher": []
+    },
+    {
       "alias": "runtime.config.save",
       "method": "POST",
       "path": "/api/runtime-config/archive-jobs",
