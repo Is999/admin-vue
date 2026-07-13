@@ -77,19 +77,28 @@ export namespace SystemAdminApi {
     averageRowsPerSec: number; // 平均处理速度
   }
 
-  // SaveParams 表示新增或编辑管理员参数。
-  export interface SaveParams extends CommonApi.TwoStepReq {
-    username?: string; // 登录用户名
+  // CreateParams 表示新增管理员请求参数。
+  export interface CreateParams extends CommonApi.TwoStepReq {
+    username: string; // 登录用户名
+    realName: string; // 真实姓名
+    email: string; // 邮箱
+    phone: string; // 手机号
+    password: string; // 初始登录密码
+    avatar: string; // 头像地址
+    description?: string; // 备注说明
+    mfaSecureKey?: string; // 可选的初始 MFA 秘钥
+    roleIDs?: number[]; // 初始角色 ID 列表
+  }
+
+  // UpdateParams 表示编辑管理员基础资料和角色请求参数。
+  export interface UpdateParams extends CommonApi.TwoStepReq {
     realName?: string; // 真实姓名
     email?: string; // 邮箱
     phone?: string; // 手机号
-    password?: string; // 登录密码
+    password?: string; // 新登录密码，不传时保持不变
     avatar?: string; // 头像地址
     description?: string; // 备注说明
-    mfaSecureKey?: string; // MFA密钥
-    mfaStatus?: Status; // MFA状态
-    status?: Status; // 账号状态
-    roleIDs?: number[]; // 角色 ID列表
+    roleIDs?: number[]; // 角色 ID 列表
     isUpdateRoles?: boolean; // 是否同步角色
   }
 
@@ -127,9 +136,13 @@ export async function triggerAdminExport(data: SystemAdminApi.ExportParams) {
 }
 
 // fetchAdminExportStatus 查询管理员列表异步导出进度。
-export async function fetchAdminExportStatus(jobId: string) {
+export async function fetchAdminExportStatus(
+  jobId: string,
+  signal?: AbortSignal,
+) {
   return requestClient.get<SystemAdminApi.ExportStatusResp>(
     `/admins/exports/status/${encodeURIComponent(jobId)}`,
+    { signal, skipGlobalErrorMessage: true },
   );
 }
 
@@ -146,13 +159,16 @@ export async function fetchAdminDetail(id: number) {
 }
 
 // createAdmin 新增管理员。
-export async function createAdmin(data: SystemAdminApi.SaveParams) {
+export async function createAdmin(data: SystemAdminApi.CreateParams) {
   return requestClient.post('/admins', data);
 }
 
 // updateAdmin 编辑管理员。
-export async function updateAdmin(id: number, data: SystemAdminApi.SaveParams) {
-  return requestClient.patch(`/admins/${id}`, data);
+export async function updateAdmin(
+  id: number,
+  data: SystemAdminApi.UpdateParams,
+) {
+  return requestClient.patch<CommonApi.CacheSyncResp>(`/admins/${id}`, data);
 }
 
 // updateAdminMfaStatus 修改管理员 MFA 状态。
@@ -160,12 +176,15 @@ export async function updateAdminMfaStatus(
   id: number,
   data: SystemAdminApi.MfaStatusParams,
 ) {
-  return requestClient.patch(`/admins/mfa-status/${id}`, data);
+  return requestClient.patch<CommonApi.CacheSyncResp>(
+    `/admins/mfa-status/${id}`,
+    data,
+  );
 }
 
 // deleteAdmin 删除管理员。
 export async function deleteAdmin(id: number, twoStep?: CommonApi.TwoStepReq) {
-  return requestClient.delete(`/admins/${id}`, {
+  return requestClient.delete<CommonApi.CacheSyncResp>(`/admins/${id}`, {
     data: { ...twoStep },
   });
 }
@@ -176,7 +195,10 @@ export async function updateAdminStatus(
   status: SystemAdminApi.Status,
   twoStep?: CommonApi.TwoStepReq,
 ) {
-  return requestClient.patch(`/admins/status/${id}`, { status, ...twoStep });
+  return requestClient.patch<CommonApi.CacheSyncResp>(`/admins/status/${id}`, {
+    status,
+    ...twoStep,
+  });
 }
 
 // resetAdminPassword 重置管理员密码。
@@ -185,10 +207,13 @@ export async function resetAdminPassword(
   password: string,
   twoStep?: CommonApi.TwoStepReq,
 ) {
-  return requestClient.post(`/admins/password/reset/${id}`, {
-    password,
-    ...twoStep,
-  });
+  return requestClient.post<CommonApi.CacheSyncResp>(
+    `/admins/password/reset/${id}`,
+    {
+      password,
+      ...twoStep,
+    },
+  );
 }
 
 // resetAdminInitialState 重置管理员到首次登录前状态。
@@ -197,10 +222,13 @@ export async function resetAdminInitialState(
   password: string,
   twoStep?: CommonApi.TwoStepReq,
 ) {
-  return requestClient.post(`/admins/initial-state/reset/${id}`, {
-    password,
-    ...twoStep,
-  });
+  return requestClient.post<CommonApi.CacheSyncResp>(
+    `/admins/initial-state/reset/${id}`,
+    {
+      password,
+      ...twoStep,
+    },
+  );
 }
 
 // fetchAdminRoles 查询管理员已绑定角色。
@@ -214,5 +242,8 @@ export async function updateAdminRoles(
   roleIDs: number[],
   payload?: CommonApi.TwoStepReq,
 ) {
-  return requestClient.patch(`/admins/roles/${id}`, { roleIDs, ...payload });
+  return requestClient.patch<CommonApi.CacheSyncResp>(`/admins/roles/${id}`, {
+    roleIDs,
+    ...payload,
+  });
 }

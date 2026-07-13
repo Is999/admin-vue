@@ -320,7 +320,7 @@ export function useFormSchema(
       fieldName: 'description',
       label: $t('business.message.permissionDescription'),
       componentProps: {
-        autoSize: { minRows: 3, maxRows: 5 },
+        rows: 3,
         maxlength: 255,
         showCount: true,
       },
@@ -390,7 +390,7 @@ export function useColumns<T extends PermissionTreeTitleRow>(
 ): VxeTableGridOptions['columns'] {
   const { hasAccessByCodes } = useAccess();
   const canUpdateStatus = hasAccessByCodes(
-    asActionPermission(SYSTEM_ACTION_PERMISSION_CODES.PERMISSION_UPDATE),
+    asActionPermission(SYSTEM_ACTION_PERMISSION_CODES.PERMISSION_STATUS_UPDATE),
   );
 
   return [

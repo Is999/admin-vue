@@ -8,7 +8,15 @@ import { useRouter } from 'vue-router';
 import { Page, VbenButton } from '@vben/common-ui';
 
 import { ReloadOutlined } from '@ant-design/icons-vue';
-import { Alert, Button, Card, message, Modal } from 'ant-design-vue';
+import {
+  Alert,
+  Button,
+  Card,
+  message,
+  Modal,
+  Table,
+  Tag,
+} from 'ant-design-vue';
 
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
 import {
@@ -33,10 +41,67 @@ const workerSummaryText = ref('');
 const queueRows = ref<TaskApi.TaskQueueItem[]>([]);
 // workerRows 保存当前在线 Worker 节点快照。
 const workerRows = ref<TaskApi.TaskServerItem[]>([]);
+// snapshotLoading 表示队列与 Worker 运行快照正在加载。
+const snapshotLoading = ref(false);
+// snapshotLoadFailed 表示最近一次运行快照加载失败。
+const snapshotLoadFailed = ref(false);
 // router 用于跳转到任务列表并带入队列筛选条件。
 const router = useRouter();
 // showWorkerSnapshot 控制 Worker 原始快照展开。
 const showWorkerSnapshot = ref(false);
+
+// workerColumns 定义在线 Worker 的结构化运行视图。
+const workerColumns = computed(() => [
+  {
+    dataIndex: 'id',
+    ellipsis: true,
+    title: $t('business.message.workerInstance'),
+    width: 220,
+  },
+  {
+    dataIndex: 'host',
+    title: $t('business.message.workerHost'),
+    width: 180,
+  },
+  {
+    dataIndex: 'pid',
+    title: 'PID',
+    width: 90,
+  },
+  {
+    dataIndex: 'status',
+    title: $t('business.message.workerStatus'),
+    width: 110,
+  },
+  {
+    dataIndex: 'concurrency',
+    title: $t('business.message.workerConcurrency'),
+    width: 110,
+  },
+  {
+    dataIndex: 'strictPriority',
+    title: $t('business.message.strictPriority'),
+    width: 120,
+  },
+  {
+    dataIndex: 'queues',
+    title: $t('business.message.queueWeights'),
+    width: 260,
+  },
+  {
+    dataIndex: 'startedAt',
+    title: $t('business.message.workerStartedAt'),
+    width: 190,
+  },
+]);
+
+// formatWorkerQueues 格式化 Worker 队列权重。
+function formatWorkerQueues(queues?: Record<string, number>) {
+  return Object.entries(queues || {})
+    .toSorted(([left], [right]) => left.localeCompare(right))
+    .map(([name, weight]) => `${name}:${weight}`)
+    .join(' · ');
+}
 
 const queueOverviewCards = computed(() => {
   const rows = queueRows.value;
@@ -119,18 +184,30 @@ const [Grid, gridApi] = useVbenVxeGrid({
     proxyConfig: {
       ajax: {
         query: async () => {
-          const responseData = await fetchTaskQueues();
-          queueRows.value = responseData.queues || [];
-          workerRows.value = responseData.servers || [];
-          workerSummaryText.value = JSON.stringify(
-            responseData.servers || [],
-            null,
-            2,
-          );
-          return {
-            list: responseData.queues || [],
-            total: responseData.queues?.length || 0,
-          };
+          snapshotLoading.value = true;
+          snapshotLoadFailed.value = false;
+          try {
+            const responseData = await fetchTaskQueues();
+            queueRows.value = responseData.queues || [];
+            workerRows.value = responseData.servers || [];
+            workerSummaryText.value = JSON.stringify(
+              responseData.servers || [],
+              null,
+              2,
+            );
+            return {
+              list: responseData.queues || [],
+              total: responseData.queues?.length || 0,
+            };
+          } catch (error) {
+            queueRows.value = [];
+            workerRows.value = [];
+            workerSummaryText.value = '';
+            snapshotLoadFailed.value = true;
+            throw error;
+          } finally {
+            snapshotLoading.value = false;
+          }
         },
       },
       response: {
@@ -153,7 +230,8 @@ const [Grid, gridApi] = useVbenVxeGrid({
 // onActionClick 处理操作列点击事件。
 function onActionClick(e: TableActionParams<TaskApi.TaskQueueItem>) {
   switch (e.code) {
-    case 'toggleConsume': {
+    case 'pauseConsume':
+    case 'resumeConsume': {
       void handleToggleQueueConsume(e.row);
       break;
     }
@@ -259,6 +337,13 @@ function handleRefresh() {
       </section>
 
       <Alert
+        v-if="snapshotLoadFailed"
+        show-icon
+        type="error"
+        :message="$t('business.message.taskQueueSnapshotLoadFailed')"
+      />
+      <Alert
+        v-else
         :description="queueOpsGuide.description"
         :message="queueOpsGuide.message"
         show-icon
@@ -281,7 +366,11 @@ function handleRefresh() {
               {{ $t('business.message.taskQueueListDesc') }}
             </div>
           </div>
-          <VbenButton type="primary" @click="handleRefresh">
+          <VbenButton
+            type="primary"
+            :loading="snapshotLoading"
+            @click="handleRefresh"
+          >
             <ReloadOutlined />
             {{ $t('business.message.refreshQueue') }}
           </VbenButton>
@@ -310,6 +399,44 @@ function handleRefresh() {
             }}
           </Button>
         </div>
+        <Table
+          class="worker-table mt-4"
+          :columns="workerColumns"
+          :data-source="workerRows"
+          :loading="snapshotLoading"
+          :locale="{ emptyText: $t('business.message.noOnlineWorker') }"
+          :pagination="false"
+          :row-key="(record) => record.id"
+          :scroll="{ x: 1280 }"
+          size="small"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.dataIndex === 'status'">
+              <Tag :color="record.status === 'active' ? 'success' : 'warning'">
+                {{ record.status || '-' }}
+              </Tag>
+            </template>
+            <template v-else-if="column.dataIndex === 'strictPriority'">
+              <Tag :color="record.strictPriority ? 'processing' : 'default'">
+                {{
+                  record.strictPriority
+                    ? $t('business.message.enabled')
+                    : $t('business.message.disabled')
+                }}
+              </Tag>
+            </template>
+            <template v-else-if="column.dataIndex === 'queues'">
+              <span
+                class="block min-w-0 whitespace-normal break-words font-mono text-xs leading-5"
+              >
+                {{ formatWorkerQueues(record.queues) || '-' }}
+              </span>
+            </template>
+            <template v-else-if="column.dataIndex === 'startedAt'">
+              {{ record.startedAt || '-' }}
+            </template>
+          </template>
+        </Table>
         <pre
           v-if="showWorkerSnapshot && workerSummaryText"
           class="mt-4 overflow-auto rounded-2xl border border-cyan-500/20 bg-slate-950 p-4 text-sm text-cyan-100 shadow-inner"
@@ -319,3 +446,37 @@ function handleRefresh() {
     </div>
   </Page>
 </template>
+
+<style scoped>
+.worker-table :deep(.ant-table) {
+  color: hsl(var(--foreground));
+  background: transparent;
+}
+
+.worker-table :deep(.ant-table-container) {
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+}
+
+.worker-table :deep(.ant-table-thead > tr > th) {
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  background: hsl(var(--accent));
+  border-bottom-color: hsl(var(--border));
+}
+
+.worker-table :deep(.ant-table-thead > tr > th::before) {
+  background-color: hsl(var(--heavy));
+}
+
+.worker-table :deep(.ant-table-tbody > tr > td) {
+  color: hsl(var(--foreground));
+  background: hsl(var(--card));
+  border-bottom-color: hsl(var(--border));
+}
+
+.worker-table :deep(.ant-table-tbody > tr:hover > td) {
+  background: hsl(var(--accent-hover));
+}
+</style>

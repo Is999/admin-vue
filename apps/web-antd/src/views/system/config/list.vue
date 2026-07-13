@@ -14,8 +14,8 @@ import { message, Modal } from 'ant-design-vue';
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
 import {
   downloadConfigExcel,
+  fetchBoundedConfigItems,
   fetchConfigCache,
-  fetchConfigList,
   importConfigExcel,
   renewConfigCache,
 } from '#/api/system';
@@ -28,6 +28,7 @@ import {
   buildConfigCacheTargets,
   openSystemCachePage,
 } from '#/utils/cache/navigation';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 import {
   downloadBlobFile,
   ensureDownloadBlobSuccess,
@@ -191,11 +192,8 @@ const [Grid, gridApi] = useVbenVxeGrid({
         // 查询完整配置列表，并在前端按 pid 组装成树形结构。
         query: async (_params: any, formValues: any) => {
           Object.assign(lastConfigQuery, formValues || {});
-          const response = await fetchConfigList({
-            page: 1,
-            pageSize: 1000,
-          });
-          const tree = buildConfigTree(response.list || []);
+          const items = await fetchBoundedConfigItems();
+          const tree = buildConfigTree(items);
           const list = filterConfigTree(tree, formValues || {});
           return {
             list,
@@ -323,7 +321,8 @@ async function onImportFileChange(event: Event) {
       file,
     });
     const result = await importConfigExcel(session.uploadId);
-    message.success(
+    showCacheSyncResult(
+      result,
       $t('business.message.dictionaryImportCompleted', [
         result.created,
         result.updated,
@@ -389,13 +388,15 @@ function onRenew(row: SystemConfigApi.Item) {
             ref="configImportInputRef"
             accept=".xlsx"
             class="hidden"
+            id="system-config-import-file"
+            name="system-config-import-file"
             type="file"
             @change="onImportFileChange"
           />
           <VbenButton
             v-access="
               asActionPermission(
-                SYSTEM_ACTION_PERMISSION_CODES.SYSTEM_CONFIG_UPDATE,
+                SYSTEM_ACTION_PERMISSION_CODES.SYSTEM_CONFIG_IMPORT,
               )
             "
             :loading="configImporting"
@@ -406,7 +407,7 @@ function onRenew(row: SystemConfigApi.Item) {
           <VbenButton
             v-access="
               asActionPermission(
-                SYSTEM_ACTION_PERMISSION_CODES.SYSTEM_CONFIG_UPDATE,
+                SYSTEM_ACTION_PERMISSION_CODES.SYSTEM_CONFIG_EXPORT,
               )
             "
             :loading="configExporting"

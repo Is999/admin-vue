@@ -1142,7 +1142,10 @@ function collapseAllSnapshots() {
         <Input
           v-model:value="searchKeyword"
           allow-clear
+          autocomplete="off"
           class="snapshot-diff-panel__search"
+          id="snapshot-diff-search"
+          name="snapshot-diff-search"
           :placeholder="rt('snapshotSearchPlaceholder')"
           size="small"
           @press-enter="submitSearchJump"
@@ -1166,10 +1169,14 @@ function collapseAllSnapshots() {
         </Button>
       </div>
       <div class="snapshot-diff-panel__toolbar-actions">
-        <label class="snapshot-diff-panel__sync-toggle">
-          <Switch v-model:checked="scrollSyncEnabled" size="small" />
+        <div class="snapshot-diff-panel__sync-toggle">
+          <Switch
+            v-model:checked="scrollSyncEnabled"
+            :aria-label="rt('snapshotScrollSync')"
+            size="small"
+          />
           <span>{{ rt('snapshotScrollSync') }}</span>
-        </label>
+        </div>
         <Button size="small" @click="openFullscreenDiff">
           {{ rt('snapshotFullscreen') }}
         </Button>
@@ -1375,7 +1382,10 @@ function collapseAllSnapshots() {
           <Input
             v-model:value="searchKeyword"
             allow-clear
+            autocomplete="off"
             class="snapshot-diff-panel__search"
+            id="snapshot-diff-fullscreen-search"
+            name="snapshot-diff-fullscreen-search"
             :placeholder="rt('snapshotSearchPlaceholder')"
             size="small"
             @press-enter="submitSearchJump"
@@ -1397,10 +1407,14 @@ function collapseAllSnapshots() {
           >
             {{ rt('snapshotSearchNext') }}
           </Button>
-          <label class="snapshot-diff-panel__sync-toggle">
-            <Switch v-model:checked="scrollSyncEnabled" size="small" />
+          <div class="snapshot-diff-panel__sync-toggle">
+            <Switch
+              v-model:checked="scrollSyncEnabled"
+              :aria-label="rt('snapshotScrollSync')"
+              size="small"
+            />
             <span>{{ rt('snapshotScrollSync') }}</span>
-          </label>
+          </div>
         </div>
         <div class="snapshot-diff-panel__fullscreen-layout">
           <section

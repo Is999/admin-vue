@@ -11,9 +11,11 @@ import { Page, useVbenDrawer, VbenButton } from '@vben/common-ui';
 import {
   DownOutlined,
   ReloadOutlined,
+  SearchOutlined,
   UpOutlined,
 } from '@ant-design/icons-vue';
 import {
+  Alert,
   Button,
   Card,
   Input,
@@ -21,13 +23,16 @@ import {
   Modal,
   Pagination,
   Space,
+  Table,
   Tag,
+  Tooltip,
 } from 'ant-design-vue';
 
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
 import {
   fetchCacheKeyInfo,
   fetchCacheList,
+  fetchCacheMetrics,
   fetchCacheServerInfo,
   fetchSearchCacheKeyInfo,
   renewAllCache,
@@ -54,10 +59,26 @@ import {
 } from './helper';
 import TemplateKeysDrawer from './modules/template-keys-drawer.vue';
 
+// CACHE_METRICS_TABLE_MAX_HEIGHT 限制运行观测明细高度，超出后在表内滚动。
+const CACHE_METRICS_TABLE_MAX_HEIGHT = 520;
+// CACHE_MANAGEMENT_GRID_MAX_HEIGHT 限制缓存管理表格高度，避免长列表撑高页面。
+const CACHE_MANAGEMENT_GRID_MAX_HEIGHT = 680;
 // route 用于接收业务页面跳转时携带的缓存定位参数。
 const route = useRoute();
 // serverInfo 保存 Redis 服务信息。
 const serverInfo = ref<SystemCacheApi.ServerInfo>({});
+// cacheMetrics 保存当前管理进程的表缓存运行指标。
+const cacheMetrics = ref<null | SystemCacheApi.MetricsResp>(null);
+// cacheMetricsLoading 表示当前是否正在采集表缓存运行指标。
+const cacheMetricsLoading = ref(false);
+// cacheMetricsFailed 表示最近一次指标采集是否失败。
+const cacheMetricsFailed = ref(false);
+// cacheMetricsExpanded 控制表缓存运行观测区是否展开。
+const cacheMetricsExpanded = ref(false);
+// cacheIndexKeyword 保存缓存索引模糊搜索词。
+const cacheIndexKeyword = ref('');
+// cacheKeyKeyword 保存缓存 Key 模糊搜索词。
+const cacheKeyKeyword = ref('');
 // searchKeyword 保存 Redis Key 搜索关键字。
 const searchKeyword = ref('');
 // searchResult 保存 Redis Key 搜索结果。
@@ -123,7 +144,6 @@ const cacheSearchProviderPrefixes = [
   'admin_roles_detail:',
   'config_uuid:',
   'role_permission:',
-  'route_permission_ids:',
   'secret_key_aes:',
   'secret_key_route:',
   'secret_key_rsa:',
@@ -132,6 +152,14 @@ const cacheSearchProviderPrefixes = [
 // toggleTopCards 切换顶部概览和检索卡片的联动展开状态。
 function toggleTopCards() {
   topCardsExpanded.value = !topCardsExpanded.value;
+}
+
+// toggleCacheMetrics 切换运行观测区，首次展开时加载实时快照。
+async function toggleCacheMetrics() {
+  cacheMetricsExpanded.value = !cacheMetricsExpanded.value;
+  if (cacheMetricsExpanded.value && !cacheMetrics.value) {
+    await loadCacheMetrics();
+  }
 }
 
 // canRefreshSearchItem 判断搜索结果中的缓存实例是否允许刷新。
@@ -246,6 +274,97 @@ const redisOverviewItems = computed(() => [
   },
 ]);
 
+// cacheMetricOverviewItems 定义表缓存核心运行指标卡片。
+const cacheMetricOverviewItems = computed(() => {
+  const summary = cacheMetrics.value?.summary;
+  const lookups =
+    Number(summary?.hitTotal || 0) + Number(summary?.missTotal || 0);
+  return [
+    {
+      label: $t('business.message.tableCacheHitRate'),
+      sub: $t('business.message.tableCacheLookupTotal', [lookups]),
+      tone: 'default',
+      value: `${Number(summary?.hitRate || 0).toFixed(2)}%`,
+    },
+    {
+      label: $t('business.message.tableCacheRefresh'),
+      sub: $t('business.message.tableCacheErrorCount', [
+        Number(summary?.refreshErrorTotal || 0),
+      ]),
+      tone: Number(summary?.refreshErrorTotal || 0) > 0 ? 'danger' : 'success',
+      value: formatMetricCount(summary?.refreshSuccessTotal),
+    },
+    {
+      label: $t('business.message.tableCacheLoaderError'),
+      sub: $t('business.message.tableCacheSourceRisk'),
+      tone: Number(summary?.loaderErrorTotal || 0) > 0 ? 'danger' : 'success',
+      value: formatMetricCount(summary?.loaderErrorTotal),
+    },
+    {
+      label: $t('business.message.tableCacheContention'),
+      sub: $t('business.message.tableCacheWaitTimeoutCount', [
+        Number(summary?.waitTimeoutTotal || 0),
+      ]),
+      tone: Number(summary?.waitTimeoutTotal || 0) > 0 ? 'danger' : 'default',
+      value: formatMetricCount(summary?.lockFailedTotal),
+    },
+    {
+      label: $t('business.message.tableCacheBatchRefresh'),
+      sub: $t('business.message.tableCacheErrorCount', [
+        Number(summary?.batchFailedTotal || 0),
+      ]),
+      tone: Number(summary?.batchFailedTotal || 0) > 0 ? 'danger' : 'success',
+      value: formatMetricCount(summary?.batchSuccessTotal),
+    },
+    {
+      label: $t('business.message.tableCacheScanFallback'),
+      sub: $t('business.message.tableCacheScanFallbackRisk'),
+      tone: Number(summary?.scanFallbackTotal || 0) > 0 ? 'danger' : 'success',
+      value: formatMetricCount(summary?.scanFallbackTotal),
+    },
+  ];
+});
+
+// cacheMetricColumns 定义表缓存目标明细列。
+const cacheMetricColumns = computed(() => [
+  {
+    dataIndex: 'index',
+    fixed: 'left' as const,
+    title: $t('business.message.cacheMetricTarget'),
+    width: 210,
+  },
+  {
+    dataIndex: 'lookup',
+    title: $t('business.message.cacheMetricLookup'),
+    width: 150,
+  },
+  {
+    dataIndex: 'hitRate',
+    title: $t('business.message.hitRate'),
+    width: 100,
+  },
+  {
+    dataIndex: 'refresh',
+    title: $t('business.message.tableCacheRefresh'),
+    width: 150,
+  },
+  {
+    dataIndex: 'loaderErrorTotal',
+    title: $t('business.message.tableCacheLoaderError'),
+    width: 110,
+  },
+  {
+    dataIndex: 'contention',
+    title: $t('business.message.tableCacheContention'),
+    width: 150,
+  },
+  {
+    dataIndex: 'scanFallbackTotal',
+    title: $t('business.message.tableCacheScanFallback'),
+    width: 110,
+  },
+]);
+
 // ================= 模板实例子页面配置 =================
 // TemplateKeysDrawerView 用于承载模板缓存命中的真实 Key 子页面。
 const [TemplateKeysDrawerView, templateKeysDrawerApi] = useVbenDrawer({
@@ -258,13 +377,31 @@ const [TemplateKeysDrawerView, templateKeysDrawerApi] = useVbenDrawer({
 const [Grid, gridApi] = useVbenVxeGrid({
   gridOptions: {
     columns: useColumns(onActionClick),
-    height: 'auto',
     keepSource: true,
+    maxHeight: CACHE_MANAGEMENT_GRID_MAX_HEIGHT,
     proxyConfig: {
       ajax: {
-        // 查询内置可刷新缓存目标列表。
-        query: async () => {
-          return await fetchCacheList();
+        // 查询内置缓存注册表，并按当前页返回实际展示数据。
+        query: async ({
+          page,
+        }: {
+          page: { currentPage: number; pageSize: number };
+        }) => {
+          const result = await fetchCacheList();
+          const indexKeyword = cacheIndexKeyword.value.trim().toLowerCase();
+          const keyKeyword = cacheKeyKeyword.value.trim().toLowerCase();
+          const list = result.list.filter(
+            (item) =>
+              (!indexKeyword ||
+                item.index.toLowerCase().includes(indexKeyword)) &&
+              (!keyKeyword || item.key.toLowerCase().includes(keyKeyword)),
+          );
+          const start = (page.currentPage - 1) * page.pageSize;
+          return {
+            ...result,
+            list: list.slice(start, start + page.pageSize),
+            total: list.length,
+          };
         },
       },
       response: {
@@ -285,7 +422,7 @@ const [Grid, gridApi] = useVbenVxeGrid({
   },
 });
 
-// onMounted 初始加载 Redis 服务信息。
+// onMounted 初始加载 Redis 服务信息，运行观测按需展开后再采集。
 onMounted(() => {
   loadServerInfo();
 });
@@ -309,11 +446,11 @@ watch(
 function onActionClick(e: OnActionClickParams<SystemCacheApi.Item>) {
   switch (e.code) {
     case 'refreshCache': {
-      onRenew(e.row.key, e.row.type);
+      onRenew(e.row.key, e.row.type, e.row.warmupSupported);
       break;
     }
     case 'viewDetail': {
-      onViewKeyInfo(e.row.key);
+      onViewKeyInfo(e.row.key, e.row.warmupSupported);
       break;
     }
     case 'warmupCache': {
@@ -332,12 +469,49 @@ function openTemplateWarmupDrawer(row: SystemCacheApi.Item) {
   topCardsExpanded.value = true;
   const pattern = buildTemplateSearchPattern(row.key);
   searchKeyword.value = pattern;
-  openTemplateKeysDrawer(pattern, row.key);
+  openTemplateKeysDrawer(
+    pattern,
+    row.key,
+    undefined,
+    undefined,
+    row.warmupSupported,
+  );
 }
 
 // loadServerInfo 刷新 Redis 服务信息。
 async function loadServerInfo() {
   serverInfo.value = await fetchCacheServerInfo().catch(() => ({}));
+}
+
+// loadCacheMetrics 刷新当前管理进程的表缓存运行指标。
+async function loadCacheMetrics() {
+  if (cacheMetricsLoading.value) {
+    return;
+  }
+  cacheMetricsLoading.value = true;
+  cacheMetricsFailed.value = false;
+  try {
+    cacheMetrics.value = await fetchCacheMetrics();
+  } catch {
+    cacheMetrics.value = null;
+    cacheMetricsFailed.value = true;
+  } finally {
+    cacheMetricsLoading.value = false;
+  }
+}
+
+// formatMetricCount 统一格式化指标计数。
+function formatMetricCount(value?: number) {
+  return Number(value || 0).toLocaleString();
+}
+
+// formatMetricTime 格式化指标时间。
+function formatMetricTime(value?: string) {
+  if (!value) {
+    return '-';
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
 }
 
 // normalizeRouteQueryValue 把路由 query 归一化为单个字符串。
@@ -621,6 +795,7 @@ function openTemplateKeysDrawer(
   sourceKey?: string,
   initialResult?: SystemCacheApi.SearchItem[],
   initialSearchResp?: SystemCacheApi.SearchResp,
+  warmupSupported?: boolean,
 ) {
   templateKeysDrawerApi
     .setData({
@@ -628,6 +803,7 @@ function openTemplateKeysDrawer(
       initialSearchResp,
       keyword,
       sourceKey,
+      warmupSupported,
     })
     .open();
 }
@@ -636,6 +812,7 @@ function openTemplateKeysDrawer(
 async function locateTemplateCacheKeys(
   key: string,
   action: 'refresh' | 'view',
+  warmupSupported = false,
 ) {
   topCardsExpanded.value = true;
   const pattern = buildTemplateSearchPattern(key);
@@ -654,6 +831,7 @@ async function locateTemplateCacheKeys(
       key,
       [],
       buildEmptyCacheSearchResp(1, searchPageSize.value),
+      warmupSupported,
     );
     message.warning(
       $t('business.message.templateCacheNoRealKeyFound', [pattern]),
@@ -681,6 +859,7 @@ async function locateTemplateCacheKeys(
     key,
     searchResult.value,
     buildCurrentCacheSearchResp(),
+    warmupSupported,
   );
   message.info(
     $t('business.message.templateCacheDrawerOpened', [
@@ -798,16 +977,19 @@ function formatKeyspaceDBCount() {
   return count > 0 ? String(count) : '-';
 }
 
-// reloadCachePage 统一刷新页面中的缓存目标列表与 Redis 概览。
+// reloadCachePage 统一刷新缓存列表、Redis 概览和已展开的运行观测。
 function reloadCachePage() {
   gridApi.query();
   loadServerInfo();
+  if (cacheMetricsExpanded.value) {
+    loadCacheMetrics();
+  }
 }
 
 // onViewKeyInfo 查看 Redis Key 详情。
-async function onViewKeyInfo(key: string) {
+async function onViewKeyInfo(key: string, warmupSupported = false) {
   if (isTemplateCacheKey(key)) {
-    await locateTemplateCacheKeys(key, 'view');
+    await locateTemplateCacheKeys(key, 'view', warmupSupported);
     return;
   }
   const info = await fetchCacheKeyInfo(key).catch((error) => {
@@ -895,12 +1077,12 @@ async function onCopySearchKey(key: string) {
 }
 
 // onRenew 刷新指定缓存。
-function onRenew(key: string, type?: string) {
+function onRenew(key: string, type?: string, warmupSupported = false) {
   Modal.confirm({
     content: $t('business.message.confirmRenewCache', [key]),
     onOk: async () => {
       if (isTemplateCacheKey(key)) {
-        await locateTemplateCacheKeys(key, 'refresh');
+        await locateTemplateCacheKeys(key, 'refresh', warmupSupported);
         return;
       }
       await renewCache(key, type);
@@ -943,12 +1125,19 @@ function onRenewAll() {
 </script>
 
 <template>
-  <Page auto-content-height>
+  <Page
+    class="min-w-0 max-w-full overflow-x-hidden"
+    content-class="flex min-w-0 max-w-full flex-col gap-4"
+  >
     <TemplateKeysDrawerView @refreshed="reloadCachePage" />
     <div
-      class="mb-2 grid gap-2 xl:grid-cols-[minmax(360px,420px)_minmax(0,1fr)]"
+      class="grid min-w-0 max-w-full gap-4 xl:grid-cols-[minmax(360px,420px)_minmax(0,1fr)]"
     >
-      <Card size="small" :title="$t('business.message.redisOverview')">
+      <Card
+        class="min-w-0"
+        size="small"
+        :title="$t('business.message.redisOverview')"
+      >
         <template #extra>
           <Space :size="8">
             <Button type="text" @click="loadServerInfo">
@@ -998,7 +1187,10 @@ function onRenewAll() {
           >
             <Input
               v-model:value="searchKeyword"
+              autocomplete="off"
               class="w-full min-w-0"
+              id="cache-key-search"
+              name="cache-key-search"
               :placeholder="$t('business.message.cacheSearchPlaceholder')"
               @press-enter="onSearchKeys"
             />
@@ -1152,18 +1344,249 @@ function onRenewAll() {
         </div>
       </Card>
     </div>
-    <Grid :table-title="$t('business.message.cacheManagement')">
-      <template #toolbar-tools>
-        <VbenButton
-          v-access="
-            asActionPermission(SYSTEM_ACTION_PERMISSION_CODES.CACHE_RENEW_ALL)
-          "
-          type="primary"
-          @click="onRenewAll"
+    <Card
+      class="min-w-0 max-w-full"
+      :class="{
+        'cache-metrics-card--collapsed': !cacheMetricsExpanded,
+      }"
+      size="small"
+      :loading="cacheMetricsLoading && !cacheMetrics"
+      :title="$t('business.message.tableCacheRuntimeMetrics')"
+    >
+      <template #extra>
+        <Space :size="8" wrap>
+          <Tag v-if="cacheMetricsExpanded" color="processing">
+            {{ $t('business.message.currentProcess') }}
+          </Tag>
+          <Tag v-if="cacheMetricsExpanded && cacheMetrics?.instanceId">
+            {{ cacheMetrics.instanceId }}
+          </Tag>
+          <Button
+            v-if="cacheMetricsExpanded"
+            type="text"
+            :aria-label="$t('business.message.refresh')"
+            :loading="cacheMetricsLoading"
+            :title="$t('business.message.refresh')"
+            @click="loadCacheMetrics"
+          >
+            <ReloadOutlined />
+          </Button>
+          <Button
+            type="text"
+            :aria-expanded="cacheMetricsExpanded"
+            :aria-label="
+              $t(
+                cacheMetricsExpanded
+                  ? 'business.message.collapse'
+                  : 'business.message.expand',
+              )
+            "
+            @click="toggleCacheMetrics"
+          >
+            <component :is="cacheMetricsExpanded ? UpOutlined : DownOutlined" />
+            <span class="ml-1">
+              {{
+                $t(
+                  cacheMetricsExpanded
+                    ? 'business.message.collapse'
+                    : 'business.message.expand',
+                )
+              }}
+            </span>
+          </Button>
+        </Space>
+      </template>
+      <Alert
+        v-if="cacheMetricsFailed"
+        class="mb-3"
+        show-icon
+        type="error"
+        :message="$t('business.message.tableCacheMetricsLoadFailed')"
+      />
+      <Alert
+        v-else
+        class="mb-3"
+        show-icon
+        type="info"
+        :message="$t('business.message.tableCacheMetricsScopeTitle')"
+        :description="$t('business.message.tableCacheMetricsScopeDesc')"
+      />
+      <div
+        v-if="cacheMetrics"
+        class="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6"
+      >
+        <div
+          v-for="item in cacheMetricOverviewItems"
+          :key="item.label"
+          class="rounded border px-3 py-3 dark:bg-gray-900/40"
+          :class="{
+            'border-emerald-200 bg-emerald-50/50 dark:border-emerald-900':
+              item.tone === 'success',
+            'border-red-200 bg-red-50/50 dark:border-red-900':
+              item.tone === 'danger',
+            'border-gray-200 bg-gray-50/70 dark:border-gray-700':
+              item.tone === 'default',
+          }"
         >
-          {{ $t('business.message.refreshAllBuiltInCache') }}
-        </VbenButton>
+          <div class="text-xs text-gray-500">{{ item.label }}</div>
+          <div class="mt-2 text-xl font-semibold leading-none">
+            {{ item.value }}
+          </div>
+          <div class="mt-2 truncate text-xs text-gray-400">
+            {{ item.sub }}
+          </div>
+        </div>
+      </div>
+      <div
+        v-if="cacheMetrics"
+        class="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-400"
+      >
+        <span>
+          {{ $t('business.message.metricsStartedAt') }}:
+          {{ formatMetricTime(cacheMetrics.startedAt) }}
+        </span>
+        <span>
+          {{ $t('business.message.metricsGeneratedAt') }}:
+          {{ formatMetricTime(cacheMetrics.generatedAt) }}
+        </span>
+      </div>
+      <Table
+        v-if="cacheMetrics"
+        class="cache-metrics-table"
+        :columns="cacheMetricColumns"
+        :data-source="cacheMetrics?.targets || []"
+        :loading="cacheMetricsLoading"
+        :pagination="false"
+        :row-key="(record) => record.index"
+        :scroll="{ x: 980, y: CACHE_METRICS_TABLE_MAX_HEIGHT }"
+        size="small"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.dataIndex === 'index'">
+            <Tooltip
+              placement="topLeft"
+              :overlay-style="{
+                maxWidth: '720px',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all',
+              }"
+            >
+              <template #title>
+                <div class="font-medium">
+                  {{ record.remark || record.index }}
+                </div>
+                <div class="mt-1">
+                  {{ record.index }} · {{ record.keyTitle || '-' }}
+                </div>
+              </template>
+              <div class="min-w-0">
+                <div class="truncate font-medium">
+                  {{ record.remark || record.index }}
+                </div>
+                <div class="mt-1 max-w-[190px] truncate text-xs text-gray-400">
+                  {{ record.index }} · {{ record.keyTitle || '-' }}
+                </div>
+              </div>
+            </Tooltip>
+          </template>
+          <template v-else-if="column.dataIndex === 'lookup'">
+            <span class="text-emerald-500">{{ record.hitTotal }}</span>
+            <span class="mx-1 text-gray-400">/</span>
+            <span class="text-orange-500">{{ record.missTotal }}</span>
+          </template>
+          <template v-else-if="column.dataIndex === 'hitRate'">
+            {{ Number(record.hitRate || 0).toFixed(2) }}%
+          </template>
+          <template v-else-if="column.dataIndex === 'refresh'">
+            <span class="text-emerald-500">{{
+              record.refreshSuccessTotal
+            }}</span>
+            <span class="mx-1 text-gray-400">/</span>
+            <span
+              :class="
+                record.refreshErrorTotal > 0 ? 'text-red-500' : 'text-gray-400'
+              "
+            >
+              {{ record.refreshErrorTotal }}
+            </span>
+          </template>
+          <template v-else-if="column.dataIndex === 'contention'">
+            <span>{{ record.lockFailedTotal }}</span>
+            <span class="mx-1 text-gray-400">/</span>
+            <span
+              :class="
+                record.waitTimeoutTotal > 0 ? 'text-red-500' : 'text-gray-400'
+              "
+            >
+              {{ record.waitTimeoutTotal }}
+            </span>
+          </template>
+          <template v-else-if="column.dataIndex === 'loaderErrorTotal'">
+            <Tag :color="record.loaderErrorTotal > 0 ? 'error' : 'success'">
+              {{ record.loaderErrorTotal }}
+            </Tag>
+          </template>
+          <template v-else-if="column.dataIndex === 'scanFallbackTotal'">
+            <Tag :color="record.scanFallbackTotal > 0 ? 'warning' : 'default'">
+              {{ record.scanFallbackTotal }}
+            </Tag>
+          </template>
+        </template>
+      </Table>
+    </Card>
+    <Grid
+      class="min-w-0 max-w-full overflow-hidden"
+      :table-title="$t('business.message.cacheManagement')"
+    >
+      <template #toolbar-tools>
+        <Space :size="8" wrap>
+          <Input
+            v-model:value="cacheIndexKeyword"
+            allow-clear
+            autocomplete="off"
+            class="w-[180px]"
+            id="cache-index-filter"
+            name="cache-index-filter"
+            :placeholder="$t('business.message.cacheIndexFilterPlaceholder')"
+            @press-enter="gridApi.reload()"
+          />
+          <Input
+            v-model:value="cacheKeyKeyword"
+            allow-clear
+            autocomplete="off"
+            class="w-[240px]"
+            id="cache-key-filter"
+            name="cache-key-filter"
+            :placeholder="$t('business.message.cacheKeyFilterPlaceholder')"
+            @press-enter="gridApi.reload()"
+          />
+          <Button type="primary" @click="gridApi.reload()">
+            <template #icon><SearchOutlined /></template>
+            {{ $t('business.message.search') }}
+          </Button>
+          <VbenButton
+            v-access="
+              asActionPermission(SYSTEM_ACTION_PERMISSION_CODES.CACHE_RENEW_ALL)
+            "
+            type="primary"
+            @click="onRenewAll"
+          >
+            {{ $t('business.message.refreshAllBuiltInCache') }}
+          </VbenButton>
+        </Space>
       </template>
     </Grid>
   </Page>
 </template>
+
+<style scoped>
+.cache-metrics-card--collapsed :deep(.ant-card-body) {
+  display: none;
+}
+
+.cache-metrics-table :deep(.ant-table-container) {
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+}
+</style>

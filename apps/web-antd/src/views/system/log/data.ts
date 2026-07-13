@@ -64,6 +64,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.username'),
       componentProps: {
         allowClear: true,
+        autocomplete: 'off',
         placeholder: $t('business.message.filterByUsername'),
       },
     },

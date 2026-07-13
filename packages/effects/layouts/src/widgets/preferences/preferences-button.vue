@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import { useTemplateRef } from 'vue';
+
 import { Settings } from '@vben/icons';
 
 import { VbenIconButton } from '@vben-core/shadcn-ui';
@@ -6,20 +8,27 @@ import { VbenIconButton } from '@vben-core/shadcn-ui';
 import Preferences from './preferences.vue';
 
 const emit = defineEmits<{ clearPreferencesAndLogout: [] }>();
+const preferencesRef = useTemplateRef('preferencesRef');
 
 function clearPreferencesAndLogout() {
   emit('clearPreferencesAndLogout');
 }
+
+// openPreferences 打开当前按钮持有的偏好设置抽屉。
+function openPreferences() {
+  preferencesRef.value?.open();
+}
 </script>
 <template>
-  <Preferences @clear-preferences-and-logout="clearPreferencesAndLogout">
-    <template #default="{ open }">
-      <VbenIconButton
-        class="hover:animate-[shrink_0.3s_ease-in-out]"
-        @click="open"
-      >
-        <Settings class="size-4 text-foreground" />
-      </VbenIconButton>
-    </template>
+  <Preferences
+    ref="preferencesRef"
+    @clear-preferences-and-logout="clearPreferencesAndLogout"
+  >
+    <VbenIconButton
+      class="hover:animate-[shrink_0.3s_ease-in-out]"
+      @click="openPreferences"
+    >
+      <Settings class="size-4 text-foreground" />
+    </VbenIconButton>
   </Preferences>
 </template>

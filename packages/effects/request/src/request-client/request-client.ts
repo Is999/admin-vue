@@ -36,46 +36,6 @@ function getParamsSerializer(
   return paramsSerializer;
 }
 
-// normalizeRequestError 保留业务错误字段，同时补齐 response/config/traceId 便于页面级 catch 排障。
-function normalizeRequestError(error: any) {
-  const response = error?.response;
-  if (!response) {
-    return error;
-  }
-
-  // 后端标准错误体通常包含 code/message/data/traceId，复制后附加原始响应上下文。
-  const responseData = response.data;
-  const traceId =
-    responseData?.traceId ||
-    responseData?.trace_id ||
-    readTraceIdFromHeaders(response.headers);
-  const context = {
-    config: error.config || response.config,
-    headers: response.headers,
-    response,
-    status: response.status,
-    statusText: response.statusText,
-    traceId,
-  };
-
-  if (responseData && typeof responseData === 'object') {
-    return Object.assign({}, responseData, context);
-  }
-
-  return Object.assign(
-    new Error(String(responseData || response.statusText || error.message)),
-    {
-      ...context,
-      data: responseData,
-    },
-  );
-}
-
-// readTraceIdFromHeaders 从大小写不稳定的响应头中读取 trace_id，兼容网关和后端不同转写。
-function readTraceIdFromHeaders(headers: any) {
-  return headers?.['X-Trace-Id'] || headers?.['x-trace-id'] || '';
-}
-
 class RequestClient {
   public addRequestInterceptor: InterceptorManager['addRequestInterceptor'];
 
@@ -103,7 +63,7 @@ class RequestClient {
       },
       responseReturn: 'raw',
       // 默认超时时间
-      timeout: 100_000,
+      timeout: 10_000,
     };
     const { ...axiosConfig } = options;
     const requestConfig = merge(axiosConfig, defaultConfig);
@@ -158,17 +118,6 @@ class RequestClient {
   }
 
   /**
-   * PATCH请求方法
-   */
-  public patch<T = any>(
-    url: string,
-    data?: any,
-    config?: RequestClientConfig,
-  ): Promise<T> {
-    return this.request<T>(url, { ...config, data, method: 'PATCH' });
-  }
-
-  /**
    * POST请求方法
    */
   public post<T = any>(
@@ -207,7 +156,7 @@ class RequestClient {
       });
       return response as T;
     } catch (error: any) {
-      throw normalizeRequestError(error);
+      throw error.response ? error.response.data : error;
     }
   }
 }

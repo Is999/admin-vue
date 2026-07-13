@@ -121,15 +121,5 @@ export function buildSecretKeyCacheTemplateKeys() {
 
 // buildPermissionCacheTargets 返回权限管理页相关的缓存 key 与模板实例搜索条件。
 export function buildPermissionCacheTargets() {
-  return [
-    'permission_tree',
-    'permission_uuid',
-    'permission_module',
-    'route_permission_ids:*',
-  ];
-}
-
-// buildPermissionCacheTemplateKeys 返回权限管理页关联的模板缓存 key 定义。
-export function buildPermissionCacheTemplateKeys() {
-  return ['route_permission_ids:{routeAlias}'];
+  return ['permission_tree', 'permission_uuid', 'permission_module'];
 }

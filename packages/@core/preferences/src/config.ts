@@ -15,8 +15,9 @@ const defaultPreferences: Preferences = {
     contentPaddingLeft: 0,
     contentPaddingRight: 0,
     contentPaddingTop: 0,
-    defaultAvatar: '/favicon.svg',
-    defaultHomePath: '/profile-manage/message',
+    defaultAvatar:
+      'https://unpkg.com/@vbenjs/static-source@0.1.7/source/avatar-v1.webp',
+    defaultHomePath: '/analytics',
     dynamicTitle: true,
     enableCheckUpdates: true,
     enableCopyPreferences: true,
@@ -27,7 +28,7 @@ const defaultPreferences: Preferences = {
     layout: 'sidebar-nav',
     locale: 'zh-CN',
     loginExpiredMode: 'page',
-    name: 'Admin',
+    name: 'Vben Admin',
     preferencesButtonPosition: 'auto',
     timezone: 'Asia/Shanghai',
     watermark: false,
@@ -42,9 +43,9 @@ const defaultPreferences: Preferences = {
     styleType: 'normal',
   },
   copyright: {
-    companyName: 'Admin',
-    companySiteLink: '/',
-    date: '2026',
+    companyName: 'Vben',
+    companySiteLink: 'https://www.vben.pro',
+    date: '2024',
     enable: true,
     icp: '',
     icpLink: '',
@@ -66,7 +67,7 @@ const defaultPreferences: Preferences = {
   logo: {
     enable: true,
     fit: 'contain',
-    source: '/favicon.svg',
+    source: 'https://unpkg.com/@vbenjs/static-source@0.1.7/source/logo-v1.webp',
   },
   navigation: {
     accordion: true,

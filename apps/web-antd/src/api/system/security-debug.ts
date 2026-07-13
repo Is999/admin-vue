@@ -7,7 +7,7 @@ export namespace SystemSecurityDebugApi {
     payloadText: string; // 待签名 JSON 文本
     requestId?: string; // 可选请求标识，和真实链路 X-Trace-Id 等价并参与签名
     timestamp?: string; // 可选秒级时间戳，和真实链路 X-Timestamp 等价并参与签名
-    signatureType?: 'A' | 'M' | 'R'; // 签名方式
+    signatureType?: 'A' | 'R'; // 签名方式
     signFields?: string[]; // 参与签名的字段
   }
 
@@ -32,7 +32,7 @@ export namespace SystemSecurityDebugApi {
     sign: string; // 生成的签名值
     signFields: string[]; // 实际参与签名的字段
     signText: string; // 最终签名串
-    signatureType: string; // 实际签名方式
+    signatureType: 'A' | 'R'; // 实际签名方式
   }
 
   export interface VerifyResult extends SignResult {

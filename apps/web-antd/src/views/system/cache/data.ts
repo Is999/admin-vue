@@ -133,7 +133,7 @@ export function useColumns<T = SystemCacheApi.Item>(
             auth: asActionPermission(
               SYSTEM_ACTION_PERMISSION_CODES.CACHE_WARMUP,
             ),
-            visible: (row: SystemCacheApi.Item) => row.isTemplate,
+            visible: (row: SystemCacheApi.Item) => row.warmupSupported,
           },
         ],
       },

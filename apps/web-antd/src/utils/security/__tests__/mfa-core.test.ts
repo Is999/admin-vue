@@ -41,6 +41,8 @@ describe('mfa issuer label', () => {
 
     expect(mfaIssuerLabel(info)).toBe('admin-1');
     expect(mfaBindingLabel(info, 'billy999')).toBe('admin-1 / billy999');
+    expect(info.secret).toBe('ABCDEF');
+    expect(info.formattedSecret).toBe('ABCD EF');
   });
 
   it('uses query issuer with account-only otpauth label', () => {

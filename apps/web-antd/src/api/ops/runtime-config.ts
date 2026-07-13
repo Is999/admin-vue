@@ -218,6 +218,8 @@ export namespace RuntimeConfigApi {
     versionNo: number;
     /** 快照 SHA256 */
     checksum: string;
+    /** 当前实例是否已完成运行态应用 */
+    applied: boolean;
     /** 是否需要重启完全生效 */
     restartRequired: boolean;
     /** 重启原因 */

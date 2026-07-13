@@ -16,12 +16,14 @@ import {
 
 import { $t, $te } from '#/locales';
 
+import TreeExpandToolbar from '../../components/tree-expand-toolbar.vue';
 import { typeOptions, typeTagMeta } from '../../permission/data';
 import {
   buildDisplayedPermissionCheckedIds,
   buildPermissionRelationMaps,
   buildPermissionViewTree,
   collectAllPermissionIds,
+  collectPermissionIdsByDepth,
   collectPermissionState,
   isPermissionNodeCheckable,
   updateSelectedPermissionIds,
@@ -239,6 +241,28 @@ function onCollapseAll() {
   expandedPermissionIds.value = [];
 }
 
+// onExpandLevel 补充展开前 N 层节点，同时保留用户已手动展开的更深层节点。
+function onExpandLevel(level: number) {
+  const targetIds = collectPermissionIdsByDepth(
+    filteredPermissionTree.value,
+    1,
+    level - 1,
+  );
+  expandedPermissionIds.value = [
+    ...new Set([...expandedPermissionIds.value, ...targetIds]),
+  ];
+}
+
+// onCollapseLevel 从第 N 层开始折叠节点及后代，保留更高层级的展开状态。
+function onCollapseLevel(level: number) {
+  const collapsedIds = new Set(
+    collectPermissionIdsByDepth(filteredPermissionTree.value, level),
+  );
+  expandedPermissionIds.value = expandedPermissionIds.value.filter(
+    (item) => !collapsedIds.has(item),
+  );
+}
+
 // onCheckAllEnabled 勾选全部可用权限。
 function onCheckAllEnabled() {
   const walk = (items: SystemPermissionApi.Item[]): number[] =>
@@ -315,6 +339,19 @@ watch(
   },
   { deep: true, immediate: true },
 );
+/** 为权限树内置的键盘焦点输入补齐浏览器表单标识。 */
+function bindPermissionTreeFocusInput(element: unknown) {
+  if (!(element instanceof HTMLElement)) return;
+
+  const input = element.querySelector<HTMLInputElement>(
+    'input[aria-label="for screen reader"]',
+  );
+  if (!input) return;
+
+  input.id = 'role-permission-tree-focus';
+  input.name = 'role-permission-tree-focus';
+  input.autocomplete = 'off';
+}
 </script>
 
 <template>
@@ -353,9 +390,12 @@ watch(
         </span>
       </template>
     </Alert>
-    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-      <Space wrap>
+    <div class="permission-tree-toolbar mb-3 flex flex-wrap items-center gap-2">
+      <Space class="permission-tree-toolbar__filters" wrap>
         <Input
+          id="role-permission-search"
+          name="role-permission-search"
+          autocomplete="off"
           v-model:value="permissionKeyword"
           allow-clear
           class="w-[240px]"
@@ -373,13 +413,13 @@ watch(
           {{ $t('business.message.onlyChecked') }}
         </Checkbox>
       </Space>
-      <Space wrap>
-        <Button size="small" @click="onExpandAll">
-          {{ $t('business.message.expand') }}
-        </Button>
-        <Button size="small" @click="onCollapseAll">
-          {{ $t('business.message.collapse') }}
-        </Button>
+      <Space class="permission-tree-toolbar__actions" wrap>
+        <TreeExpandToolbar
+          :collapse-all-handler="onCollapseAll"
+          :collapse-level-handler="onCollapseLevel"
+          :expand-all-handler="onExpandAll"
+          :expand-level-handler="onExpandLevel"
+        />
         <Button v-if="canWrite" size="small" @click="onCheckAllEnabled">
           {{ $t('business.message.checkAllEnabled') }}
         </Button>
@@ -388,7 +428,10 @@ watch(
         </Button>
       </Space>
     </div>
-    <div class="role-permission-tree-scroll max-h-[420px] overflow-auto pr-1">
+    <div
+      :ref="bindPermissionTreeFocusInput"
+      class="role-permission-tree-scroll max-h-[420px] overflow-auto pr-1"
+    >
       <Tree
         :checked-keys="displayedPermissionIds"
         :expanded-keys="expandedPermissionIds"
@@ -403,3 +446,36 @@ watch(
     </div>
   </div>
 </template>
+
+<style scoped>
+.role-permission-panel {
+  container: role-permission-panel / inline-size;
+}
+
+.permission-tree-toolbar__filters,
+.permission-tree-toolbar__actions {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.permission-tree-toolbar__filters {
+  flex: 1 1 450px;
+}
+
+.permission-tree-toolbar__actions {
+  flex: 1 1 508px;
+  justify-content: flex-end;
+}
+
+@container role-permission-panel (max-width: 980px) {
+  .permission-tree-toolbar__filters,
+  .permission-tree-toolbar__actions {
+    flex-basis: 100%;
+    width: 100%;
+  }
+
+  .permission-tree-toolbar__actions {
+    justify-content: flex-start;
+  }
+}
+</style>

@@ -379,6 +379,14 @@ const schedulerConfigRows = computed(() => {
       ]),
       description: $t('business.message.heartbeatIntervalDesc'),
     },
+    {
+      label: $t('business.message.schedulerMaxQueueBacklog'),
+      value:
+        status.maxQueueBacklog > 0
+          ? String(status.maxQueueBacklog)
+          : $t('business.message.disabled'),
+      description: $t('business.message.schedulerMaxQueueBacklogDesc'),
+    },
   ];
 });
 

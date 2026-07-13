@@ -26,6 +26,10 @@ import {
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
 import { copyTextToClipboard } from '#/utils/security/password';
+import {
+  currentSessionStateIdentity,
+  registerSessionStateCleanup,
+} from '#/utils/session-state-gate';
 
 import {
   formatDurationMs,
@@ -88,6 +92,11 @@ const autoQueriedWorkflowId = ref('');
 const showWorkflowStatusRaw = ref(false);
 // workflowTopologyExpanded 控制节点执行流拓扑展开状态，长工作流可快速收起。
 const workflowTopologyExpanded = ref(true);
+
+// unregisterWorkflowStatusSessionCleanup 在账号切换时停止旧账号轮询并清空工作流局部状态。
+const unregisterWorkflowStatusSessionCleanup = registerSessionStateCleanup(
+  resetWorkflowStatusSessionState,
+);
 // workflowTopologyKeyword 保存拓扑节点搜索词，支持按节点、队列、状态和依赖快速定位。
 const workflowTopologyKeyword = ref('');
 // workflowTraceNodeKeyword 保存处理量追踪节点名过滤词，仅在前端过滤当前回执。
@@ -263,6 +272,22 @@ function stopWorkflowStatusAutoRefresh() {
   workflowStatusAutoRefreshTimer.value = null;
 }
 
+// resetWorkflowStatusSessionState 清理旧账号遗留的工作流标识、回执和明细。
+function resetWorkflowStatusSessionState() {
+  stopWorkflowStatusAutoRefresh();
+  workflowStatusRequestSeq.value += 1;
+  submitting.value = false;
+  workflowStatusAutoRefreshing.value = false;
+  workflowStatus.value = null;
+  workflowStatusResultText.value = '';
+  workflowQuerySource.value = '';
+  workflowIdInput.value = '';
+  autoQueriedWorkflowId.value = '';
+  workflowTraceDetailsModalOpen.value = false;
+  workflowTraceDetailsModalTitle.value = '';
+  workflowTraceDetailsModalRows.value = [];
+}
+
 // syncWorkflowStatusAutoRefresh 根据最新工作流状态启动或停止自动刷新。
 function syncWorkflowStatusAutoRefresh(
   currentWorkflow: null | TaskApi.WorkflowStatusResp,
@@ -287,11 +312,15 @@ async function requestWorkflowStatus(
   workflowId: string,
   options: WorkflowStatusQueryOptions = {},
 ) {
+  const sourceSessionIdentity = currentSessionStateIdentity();
   const currentRequestSeq = workflowStatusRequestSeq.value + 1;
   workflowStatusRequestSeq.value = currentRequestSeq;
   try {
     const responseData = await getTaskWorkflowStatus({ workflowId });
-    if (currentRequestSeq !== workflowStatusRequestSeq.value) {
+    if (
+      currentRequestSeq !== workflowStatusRequestSeq.value ||
+      sourceSessionIdentity !== currentSessionStateIdentity()
+    ) {
       return false;
     }
     workflowStatus.value = responseData;
@@ -302,7 +331,10 @@ async function requestWorkflowStatus(
     }
     return true;
   } catch (error) {
-    if (currentRequestSeq !== workflowStatusRequestSeq.value) {
+    if (
+      currentRequestSeq !== workflowStatusRequestSeq.value ||
+      sourceSessionIdentity !== currentSessionStateIdentity()
+    ) {
       return false;
     }
     if (options.clearOnError) {
@@ -322,6 +354,7 @@ async function requestWorkflowStatus(
 
 // refreshWorkflowStatusSilently 使用最近一次 workflowId 静默刷新状态；终态或无 workflowId 时主动停止定时器。
 async function refreshWorkflowStatusSilently() {
+  const sourceSessionIdentity = currentSessionStateIdentity();
   const currentWorkflow = workflowStatus.value;
   if (
     !currentWorkflow?.workflowId ||
@@ -340,7 +373,9 @@ async function refreshWorkflowStatusSilently() {
       errorPrefix: $t('business.message.autoRefreshFailed'),
     });
   } finally {
-    workflowStatusAutoRefreshing.value = false;
+    if (sourceSessionIdentity === currentSessionStateIdentity()) {
+      workflowStatusAutoRefreshing.value = false;
+    }
   }
 }
 
@@ -698,6 +733,8 @@ async function handleQueryWorkflowStatus() {
   }
   workflowIdInvalid.value = false;
   stopWorkflowStatusAutoRefresh();
+  const sourceSessionIdentity = currentSessionStateIdentity();
+  const submitRequestSeq = workflowStatusRequestSeq.value + 1;
   submitting.value = true;
   try {
     await requestWorkflowStatus(workflowId, {
@@ -706,7 +743,12 @@ async function handleQueryWorkflowStatus() {
       showSuccessMessage: true,
     });
   } finally {
-    submitting.value = false;
+    if (
+      submitRequestSeq === workflowStatusRequestSeq.value &&
+      sourceSessionIdentity === currentSessionStateIdentity()
+    ) {
+      submitting.value = false;
+    }
   }
 }
 
@@ -950,6 +992,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  unregisterWorkflowStatusSessionCleanup();
   stopWorkflowStatusAutoRefresh();
 });
 
@@ -999,7 +1042,9 @@ watch(
               id="workflow-status-id"
               v-model:value="workflowIdInput"
               allow-clear
+              autocomplete="off"
               class="workflow-query-input"
+              name="workflow-status-id"
               :placeholder="$t('business.message.workflowIdPlaceholder')"
               :status="workflowIdInvalid ? 'error' : undefined"
               @change="workflowIdInvalid = false"
@@ -1168,7 +1213,10 @@ watch(
                   <Input
                     v-model:value="workflowTopologyKeyword"
                     allow-clear
+                    autocomplete="off"
                     class="workflow-topology-search"
+                    id="workflow-topology-search"
+                    name="workflow-topology-search"
                     size="small"
                     :placeholder="
                       $t('business.message.workflowTopologySearchPlaceholder')
@@ -1413,7 +1461,10 @@ watch(
                 <Input
                   v-model:value="workflowTopologyKeyword"
                   allow-clear
+                  autocomplete="off"
                   class="workflow-topology-search"
+                  id="workflow-topology-fullscreen-search"
+                  name="workflow-topology-fullscreen-search"
                   size="small"
                   :placeholder="
                     $t('business.message.workflowTopologySearchPlaceholder')
@@ -1460,7 +1511,10 @@ watch(
                   <Input
                     v-model:value="workflowTraceNodeKeyword"
                     allow-clear
+                    autocomplete="off"
                     class="workflow-trace-filter__search"
+                    id="workflow-trace-node-search"
+                    name="workflow-trace-node-search"
                     size="small"
                     :placeholder="
                       $t('business.message.workflowTraceNodeSearchPlaceholder')

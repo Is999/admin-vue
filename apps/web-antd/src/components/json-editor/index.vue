@@ -7,6 +7,8 @@ import { Button, Input, message, Space, Tag } from 'ant-design-vue';
 import { $t } from '#/locales';
 import { copyTextToClipboard } from '#/utils/security/password';
 
+defineOptions({ inheritAttrs: false });
+
 // props 定义 JSON 编辑器输入属性，兼容 Vben Form 默认的 value 模型。
 const props = withDefaults(
   defineProps<{
@@ -32,12 +34,6 @@ const emit = defineEmits<{
 
 // innerValue 保存当前编辑中的文本内容。
 const innerValue = ref(String(props.value || ''));
-
-// textAreaAutoSize 定义文本域自适应行数，避免模板里使用类型断言。
-const textAreaAutoSize = computed(() => ({
-  maxRows: Math.max(props.rows, 18),
-  minRows: props.rows,
-}));
 
 // editorPlaceholder 返回 JSON 编辑器默认占位文案，允许表单按需覆盖。
 const editorPlaceholder = computed(
@@ -164,10 +160,11 @@ async function onCopyContent() {
       </Tag>
     </div>
     <Input.TextArea
-      :auto-size="textAreaAutoSize"
+      v-bind="$attrs"
       :disabled="disabled"
       :placeholder="editorPlaceholder"
       :readonly="readonly"
+      :rows="rows"
       :value="innerValue"
       class="font-mono text-sm"
       @update:value="syncValue"

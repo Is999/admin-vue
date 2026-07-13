@@ -35,6 +35,10 @@ import { router } from '#/router';
 import { copyTextToClipboard } from '#/utils/security/password';
 
 import { useVbenForm } from './form';
+import { createRowFieldSingleFlight } from './row-field-single-flight';
+
+// runCellSwitchChange 合并同一行字段的并发开关请求，避免重复提交与回写乱序。
+const runCellSwitchChange = createRowFieldSingleFlight();
 
 // OnActionClickParams 定义表格操作列点击事件参数。
 export interface OnActionClickParams<T = any> {
@@ -475,12 +479,14 @@ setupVbenVxeTable({
           unCheckedChildren,
           async onChange(checked: any) {
             const nextValue = checked ? checkedValue : uncheckedValue;
-            const allowChange = attrs?.beforeChange
-              ? await attrs.beforeChange(nextValue, row)
-              : true;
-            if (allowChange !== false) {
-              rowMap[field] = nextValue;
-            }
+            await runCellSwitchChange(rowMap, field, async () => {
+              const allowChange = attrs?.beforeChange
+                ? await attrs.beforeChange(nextValue, row)
+                : true;
+              if (allowChange !== false) {
+                rowMap[field] = nextValue;
+              }
+            });
           },
         });
       },
@@ -553,6 +559,16 @@ setupVbenVxeTable({
           }
           if (typeof item !== 'string' && item?.visible === false) {
             return false;
+          }
+          // allAuth 用于必须同时具备多个接口权限的复合行操作；auth 继续保留原有任一权限语义。
+          const allAuth = item?.allAuth;
+          if (allAuth) {
+            const requiredCodes = Array.isArray(allAuth) ? allAuth : [allAuth];
+            if (
+              !requiredCodes.every((code: string) => hasAccessByCodes([code]))
+            ) {
+              return false;
+            }
           }
           const auth = item?.auth;
           if (!auth) return true;

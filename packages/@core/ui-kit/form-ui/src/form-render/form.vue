@@ -181,7 +181,7 @@ const computedSchema = computed(
           :class="cSchema.formItemClass"
           :rules="cSchema.rules"
         >
-          <template #default="slotProps">
+          <template v-if="$slots[cSchema.fieldName]" #default="slotProps">
             <slot v-bind="slotProps" :name="cSchema.fieldName"> </slot>
           </template>
         </FormField>

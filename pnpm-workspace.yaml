@@ -30,7 +30,7 @@ overrides:
   '@babel/core': 7.29.6
   '@babel/plugin-transform-modules-systemjs': 7.29.4
   '@ctrl/tinycolor': 'catalog:'
-  ajv@8.17.1: 8.18.0
+  ajv@>=8 <8.18.0: 8.18.0
   brace-expansion@2.0.2: 2.0.3
   clsx: 'catalog:'
   defu: 'catalog:'
@@ -38,12 +38,13 @@ overrides:
   flatted@3.3.3: 3.4.2
   form-data: 4.0.6
   glob@10.4.5: 10.5.0
+  js-cookie@<=3.0.5: 3.0.7
   js-yaml: 4.2.0
   lodash: 4.18.1
   lodash-es: 4.18.1
   minimatch@10.1.2: 10.2.3
   minimatch@5.1.6: 5.1.8
-  minimatch@9.0.5: 9.0.7
+  minimatch@>=9 <9.0.7: 9.0.7
   picomatch@2.3.1: 2.3.2
   picomatch@4.0.3: 4.0.4
   pinia: 'catalog:'
@@ -230,8 +231,8 @@ catalog:
   vue-router: ^5.0.7
   vue-tippy: ^6.7.1
   vue-tsc: ^3.3.1
-  vxe-pc-ui: ^4.15.11
-  vxe-table: ^4.19.19
+  vxe-pc-ui: ^4.16.14
+  vxe-table: ^4.20.3
   watermark-js-plus: ^1.6.3
   yaml-eslint-parser: ^2.0.0
   zod: ^3.25.76

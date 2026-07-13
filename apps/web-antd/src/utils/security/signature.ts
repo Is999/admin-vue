@@ -6,14 +6,13 @@ import {
   aesCbcEncrypt,
   aesCbcSign,
   bytesToBase64,
-  md5Hex,
   rsaPkcs1Sign,
   rsaPkcs1Verify,
 } from './crypto';
 import routeSecurityManifest from './route-security-manifest.json';
 
-// SignatureType 表示后端支持的签名方式。
-type SignatureType = 'A' | 'M' | 'R';
+// SignatureType 表示浏览器端允许使用的签名方式。
+export type SignatureType = 'A' | 'R';
 
 // CryptoType 表示后端支持的加密方式。
 type CryptoType = 'A' | 'R';
@@ -46,6 +45,19 @@ const MAX_SECURITY_FIELD_BYTES = 4096;
 const MAX_SECURITY_JSON_FIELD_BYTES = 8192;
 // MAX_SECURITY_REQUEST_BODY_BYTES 表示安全链路处理请求体的最大字节数。
 const MAX_SECURITY_REQUEST_BODY_BYTES = 65_536;
+
+// resolveSignatureType 收敛签名配置；未知算法必须直接失败，避免静默降级到 RSA。
+export function resolveSignatureType(value?: unknown): SignatureType {
+  const signatureType = String(value || 'R')
+    .trim()
+    .toUpperCase();
+  if (signatureType === 'A' || signatureType === 'R') {
+    return signatureType;
+  }
+  throw new Error(
+    $t('business.message.unsupportedSignatureType', [signatureType || '-']),
+  );
+}
 
 // RouteSecurityManifestRoute 表示后端导出的单路由安全清单项。
 interface RouteSecurityManifestRoute {
@@ -266,7 +278,7 @@ function resolveSignParams(data: Record<string, any>, params: string[] = []) {
     .filter((key) => key && key !== 'ciphertext' && key !== 'sign');
 }
 
-// buildSignString 生成后端兼容的待签名字符串。
+// buildSignString 使用版本化 UTF-8 长度前缀生成无歧义签名串。
 export function buildSignString(
   data: Record<string, any>,
   params: string[],
@@ -275,20 +287,30 @@ export function buildSignString(
   appID: string,
 ) {
   const items = [...resolveSignParams(data, params)].toSorted();
-  const chunks: string[] = [];
+  const chunks = [
+    `v2|app=${lengthPrefixedSignPart(appID)}`,
+    `|trace=${lengthPrefixedSignPart(traceId)}`,
+    `|timestamp=${lengthPrefixedSignPart(timestamp)}`,
+  ];
   for (const key of items) {
-    const value = data[key];
+    const value = getNestedFieldValue(data, key);
     if (isEmptySignValue(value)) {
       continue;
     }
     const text = signValueString(value);
     assertSecurityTextSize(key, text, MAX_SECURITY_FIELD_BYTES);
-    chunks.push(`${key}=${text}`);
+    chunks.push(
+      `|field=${lengthPrefixedSignPart(key)}${lengthPrefixedSignPart(text)}`,
+    );
   }
-  chunks.push(`key=${md5Hex(`${appID}-${traceId}-${timestamp}`)}`);
-  const text = chunks.join('&');
+  const text = chunks.join('');
   assertSecurityTextSize('signature', text, MAX_SECURITY_REQUEST_BODY_BYTES);
   return text;
+}
+
+// lengthPrefixedSignPart 按 UTF-8 字节长度编码签名片段，与 Go 后端 len(string) 语义一致。
+function lengthPrefixedSignPart(value: string) {
+  return `${new TextEncoder().encode(value).byteLength}:${value}`;
 }
 
 function createSignatureTimestamp() {
@@ -321,23 +343,51 @@ export function encodeCipherHeader(params: string[] = []) {
 function decodeCipherHeader(cipherHeader: string) {
   const text = String(cipherHeader || '').trim();
   if (!text) {
-    return [];
+    throw new Error($t('business.message.responseCipherHeaderInvalid'));
   }
   assertSecurityTextSize('X-Cipher', text, MAX_SECURITY_JSON_FIELD_BYTES);
   if (text.toLowerCase() === 'cipher') {
     throw new Error($t('business.message.wholeBodyCipherForbidden'));
   }
+  let parsed: unknown;
   try {
     const decoded = new TextDecoder().decode(
       Uint8Array.from(atob(text), (item) => item.codePointAt(0) ?? 0),
     );
-    const parsed = JSON.parse(decoded);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return uniqueStrings(parsed.map((item) => String(item ?? '')));
-  } catch {
-    return [];
+    parsed = JSON.parse(decoded);
+  } catch (error) {
+    throw new Error($t('business.message.responseCipherHeaderInvalid'), {
+      cause: error,
+    });
+  }
+  if (!Array.isArray(parsed)) {
+    throw new TypeError($t('business.message.responseCipherHeaderInvalid'));
+  }
+  const fields = uniqueStrings(parsed.map((item) => String(item ?? '')));
+  if (fields.length === 0) {
+    throw new Error($t('business.message.responseCipherHeaderInvalid'));
+  }
+  assertSecurityFieldCount('X-Cipher', fields);
+  for (const field of fields) {
+    assertSafeCipherField(field);
+  }
+  return fields;
+}
+
+// assertSafeCipherField 拒绝危险或含糊的对象路径，避免响应头驱动原型链写入。
+function assertSafeCipherField(field: string) {
+  const { fieldPath } = resolveCipherFieldConfig(field);
+  const parts = fieldPath.split('.');
+  const unsafeParts = new Set(['__proto__', 'constructor', 'prototype']);
+  if (
+    parts.length === 0 ||
+    parts.length > 8 ||
+    parts.some(
+      (part) =>
+        !/^[A-Z_$][\w$]*$/i.test(part) || unsafeParts.has(part.toLowerCase()),
+    )
+  ) {
+    throw new Error($t('business.message.responseCipherHeaderInvalid'));
   }
 }
 
@@ -368,6 +418,11 @@ function hasResponseCrypto(headers: Record<string, any>) {
   );
 }
 
+// hasResponseCryptoMarker 判断服务端是否声明响应字段已加密；X-Crypto 可能只表示请求解密算法。
+function hasResponseCryptoMarker(headers: Record<string, any>) {
+  return Boolean(resolveHeader(headers, 'X-Cipher'));
+}
+
 // hasResponseSignature 判断当前响应是否真的携带了后端回签结果。
 function hasResponseSignature(payload: any, headers: Record<string, any>) {
   const sign = payload?.data?.sign;
@@ -379,11 +434,7 @@ function hasResponseSignature(payload: any, headers: Record<string, any>) {
 }
 
 // signString 按指定签名方式生成 sign 字段。
-// M 表示 MD5，A 表示 AES-CBC 摘要签名，R 表示 RSA PKCS#1 签名。
 async function signString(text: string, type: SignatureType) {
-  if (type === 'M') {
-    return md5Hex(text);
-  }
   if (type === 'A') {
     return aesCbcSign(
       text,
@@ -400,9 +451,6 @@ async function signString(text: string, type: SignatureType) {
 // verifyString 按指定签名方式校验 sign 字段。
 // 响应验签阶段会复用这套规则，保证前后端对签名算法的判断完全一致。
 async function verifyString(text: string, sign: string, type: SignatureType) {
-  if (type === 'M') {
-    return md5Hex(text) === sign;
-  }
   if (type === 'A') {
     const expected = await aesCbcSign(
       text,
@@ -436,9 +484,9 @@ async function attachSignature(
   const timestamp =
     resolveHeader(headers, SIGNATURE_TIMESTAMP_HEADER) ||
     createSignatureTimestamp();
-  const signatureType = String(
-    import.meta.env.VITE_ADMIN_SIGNATURE_TYPE || 'R',
-  ).toUpperCase() as SignatureType;
+  const signatureType = resolveSignatureType(
+    import.meta.env.VITE_ADMIN_SIGNATURE_TYPE,
+  );
   const signStringText = buildSignString(
     body,
     policy.requestSign || [],
@@ -548,18 +596,24 @@ function extractEnvelope(payload: any) {
 // decryptResponseData 按响应头 X-Cipher 动态解密标准响应 data 下的敏感字段。
 // 只要后端明确返回了加密头，前端就按头里声明的字段路径逐个解密，不再依赖本地 responseCipher 预配置。
 async function decryptResponseData(payload: any, headers: any) {
+  const cryptoType = String(resolveHeader(headers || {}, 'X-Crypto') || '')
+    .trim()
+    .toUpperCase();
+  if (cryptoType !== 'A') {
+    throw new Error($t('business.message.responseCipherHeaderInvalid'));
+  }
   const responseCipherHeader = String(
     resolveHeader(headers || {}, 'X-Cipher') || '',
   );
   const cipherFields = decodeCipherHeader(responseCipherHeader);
-  if (cipherFields.length === 0) {
-    return payload;
-  }
   if (!hasResponseCrypto(headers || {})) {
-    return payload;
+    throw new Error($t('business.message.responseCipherHeaderInvalid'));
   }
   const key = import.meta.env.VITE_ADMIN_SECURITY_AES_KEY || '';
   const iv = import.meta.env.VITE_ADMIN_SECURITY_AES_IV || '';
+  if (!key || !iv) {
+    throw new Error($t('business.message.missingFrontendAesConfig'));
+  }
   const envelope = extractEnvelope(payload);
   if (!envelope || !envelope.data || typeof envelope.data !== 'object') {
     return payload;
@@ -656,8 +710,12 @@ async function verifyResponseSignature(
   if (signFields.length === 0) {
     return payload;
   }
-  if (!hasResponseSignature(payload, headers || {})) {
+  // 后端只对成功响应回签；业务失败仍交给统一错误拦截器保留原始业务码。
+  if (payload?.status !== true) {
     return payload;
+  }
+  if (!hasResponseSignature(payload, headers || {})) {
+    throw new Error($t('business.message.responseSignMissing'));
   }
   const envelope = extractEnvelope(payload);
   const data = envelope?.data;
@@ -670,53 +728,49 @@ async function verifyResponseSignature(
   }
   assertSecurityTextSize('response sign', sign, MAX_SECURITY_FIELD_BYTES);
   const appID = import.meta.env.VITE_ADMIN_SECURITY_APP_ID || '';
-  const signatureType = String(
+  const signatureType = resolveSignatureType(
     headers?.['x-signature'] ||
       headers?.['X-Signature'] ||
-      import.meta.env.VITE_ADMIN_SIGNATURE_TYPE ||
-      'R',
-  ).toUpperCase() as SignatureType;
+      import.meta.env.VITE_ADMIN_SIGNATURE_TYPE,
+  );
 
-  const traceIdCandidates = uniqueStrings([
-    headers?.['x-trace-id'],
-    headers?.['X-Trace-Id'],
-    config?.headers?.['X-Trace-Id'],
-    config?.headers?.['x-trace-id'],
-  ]);
-  const timestampCandidates = uniqueStrings([
-    headers?.['x-timestamp'],
-    headers?.[SIGNATURE_TIMESTAMP_HEADER],
-    config?.headers?.[SIGNATURE_TIMESTAMP_HEADER],
-    config?.headers?.['x-timestamp'],
-  ]);
-  if (traceIdCandidates.length === 0) {
+  const requestTraceID = resolveHeader(config?.headers || {}, 'X-Trace-Id');
+  const requestTimestamp = resolveHeader(
+    config?.headers || {},
+    SIGNATURE_TIMESTAMP_HEADER,
+  );
+  if (!requestTraceID) {
     throw new Error($t('business.message.responseTraceIdRequiredForVerify'));
   }
-  if (timestampCandidates.length === 0) {
+  if (!requestTimestamp) {
     throw new Error($t('business.message.responseTimestampRequiredForVerify'));
   }
-
-  for (const traceId of traceIdCandidates) {
-    for (const timestamp of timestampCandidates) {
-      const signText = buildSignString(
-        data,
-        signFields,
-        String(traceId),
-        String(timestamp),
-        appID,
-      );
-      assertSecurityTextSize(
-        'response signature',
-        signText,
-        MAX_SECURITY_REQUEST_BODY_BYTES,
-      );
-      const ok = await verifyString(signText, sign, signatureType);
-      if (ok) {
-        return payload;
-      }
-    }
+  const responseTraceID = resolveHeader(headers || {}, 'X-Trace-Id');
+  const responseTimestamp = resolveHeader(
+    headers || {},
+    SIGNATURE_TIMESTAMP_HEADER,
+  );
+  if (
+    (responseTraceID && responseTraceID !== requestTraceID) ||
+    (responseTimestamp && responseTimestamp !== requestTimestamp)
+  ) {
+    throw new Error($t('business.message.responseSignVerifyFailed'));
   }
-
+  const signText = buildSignString(
+    data,
+    signFields,
+    requestTraceID,
+    requestTimestamp,
+    appID,
+  );
+  assertSecurityTextSize(
+    'response signature',
+    signText,
+    MAX_SECURITY_REQUEST_BODY_BYTES,
+  );
+  if (await verifyString(signText, sign, signatureType)) {
+    return payload;
+  }
   throw new Error($t('business.message.responseSignVerifyFailed'));
 }
 
@@ -726,6 +780,9 @@ export async function attachAdminSecurityHeaders(config: any) {
   const appID = import.meta.env.VITE_ADMIN_SECURITY_APP_ID || '';
   if (!appID) {
     return config;
+  }
+  if (shouldEnableSignature()) {
+    resolveSignatureType(import.meta.env.VITE_ADMIN_SIGNATURE_TYPE);
   }
   const headers = (config.headers ||= {});
   setHeader(
@@ -771,16 +828,20 @@ export async function handleAdminSecurityResponse(response: any) {
     response?.config?.url,
   );
   const appID = import.meta.env.VITE_ADMIN_SECURITY_APP_ID || '';
-  if (!routeRule && !hasResponseCrypto(response?.headers || {})) {
+  if (!routeRule && !hasResponseCryptoMarker(response?.headers || {})) {
     return response;
   }
   if (!appID) {
+    if (hasResponseCryptoMarker(response?.headers || {})) {
+      throw new Error($t('business.message.missingFrontendSecurityAppId'));
+    }
     return response;
   }
   const policy = routeRule
     ? resolvePolicyForAlias(routeRule.alias)
     : { responseSign: [] };
-  if (isSecurityEnabled(import.meta.env.VITE_ADMIN_CRYPTO_ENABLED || 'true')) {
+  // 服务端响应头是密文事实来源；本地开关只控制是否主动加密请求，不能让密文绕过解密后进入页面。
+  if (hasResponseCryptoMarker(response?.headers || {})) {
     response.data = await decryptResponseData(
       response.data,
       response.headers || {},

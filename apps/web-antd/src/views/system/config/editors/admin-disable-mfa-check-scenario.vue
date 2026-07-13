@@ -26,6 +26,7 @@ import {
   SYSTEM_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 import { resolveRequestErrorMessage } from '#/utils/file/download';
 
 import {
@@ -194,7 +195,7 @@ async function saveConfig() {
   saving.value = true;
   const current = configItem.value;
   try {
-    await updateConfig(current.id, {
+    const cacheSyncResult = await updateConfig(current.id, {
       example: current.example,
       page: ADMIN_DISABLE_MFA_CHECK_SCENARIO_PATH,
       pid: current.pid,
@@ -205,7 +206,10 @@ async function saveConfig() {
       value: selectedValuePreview.value,
       version: current.version,
     });
-    message.success($t('business.message.mfaScenarioSaved'));
+    showCacheSyncResult(
+      cacheSyncResult,
+      $t('business.message.mfaScenarioSaved'),
+    );
     await loadConfig();
   } catch (error) {
     const errorMessage = await resolveRequestErrorMessage(

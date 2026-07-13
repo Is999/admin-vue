@@ -94,10 +94,12 @@ function parseCacheJsonValue(data: any) {
 }
 
 // buildCacheValueViewer 根据缓存值类型构建展示节点。
-export function buildCacheValueViewer(data: any) {
+export function buildCacheValueViewer(data: any, fieldName: string) {
   const jsonValue = parseCacheJsonValue(data);
   if (jsonValue !== null) {
     return h(JsonEditor, {
+      id: fieldName,
+      name: fieldName,
       readonly: true,
       rows: 14,
       value: JSON.stringify(jsonValue, null, 2),
@@ -142,8 +144,9 @@ export function showStructuredValueModal(
           ),
         ]),
       ]),
-      buildCacheValueViewer(value),
+      buildCacheValueViewer(value, 'structured-value'),
     ]),
+    maskClosable: true,
     title,
     width,
   });
@@ -175,6 +178,7 @@ export function showCacheInfoModal(
   const cacheValueText = buildJsonText(info.value);
   Modal.info({
     closable: true,
+    maskClosable: true,
     content: h('div', { class: 'space-y-4' }, [
       h(
         Descriptions,
@@ -276,7 +280,7 @@ export function showCacheInfoModal(
           ),
         ]),
       ]),
-      buildCacheValueViewer(info.value),
+      buildCacheValueViewer(info.value, 'cache-detail-value'),
     ]),
     title,
     width: 860,

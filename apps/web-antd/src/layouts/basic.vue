@@ -6,7 +6,7 @@ import { useRouter } from 'vue-router';
 
 import { AuthenticationLoginExpiredModal, useVbenModal } from '@vben/common-ui';
 import { useWatermark } from '@vben/hooks';
-import { LockKeyhole } from '@vben/icons';
+import { CircleCheckBig, CircleX, Eye, LockKeyhole } from '@vben/icons';
 import {
   BasicLayout,
   LockScreenModal,
@@ -15,6 +15,8 @@ import {
 } from '@vben/layouts';
 import { preferences, usePreferences } from '@vben/preferences';
 import { useAccessStore, useUserStore } from '@vben/stores';
+
+import { message } from 'ant-design-vue';
 
 import {
   ADMIN_MESSAGE_NOTIFICATIONS_CHANGED_EVENT,
@@ -29,17 +31,23 @@ import {
 import { $t } from '#/locales';
 import { useAuthStore } from '#/store';
 import { refreshAccessState } from '#/utils/access-sync';
+import { currentSessionStateIdentity } from '#/utils/session-state-gate';
 import LoginForm from '#/views/_core/authentication/login.vue';
-import {
-  messageContentText,
-  sanitizeMessageContentHtml,
-} from '#/views/system/message/content';
+import { messageContentText } from '#/views/system/message/content';
 
 import AppIdBadge from './components/app-id-badge.vue';
 import AppLockScreen from './components/app-lock-screen.vue';
 
 // notifications 保存顶部铃铛展示的通知列表。
 const notifications = ref<NotificationItem[]>([]);
+// notificationRenderKey 在查看详情后重建通知弹层，使弹层立即收起。
+const notificationRenderKey = ref(0);
+// loginFormKey 在每次重认证弹窗打开时重建登录表单，确保验证码不会复用上一次的 key。
+const loginFormKey = ref(0);
+// notificationSessionIdentity 记录通知列表所属账号，token 续签不改变该标记。
+let notificationSessionIdentity = currentSessionStateIdentity();
+// LOCK_SCREEN_PASSWORD_MIN_LENGTH 表示应用层锁屏临时密码的最小长度。
+const LOCK_SCREEN_PASSWORD_MIN_LENGTH = 4;
 // notificationPoller 保存通知轮询定时器句柄。
 let notificationPoller: null | number = null;
 // accessSyncPoller 保存权限态同步定时器句柄，后端角色/权限变更后前端菜单可自动收敛。
@@ -76,16 +84,24 @@ async function handleLogout() {
 
 // handleOpenLock 打开锁屏临时密码设置弹窗。
 function handleOpenLock() {
+  if (!preferences.widget.lockScreen) {
+    return;
+  }
   lockModalApi.open();
 }
 
 // handleSubmitLock 提交锁屏临时密码并进入锁屏状态。
 function handleSubmitLock(lockScreenPassword: string) {
+  if (lockScreenPassword.length < LOCK_SCREEN_PASSWORD_MIN_LENGTH) {
+    message.error($t('business.message.lockPasswordMinLength'));
+    return;
+  }
   lockModalApi.close();
   accessStore.lockScreen(lockScreenPassword);
 }
 
 function handleNoticeClear() {
+  const sessionIdentity = currentSessionStateIdentity();
   const ids = notifications.value
     .map((item) => Number(item.id))
     .filter((id) => Number.isFinite(id));
@@ -94,6 +110,9 @@ function handleNoticeClear() {
     return;
   }
   deleteAdminMessage({ ids }).finally(() => {
+    if (sessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     notifications.value = [];
   });
 }
@@ -129,6 +148,22 @@ function handleViewAllNotifications() {
   router.push({ path: '/profile-manage/message' }).catch(() => undefined);
 }
 
+// handleViewNotification 跳转消息管理并按消息ID打开详情。
+function handleViewNotification(item: NotificationItem) {
+  const messageId = Number(item.id);
+  if (!Number.isSafeInteger(messageId) || messageId <= 0) {
+    return;
+  }
+  router
+    .push({
+      path: '/profile-manage/message',
+      query: { messageId: String(messageId) },
+    })
+    .finally(() => {
+      notificationRenderKey.value += 1;
+    });
+}
+
 function handleClick(item: NotificationItem) {
   if (item.link) {
     navigateTo(item.link, item.query, item.state);
@@ -141,7 +176,7 @@ function navigateTo(
   state?: Record<string, any>,
 ) {
   if (link.startsWith('http://') || link.startsWith('https://')) {
-    window.open(link, '_blank');
+    window.open(link, '_blank', 'noopener,noreferrer');
     return;
   }
 
@@ -156,8 +191,19 @@ function navigateTo(
 
 // refreshNotifications 拉取最新通知列表并刷新本地状态。
 async function refreshNotifications() {
+  const sessionIdentity = currentSessionStateIdentity();
+  if (!accessStore.accessToken) {
+    notifications.value = [];
+    return;
+  }
   try {
     const items = await fetchAdminMessageNotifications({ limit: 10 });
+    if (
+      sessionIdentity !== currentSessionStateIdentity() ||
+      !accessStore.accessToken
+    ) {
+      return;
+    }
     notifications.value = (items || [])
       .filter((item) => !item.isRead)
       .map((item) => ({
@@ -167,10 +213,12 @@ async function refreshNotifications() {
         isRead: false,
         link: item.link || undefined,
         message: messageContentText(item.content) || '',
-        messageHtml: sanitizeMessageContentHtml(item.content),
         title: item.title || '',
       }));
   } catch {
+    if (sessionIdentity !== currentSessionStateIdentity()) {
+      return;
+    }
     notifications.value = [];
   }
 }
@@ -190,11 +238,17 @@ function handleNotificationsChanged() {
   refreshNotifications().catch(() => undefined);
 }
 
-onMounted(async () => {
-  await refreshNotifications();
-  notificationPoller = window.setInterval(() => {
-    refreshNotifications().catch(() => undefined);
-  }, 30_000);
+// 关闭锁屏小部件时同步收起已打开的锁屏弹窗。
+watch(
+  () => preferences.widget.lockScreen,
+  (enabled) => {
+    if (!enabled) {
+      lockModalApi.close();
+    }
+  },
+);
+
+onMounted(() => {
   window.addEventListener(
     ACCESS_SYNC_FORBIDDEN_EVENT,
     handleAccessForbiddenSync,
@@ -206,6 +260,10 @@ onMounted(async () => {
   accessSyncPoller = window.setInterval(() => {
     refreshAccessSilently('interval');
   }, ACCESS_SYNC_INTERVAL_MS);
+  notificationPoller = window.setInterval(() => {
+    refreshNotifications().catch(() => undefined);
+  }, 30_000);
+  refreshNotifications().catch(() => undefined);
 });
 
 onBeforeUnmount(() => {
@@ -227,12 +285,35 @@ onBeforeUnmount(() => {
   );
 });
 watch(
+  () => [accessStore.accessToken, accessStore.loginExpired] as const,
+  ([accessToken, loginExpired]) => {
+    const sessionIdentity = currentSessionStateIdentity();
+    if (notificationSessionIdentity !== sessionIdentity) {
+      notificationSessionIdentity = sessionIdentity;
+      notifications.value = [];
+    }
+    if (accessToken && !loginExpired) {
+      refreshNotifications().catch(() => undefined);
+    }
+  },
+);
+watch(
+  () => accessStore.loginExpired,
+  (loginExpired) => {
+    if (loginExpired) {
+      loginFormKey.value += 1;
+    }
+  },
+);
+watch(
   () => ({
     enable: preferences.app.watermark,
     content: preferences.app.watermarkContent,
     isDark: isDark.value,
+    realName: String(userStore.userInfo?.realName || '').trim(),
+    username: String(userStore.userInfo?.username || '').trim(),
   }),
-  async ({ enable, content, isDark: isDarkValue }) => {
+  async ({ content, enable, isDark: isDarkValue, realName, username }) => {
     if (enable) {
       const watermarkColor = isDarkValue
         ? 'rgba(255, 255, 255, 0.12)'
@@ -254,7 +335,8 @@ watch(
         },
         content:
           content ||
-          `${userStore.userInfo?.username} - ${userStore.userInfo?.realName}`,
+          [username, realName].filter(Boolean).join(' - ') ||
+          preferences.app.name,
       });
     } else {
       destroyWatermark();
@@ -280,13 +362,18 @@ watch(
     </template>
     <template #header-right-15>
       <LockModal
+        v-if="preferences.widget.lockScreen"
         :avatar
         :text="userStore.userInfo?.realName"
         @submit="handleSubmitLock"
       />
     </template>
     <template #user-dropdown>
-      <div class="flex-center mr-2 h-full" @click.stop="handleOpenLock">
+      <div
+        v-if="preferences.widget.lockScreen"
+        class="flex-center mr-2 h-full"
+        @click.stop="handleOpenLock"
+      >
         <button
           type="button"
           :aria-label="$t('ui.widgets.lockScreen.title')"
@@ -307,6 +394,7 @@ watch(
     </template>
     <template #notification>
       <Notification
+        :key="notificationRenderKey"
         :dot="showDot"
         :notifications="notifications"
         @clear="handleNoticeClear"
@@ -315,14 +403,48 @@ watch(
         @make-all="handleMakeAll"
         @on-click="handleClick"
         @view-all="handleViewAllNotifications"
-      />
+      >
+        <template #action="{ item }">
+          <div class="flex translate-x-4 flex-col items-center gap-1">
+            <button
+              type="button"
+              :aria-label="$t('business.message.detail')"
+              class="flex-center size-8 rounded-md text-primary transition-colors hover:bg-primary/10"
+              :title="$t('business.message.detail')"
+              @click.stop="handleViewNotification(item)"
+            >
+              <Eye class="size-4" />
+            </button>
+            <button
+              v-if="!item.isRead"
+              type="button"
+              :aria-label="$t('common.confirm')"
+              class="flex-center size-8 rounded-md text-emerald-500 transition-colors hover:bg-emerald-500/10 dark:text-emerald-400"
+              :title="$t('common.confirm')"
+              @click.stop="item.id && markRead(item.id)"
+            >
+              <CircleCheckBig class="size-4" />
+            </button>
+            <button
+              v-else
+              type="button"
+              :aria-label="$t('common.delete')"
+              class="flex-center size-8 rounded-md text-red-500 transition-colors hover:bg-red-500/10"
+              :title="$t('common.delete')"
+              @click.stop="item.id && remove(item.id)"
+            >
+              <CircleX class="size-4" />
+            </button>
+          </div>
+        </template>
+      </Notification>
     </template>
     <template #extra>
       <AuthenticationLoginExpiredModal
         v-model:open="accessStore.loginExpired"
         :avatar
       >
-        <LoginForm />
+        <LoginForm :key="loginFormKey" />
       </AuthenticationLoginExpiredModal>
     </template>
     <template #lock-screen>

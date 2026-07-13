@@ -108,9 +108,12 @@ export function buildMfaCodeInputBlock(
       },
       [
         h(Input, {
-          autofocus: true,
+          'aria-label': $t('business.message.mfaCodePlaceholder'),
+          autocomplete: 'one-time-code',
           class: 'mfa-check-input h-10 min-w-0 sm:max-w-[560px] sm:flex-1',
+          inputmode: 'numeric',
           maxlength: 6,
+          name: 'mfaVerificationCode',
           onChange: (event: Event) => {
             onSecureChange((event.target as HTMLInputElement).value);
           },

@@ -7,11 +7,18 @@ import { h } from 'vue';
 
 import { Page } from '@vben/common-ui';
 
-import { Descriptions, DescriptionsItem, Modal, Tag } from 'ant-design-vue';
+import {
+  Button,
+  Descriptions,
+  DescriptionsItem,
+  Modal,
+  Tag,
+} from 'ant-design-vue';
 
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
 import { fetchAdminLogList } from '#/api/system';
 import { $t } from '#/locales';
+import { copyTextToClipboard } from '#/utils/security/password';
 
 import { useColumns, useGridFormSchema } from './data';
 
@@ -80,7 +87,9 @@ function parseLogData(data = '') {
 
 // onViewDetail 展示单条操作日志详情。
 function onViewDetail(row: SystemAdminLogApi.Item) {
+  const detailText = JSON.stringify(parseLogData(row.data), null, 2);
   Modal.info({
+    closable: true,
     content: h('div', { style: { paddingTop: '4px' } }, [
       h(
         Descriptions,
@@ -129,16 +138,32 @@ function onViewDetail(row: SystemAdminLogApi.Item) {
           ],
         },
       ),
+      h('div', { class: 'mt-4 flex justify-end' }, [
+        h(
+          Button,
+          {
+            size: 'small',
+            onClick: () =>
+              copyTextToClipboard(
+                detailText,
+                $t('business.message.contentCopied'),
+                $t('business.message.emptyCopyContent'),
+              ),
+          },
+          () => $t('business.message.copy'),
+        ),
+      ]),
       h(
         'pre',
         {
           class:
             'max-h-[360px] overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 text-xs dark:bg-gray-900',
-          style: { marginTop: '16px' },
+          style: { marginTop: '8px' },
         },
-        JSON.stringify(parseLogData(row.data), null, 2),
+        detailText,
       ),
     ]),
+    maskClosable: true,
     title: $t('business.message.logDetailTitle', [row.id]),
     width: 820,
   });

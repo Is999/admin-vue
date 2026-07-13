@@ -33,7 +33,6 @@ import {
   aesCbcEncrypt,
   aesCbcSign,
   bytesToBase64,
-  md5Hex,
   rsaPkcs1Sign,
   rsaPkcs1Verify,
 } from '#/utils/security/crypto';
@@ -41,12 +40,13 @@ import {
   buildSignString,
   resolvePolicyForAlias,
   resolveRouteSecurityRule,
+  resolveSignatureType,
 } from '#/utils/security/signature';
 
 import { resolveBackendMessage } from '../shared';
 
 type DebugFlowMode = 'request' | 'response';
-type DebugSignatureType = 'A' | 'M' | 'R';
+type DebugSignatureType = 'A' | 'R';
 type DebugCryptoType = 'A' | 'R';
 
 const CIPHER_JSON_PREFIX = 'json:';
@@ -100,7 +100,6 @@ const flowOptions = [
 const signatureOptions = [
   { label: 'RSA', value: 'R' },
   { label: 'AES', value: 'A' },
-  { label: 'MD5', value: 'M' },
 ] satisfies Array<{ label: string; value: DebugSignatureType }>;
 
 // cryptoOptions 定义加密方式选项。
@@ -420,9 +419,6 @@ function setNestedFieldValue(
 
 // signTextLocally 在浏览器端模拟前端请求签名。
 async function signTextLocally(text: string, type: DebugSignatureType) {
-  if (type === 'M') {
-    return md5Hex(text);
-  }
   if (type === 'A') {
     const { iv, key } = getAESConfig();
     return aesCbcSign(text, key, iv);
@@ -436,9 +432,6 @@ async function verifyTextLocally(
   sign: string,
   type: DebugSignatureType,
 ) {
-  if (type === 'M') {
-    return md5Hex(text) === sign;
-  }
   if (type === 'A') {
     const { iv, key } = getAESConfig();
     return (await aesCbcSign(text, key, iv)) === sign;
@@ -1096,10 +1089,7 @@ function applyHeadersToForm(headers: Record<string, string>) {
   }
   const signatureHeader = headers['x-signature'] || '';
   if (signatureHeader) {
-    const type = String(signatureHeader).trim().toUpperCase();
-    if (type === 'A' || type === 'M' || type === 'R') {
-      signatureType.value = type;
-    }
+    signatureType.value = resolveSignatureType(signatureHeader);
   }
   const cryptoHeader = headers['x-crypto'] || '';
   if (cryptoHeader) {
@@ -1336,7 +1326,10 @@ function fillDecryptFromEncrypt() {
           <div class="grid gap-3">
             <Input.TextArea
               v-model:value="rawPasteText"
-              :auto-size="{ minRows: 6, maxRows: 12 }"
+              id="security-debug-raw-paste"
+              name="security-debug-raw-paste"
+              autocomplete="off"
+              :rows="6"
               :placeholder="$t('business.message.securityPastePlaceholder')"
             />
             <Select
@@ -1381,14 +1374,23 @@ function fillDecryptFromEncrypt() {
             />
             <Input
               v-model:value="appId"
+              id="security-debug-app-id"
+              name="security-debug-app-id"
+              autocomplete="off"
               :placeholder="$t('business.message.enterAppId')"
             />
             <Input
               v-model:value="traceId"
+              id="security-debug-trace-id"
+              name="security-debug-trace-id"
+              autocomplete="off"
               :placeholder="$t('business.message.optionalTraceId')"
             />
             <Input
               v-model:value="signatureTimestamp"
+              id="security-debug-signature-timestamp"
+              name="security-debug-signature-timestamp"
+              autocomplete="off"
               :placeholder="$t('business.message.optionalTimestamp')"
             />
             <Select
@@ -1405,10 +1407,16 @@ function fillDecryptFromEncrypt() {
           <div class="grid gap-3 md:grid-cols-2">
             <Input
               v-model:value="signFieldsText"
+              id="security-debug-sign-fields"
+              name="security-debug-sign-fields"
+              autocomplete="off"
               :placeholder="$t('business.message.signFieldsPlaceholder')"
             />
             <Input
               v-model:value="cipherFieldsText"
+              id="security-debug-cipher-fields"
+              name="security-debug-cipher-fields"
+              autocomplete="off"
               :placeholder="$t('business.message.cipherFieldsPlaceholder')"
             />
           </div>
@@ -1420,11 +1428,17 @@ function fillDecryptFromEncrypt() {
           <div class="grid gap-3">
             <Input.TextArea
               v-model:value="payloadText"
-              :auto-size="{ minRows: 8, maxRows: 16 }"
+              id="security-debug-payload"
+              name="security-debug-payload"
+              autocomplete="off"
+              :rows="8"
               :placeholder="$t('business.message.payloadJsonPlaceholder')"
             />
             <InputPassword
               v-model:value="signValue"
+              id="security-debug-signature-value"
+              name="security-debug-signature-value"
+              autocomplete="off"
               :placeholder="$t('business.message.signValuePlaceholder')"
             />
             <Space wrap>
@@ -1465,7 +1479,10 @@ function fillDecryptFromEncrypt() {
               </VbenButton>
             </Space>
             <Input.TextArea
-              :auto-size="{ minRows: 8, maxRows: 16 }"
+              id="security-debug-sign-result"
+              name="security-debug-sign-result"
+              autocomplete="off"
+              :rows="8"
               :value="JSON.stringify(signResult || verifyResult || {}, null, 2)"
               readonly
             />
@@ -1476,7 +1493,10 @@ function fillDecryptFromEncrypt() {
           <div class="grid gap-3">
             <Input.TextArea
               v-model:value="cipherInputText"
-              :auto-size="{ minRows: 8, maxRows: 16 }"
+              id="security-debug-cipher-input"
+              name="security-debug-cipher-input"
+              autocomplete="off"
+              :rows="8"
               :placeholder="$t('business.message.cipherInputPlaceholder')"
             />
             <Space wrap>
@@ -1508,7 +1528,10 @@ function fillDecryptFromEncrypt() {
               </VbenButton>
             </Space>
             <Input.TextArea
-              :auto-size="{ minRows: 8, maxRows: 16 }"
+              id="security-debug-cipher-result"
+              name="security-debug-cipher-result"
+              autocomplete="off"
+              :rows="8"
               :value="
                 JSON.stringify(encryptResult || decryptResult || {}, null, 2)
               "

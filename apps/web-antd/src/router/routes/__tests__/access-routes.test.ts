@@ -229,6 +229,19 @@ describe('admin access routes', () => {
     expect(rootRoute?.redirect).toBe(APP_DEFAULT_HOME_PATH);
   });
 
+  it('keeps project branding overrides outside the Vben core defaults', () => {
+    expect(overridesPreferences.app?.defaultAvatar).toBe('/favicon.svg');
+    expect(overridesPreferences.app?.enableRefreshToken).toBe(true);
+    expect(overridesPreferences.app).toHaveProperty('name');
+    expect(overridesPreferences.app?.preferencesButtonPosition).toBe('auto');
+    expect(overridesPreferences.copyright).toMatchObject({
+      companyName: 'Admin',
+      companySiteLink: '/',
+      date: '2026',
+    });
+    expect(overridesPreferences.logo?.source).toBe('/favicon.svg');
+  });
+
   it('keeps split admin tools on independent menu permissions', () => {
     const workflowStatusRoute = findRouteByName(
       accessRoutes,

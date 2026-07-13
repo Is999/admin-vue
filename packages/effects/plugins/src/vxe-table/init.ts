@@ -34,6 +34,8 @@ import { extendsDefaultFormatter } from './extends'; // 是否加载过
 
 // 是否加载过
 let isInit = false;
+// isSetup 防止热更新重复创建监听并注册全局 formatter、renderer。
+let isSetup = false;
 
 let tableFormFactory: ((...args: any[]) => any) | undefined;
 
@@ -117,6 +119,11 @@ export function setupVbenVxeTable(setupOptions: SetupVxeTable) {
   if (useVbenFormFromParam) {
     tableFormFactory = useVbenFormFromParam;
   }
+  if (isSetup) {
+    return;
+  }
+  isSetup = true;
+
   const { isDark, locale } = usePreferences();
 
   const localMap = {

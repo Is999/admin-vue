@@ -25,6 +25,7 @@ import {
   SYSTEM_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 import { resolveRequestErrorMessage } from '#/utils/file/download';
 
 import { ADMIN_IP_WHITELIST_PATH, ADMIN_IP_WHITELIST_UUID } from './registry';
@@ -220,7 +221,7 @@ async function saveConfig() {
   saving.value = true;
   const current = configItem.value;
   try {
-    await updateConfig(current.id, {
+    const cacheSyncResult = await updateConfig(current.id, {
       example: current.example,
       page: ADMIN_IP_WHITELIST_PATH,
       pid: current.pid,
@@ -231,7 +232,10 @@ async function saveConfig() {
       value: normalizeIpList(ipList.value),
       version: current.version,
     });
-    message.success($t('business.message.adminIpWhitelistSaved'));
+    showCacheSyncResult(
+      cacheSyncResult,
+      $t('business.message.adminIpWhitelistSaved'),
+    );
     await loadConfig();
   } catch (error) {
     const errorMessage = await resolveRequestErrorMessage(
@@ -330,7 +334,9 @@ onMounted(loadConfig);
 
           <div class="ip-whitelist-add-row">
             <Input
+              id="admin-ip-whitelist-input"
               v-model:value="ipInput"
+              name="admin-ip-whitelist-input"
               :placeholder="
                 $t('business.message.adminIpWhitelistInputPlaceholder')
               "
@@ -370,7 +376,9 @@ onMounted(loadConfig);
           </div>
 
           <Input.TextArea
+            id="admin-ip-whitelist-bulk-text"
             v-model:value="bulkText"
+            name="admin-ip-whitelist-bulk-text"
             :placeholder="
               $t('business.message.adminIpWhitelistBulkPlaceholder')
             "

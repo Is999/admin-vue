@@ -291,6 +291,48 @@ const enabledOptions = computed(() => [
   { label: rt('disabled'), value: 'disabled' },
 ]);
 
+// archiveTimeColumnTypeOptions 定义后端支持的归档时间列类型。
+const archiveTimeColumnTypeOptions = computed(() => [
+  { label: rt('timeColumnTypeTime'), value: 'time' },
+  { label: rt('timeColumnTypeString'), value: 'string' },
+  { label: rt('timeColumnTypeUnix'), value: 'unix' },
+]);
+// archiveUnixUnitOptions 定义 Unix 时间列支持的单位。
+const archiveUnixUnitOptions = computed(() => [
+  { label: rt('unixUnitSeconds'), value: 'seconds' },
+  { label: rt('unixUnitMilliseconds'), value: 'milliseconds' },
+]);
+// archiveSplitUnitOptions 定义历史表支持的拆分粒度。
+const archiveSplitUnitOptions = computed(() => [
+  { label: rt('splitYear'), value: 'year' },
+  { label: rt('splitQuarter'), value: 'quarter' },
+  { label: rt('splitMonth'), value: 'month' },
+  { label: rt('splitWeek'), value: 'week' },
+  { label: rt('splitDay'), value: 'day' },
+  { label: rt('splitCustomDays'), value: 'custom_days' },
+]);
+// archiveWindowModeOptions 定义归档窗口推进模式。
+const archiveWindowModeOptions = computed(() => [
+  { label: rt('archiveWindowModeAuto'), value: 'auto' },
+  { label: rt('archiveWindowModeFixed'), value: 'fixed' },
+]);
+// archiveUsesStringTime 控制字符串时间格式字段显示。
+const archiveUsesStringTime = computed(
+  () => archiveForm.timeColumnType === 'string',
+);
+// archiveUsesUnixTime 控制 Unix 时间单位字段显示。
+const archiveUsesUnixTime = computed(
+  () => archiveForm.timeColumnType === 'unix',
+);
+// archiveUsesCustomDays 控制自定义分段天数字段显示。
+const archiveUsesCustomDays = computed(
+  () => archiveForm.splitUnit === 'custom_days',
+);
+// archiveUsesAutoWindow 控制自动追赶参数显示。
+const archiveUsesAutoWindow = computed(
+  () => archiveForm.archiveWindowMode === 'auto',
+);
+
 const periodicColumns = computed(() => [
   { title: rt('name'), dataIndex: 'name', key: 'name', width: 220 },
   { title: rt('workflow'), dataIndex: 'workflow', key: 'workflow', width: 240 },
@@ -423,6 +465,8 @@ function newArchiveForm(): RuntimeConfigApi.ArchiveJobItem {
     splitUnit: 'month',
     tableName: '',
     timeColumn: '',
+    timeColumnType: 'time',
+    timeColumnUnixUnit: 'seconds',
   };
 }
 
@@ -621,12 +665,15 @@ function snapshotDiffItemKey(value: unknown) {
 }
 
 function openArchiveDrawer(row?: Record<string, any>) {
-  assignForm(
-    archiveForm,
-    row
-      ? ({ ...newArchiveForm(), ...row } as RuntimeConfigApi.ArchiveJobItem)
-      : newArchiveForm(),
-  );
+  const nextForm = row
+    ? ({ ...newArchiveForm(), ...row } as RuntimeConfigApi.ArchiveJobItem)
+    : newArchiveForm();
+  nextForm.timeColumnType = nextForm.timeColumnType?.trim() || 'time';
+  nextForm.timeColumnUnixUnit =
+    nextForm.timeColumnUnixUnit?.trim() || 'seconds';
+  nextForm.splitUnit = nextForm.splitUnit?.trim() || 'month';
+  nextForm.archiveWindowMode = nextForm.archiveWindowMode?.trim() || 'auto';
+  assignForm(archiveForm, nextForm);
   archiveDrawerApi.open();
 }
 
@@ -770,7 +817,11 @@ async function submitRuntimeAction() {
     lastPublishResult.value = result;
     validateResult.value = null;
     actionModalOpen.value = false;
-    message.success(runtimeActionSuccess(actionType.value));
+    if (result.applied) {
+      message.success(runtimeActionSuccess(actionType.value));
+    } else {
+      message.warning(rt('publishApplyPending'));
+    }
     await refreshAll();
   } finally {
     submitting.value = false;
@@ -940,14 +991,20 @@ function runtimeActionSuccess(type: RuntimeActionType) {
               <div class="runtime-filter-panel">
                 <Input
                   v-model:value="periodicFilters.keyword"
+                  id="runtime-periodic-keyword-filter"
+                  name="runtime-periodic-keyword-filter"
                   allow-clear
+                  autocomplete="off"
                   class="runtime-filter-input runtime-periodic-filter-input"
                   :placeholder="rt('periodicKeywordPlaceholder')"
                   @press-enter="loadPeriodicTasks"
                 />
                 <Input
                   v-model:value="periodicFilters.workflow"
+                  id="runtime-periodic-workflow-filter"
+                  name="runtime-periodic-workflow-filter"
                   allow-clear
+                  autocomplete="off"
                   class="runtime-filter-input runtime-periodic-filter-input"
                   :placeholder="rt('workflow')"
                   @press-enter="loadPeriodicTasks"
@@ -1040,14 +1097,20 @@ function runtimeActionSuccess(type: RuntimeActionType) {
               <Space wrap>
                 <Input
                   v-model:value="archiveFilters.keyword"
+                  id="runtime-archive-keyword-filter"
+                  name="runtime-archive-keyword-filter"
                   allow-clear
+                  autocomplete="off"
                   class="runtime-filter-input runtime-archive-filter-input"
                   :placeholder="rt('archiveKeywordPlaceholder')"
                   @press-enter="loadArchiveJobs"
                 />
                 <Input
                   v-model:value="archiveFilters.database"
+                  id="runtime-archive-database-filter"
+                  name="runtime-archive-database-filter"
                   allow-clear
+                  autocomplete="off"
                   class="runtime-filter-input runtime-archive-filter-input"
                   :placeholder="rt('database')"
                   @press-enter="loadArchiveJobs"
@@ -1220,14 +1283,19 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 <Alert
                   v-if="lastPublishResult"
                   :type="
-                    lastPublishResult.restartRequired ? 'warning' : 'success'
+                    !lastPublishResult.applied ||
+                    lastPublishResult.restartRequired
+                      ? 'warning'
+                      : 'success'
                   "
                   show-icon
                   :message="`${rt('version')} ${lastPublishResult.versionNo} ${rt('created')}`"
                   :description="
-                    lastPublishResult.restartRequired
-                      ? `${rt('restartRequired')}: ${lastPublishResult.restartReason}`
-                      : `release_id=${lastPublishResult.releaseId} checksum=${formatShortChecksum(lastPublishResult.checksum)}`
+                    !lastPublishResult.applied
+                      ? rt('publishApplyPending')
+                      : lastPublishResult.restartRequired
+                        ? `${rt('restartRequired')}: ${lastPublishResult.restartReason}`
+                        : `release_id=${lastPublishResult.releaseId} checksum=${formatShortChecksum(lastPublishResult.checksum)}`
                   "
                 />
               </div>
@@ -1349,7 +1417,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
               </span>
             </div>
           </div>
-          <Form :model="periodicForm" layout="vertical">
+          <Form :model="periodicForm" layout="vertical" name="runtime-periodic">
             <div class="runtime-editor__layout">
               <section class="runtime-editor__section">
                 <div class="runtime-editor__section-head">
@@ -1373,6 +1441,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 </div>
                 <div class="runtime-editor__grid">
                   <Form.Item
+                    name="name"
                     required
                     :extra="rt('periodicNameHelp')"
                     :label="rt('name')"
@@ -1380,6 +1449,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     <Input v-model:value="periodicForm.name" />
                   </Form.Item>
                   <Form.Item
+                    name="workflow"
                     required
                     :extra="rt('periodicWorkflowHelp')"
                     :label="rt('workflow')"
@@ -1387,12 +1457,14 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     <Input v-model:value="periodicForm.workflow" />
                   </Form.Item>
                   <Form.Item
+                    name="queue"
                     :extra="rt('periodicQueueHelp')"
                     :label="rt('queue')"
                   >
                     <Input v-model:value="periodicForm.queue" />
                   </Form.Item>
                   <Form.Item
+                    name="sortOrder"
                     :extra="rt('periodicSortOrderHelp')"
                     :label="rt('sortOrder')"
                   >
@@ -1416,13 +1488,18 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   </div>
                 </div>
                 <div class="runtime-editor__grid">
-                  <Form.Item :extra="rt('periodicCronHelp')" label="Cron">
+                  <Form.Item
+                    name="cron"
+                    :extra="rt('periodicCronHelp')"
+                    label="Cron"
+                  >
                     <Input
                       v-model:value="periodicForm.cron"
                       placeholder="0 */5 * * * *"
                     />
                   </Form.Item>
                   <Form.Item
+                    name="everySeconds"
                     :extra="rt('periodicEverySecondsHelp')"
                     :label="rt('everySeconds')"
                   >
@@ -1433,6 +1510,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     />
                   </Form.Item>
                   <Form.Item
+                    name="deadline"
                     :extra="rt('periodicDeadlineHelp')"
                     :label="rt('deadline')"
                   >
@@ -1457,6 +1535,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 </div>
                 <div class="runtime-editor__grid">
                   <Form.Item
+                    name="shardTotal"
                     :extra="rt('periodicShardTotalHelp')"
                     :label="rt('shardTotal')"
                   >
@@ -1467,6 +1546,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     />
                   </Form.Item>
                   <Form.Item
+                    name="grayPercent"
                     :extra="rt('periodicGrayPercentHelp')"
                     :label="rt('grayPercent')"
                   >
@@ -1478,6 +1558,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     />
                   </Form.Item>
                   <Form.Item
+                    name="retry"
                     :extra="rt('periodicRetryHelp')"
                     :label="rt('retry')"
                   >
@@ -1488,6 +1569,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     />
                   </Form.Item>
                   <Form.Item
+                    name="timeoutSeconds"
                     :extra="rt('periodicTimeoutSecondsHelp')"
                     :label="rt('timeoutSeconds')"
                   >
@@ -1513,12 +1595,14 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 </div>
                 <div class="runtime-editor__grid">
                   <Form.Item
+                    name="uniqueKey"
                     :extra="rt('periodicUniqueKeyHelp')"
                     :label="rt('uniqueKey')"
                   >
                     <Input v-model:value="periodicForm.uniqueKey" />
                   </Form.Item>
                   <Form.Item
+                    name="uniqueTtlSeconds"
                     :extra="rt('periodicUniqueTtlSecondsHelp')"
                     :label="rt('uniqueTtlSeconds')"
                   >
@@ -1546,6 +1630,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 </div>
                 <div class="runtime-editor__stack">
                   <Form.Item
+                    name="targets"
                     :extra="rt('periodicTargetsHelp')"
                     :label="rt('targets')"
                   >
@@ -1556,6 +1641,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     />
                   </Form.Item>
                   <Form.Item
+                    name="remark"
                     :extra="rt('periodicRemarkHelp')"
                     :label="rt('remark')"
                   >
@@ -1601,7 +1687,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
               </span>
             </div>
           </div>
-          <Form :model="archiveForm" layout="vertical">
+          <Form :model="archiveForm" layout="vertical" name="runtime-archive">
             <div class="runtime-editor__layout">
               <section class="runtime-editor__section">
                 <div class="runtime-editor__section-head">
@@ -1625,6 +1711,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 </div>
                 <div class="runtime-editor__grid">
                   <Form.Item
+                    name="name"
                     required
                     :extra="rt('archiveNameHelp')"
                     :label="rt('name')"
@@ -1632,12 +1719,14 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     <Input v-model:value="archiveForm.name" />
                   </Form.Item>
                   <Form.Item
+                    name="database"
                     :extra="rt('archiveDatabaseHelp')"
                     :label="rt('database')"
                   >
                     <Input v-model:value="archiveForm.database" />
                   </Form.Item>
                   <Form.Item
+                    name="tableName"
                     required
                     :extra="rt('archiveTableNameHelp')"
                     :label="rt('hotTableName')"
@@ -1645,6 +1734,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     <Input v-model:value="archiveForm.tableName" />
                   </Form.Item>
                   <Form.Item
+                    name="sortOrder"
                     :extra="rt('archiveSortOrderHelp')"
                     :label="rt('sortOrder')"
                   >
@@ -1669,24 +1759,75 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 </div>
                 <div class="runtime-editor__grid">
                   <Form.Item
+                    name="timeColumn"
                     :extra="rt('archiveTimeColumnHelp')"
                     :label="rt('timeColumn')"
                   >
                     <Input v-model:value="archiveForm.timeColumn" />
                   </Form.Item>
                   <Form.Item
+                    name="timeColumnType"
+                    :extra="rt('timeColumnTypeHelp')"
+                    :label="rt('timeColumnType')"
+                  >
+                    <Select
+                      v-model:value="archiveForm.timeColumnType"
+                      :options="archiveTimeColumnTypeOptions"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    v-if="archiveUsesStringTime"
+                    name="timeColumnFormat"
+                    :extra="rt('timeColumnFormatHelp')"
+                    :label="rt('timeColumnFormat')"
+                  >
+                    <Input
+                      v-model:value="archiveForm.timeColumnFormat"
+                      placeholder="2006-01-02 15:04:05"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    v-if="archiveUsesUnixTime"
+                    name="timeColumnUnixUnit"
+                    :extra="rt('timeColumnUnixUnitHelp')"
+                    :label="rt('timeColumnUnixUnit')"
+                  >
+                    <Select
+                      v-model:value="archiveForm.timeColumnUnixUnit"
+                      :options="archiveUnixUnitOptions"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="primaryKey"
                     :extra="rt('archivePrimaryKeyHelp')"
                     :label="rt('primaryKey')"
                   >
                     <Input v-model:value="archiveForm.primaryKey" />
                   </Form.Item>
                   <Form.Item
+                    name="splitUnit"
                     :extra="rt('archiveSplitUnitHelp')"
                     :label="rt('splitUnit')"
                   >
-                    <Input v-model:value="archiveForm.splitUnit" />
+                    <Select
+                      v-model:value="archiveForm.splitUnit"
+                      :options="archiveSplitUnitOptions"
+                    />
                   </Form.Item>
                   <Form.Item
+                    v-if="archiveUsesCustomDays"
+                    name="customDays"
+                    :extra="rt('customDaysHelp')"
+                    :label="rt('customDays')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.customDays"
+                      class="w-full"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="hotKeepDays"
                     :extra="rt('archiveHotKeepDaysHelp')"
                     :label="rt('hotKeepDays')"
                   >
@@ -1697,6 +1838,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     />
                   </Form.Item>
                   <Form.Item
+                    name="archiveDelayDays"
                     :extra="rt('archiveDelayDaysHelp')"
                     :label="rt('archiveDelayDays')"
                   >
@@ -1707,16 +1849,80 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     />
                   </Form.Item>
                   <Form.Item
+                    name="archiveWindowMode"
+                    :extra="rt('archiveWindowModeHelp')"
+                    :label="rt('archiveWindowMode')"
+                  >
+                    <Select
+                      v-model:value="archiveForm.archiveWindowMode"
+                      :options="archiveWindowModeOptions"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="archiveWindowSeconds"
                     :extra="rt('archiveWindowSecondsHelp')"
                     :label="rt('archiveWindowSeconds')"
                   >
                     <InputNumber
                       v-model:value="archiveForm.archiveWindowSeconds"
                       class="w-full"
+                      :max="604800"
                       :min="0"
                     />
                   </Form.Item>
                   <Form.Item
+                    name="archiveMaxWindowsPerRun"
+                    :extra="rt('archiveMaxWindowsPerRunHelp')"
+                    :label="rt('archiveMaxWindowsPerRun')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.archiveMaxWindowsPerRun"
+                      class="w-full"
+                      :max="1000"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    v-if="archiveUsesAutoWindow"
+                    name="archiveAutoMaxWindows"
+                    :extra="rt('archiveAutoMaxWindowsHelp')"
+                    :label="rt('archiveAutoMaxWindows')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.archiveAutoMaxWindows"
+                      class="w-full"
+                      :max="1000"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    v-if="archiveUsesAutoWindow"
+                    name="archiveAutoLightRows"
+                    :extra="rt('archiveAutoLightRowsHelp')"
+                    :label="rt('archiveAutoLightRows')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.archiveAutoLightRows"
+                      class="w-full"
+                      :max="20000"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    v-if="archiveUsesAutoWindow"
+                    name="archiveAutoLightMs"
+                    :extra="rt('archiveAutoLightMsHelp')"
+                    :label="rt('archiveAutoLightMs')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.archiveAutoLightMs"
+                      class="w-full"
+                      :max="30000"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="startAt"
                     :extra="rt('archiveStartAtHelp')"
                     :label="rt('startAt')"
                   >
@@ -1741,32 +1947,73 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 </div>
                 <div class="runtime-editor__grid">
                   <Form.Item
+                    name="batchSize"
                     :extra="rt('archiveBatchHelp')"
                     :label="rt('archiveBatch')"
                   >
                     <InputNumber
                       v-model:value="archiveForm.batchSize"
                       class="w-full"
+                      :max="20000"
                       :min="0"
                     />
                   </Form.Item>
                   <Form.Item
+                    name="deleteBatchSize"
                     :extra="rt('archiveDeleteBatchHelp')"
                     :label="rt('deleteBatch')"
                   >
                     <InputNumber
                       v-model:value="archiveForm.deleteBatchSize"
                       class="w-full"
+                      :max="20000"
                       :min="0"
                     />
                   </Form.Item>
                   <Form.Item
+                    name="deleteDelayDays"
+                    :extra="rt('deleteDelayDaysHelp')"
+                    :label="rt('deleteDelayDays')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.deleteDelayDays"
+                      class="w-full"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="deleteWindowSeconds"
+                    :extra="rt('deleteWindowSecondsHelp')"
+                    :label="rt('deleteWindowSeconds')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.deleteWindowSeconds"
+                      class="w-full"
+                      :max="604800"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="deleteMaxWindowsPerRun"
+                    :extra="rt('deleteMaxWindowsPerRunHelp')"
+                    :label="rt('deleteMaxWindowsPerRun')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.deleteMaxWindowsPerRun"
+                      class="w-full"
+                      :max="1000"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="deleteDisabled"
                     :extra="rt('archiveDeleteDisabledHelp')"
                     :label="rt('deleteDisabled')"
                   >
                     <Switch v-model:checked="archiveForm.deleteDisabled" />
                   </Form.Item>
                   <Form.Item
+                    name="queryWriteDb"
                     :extra="rt('archiveQueryWriteDbHelp')"
                     :label="rt('queryWriteDb')"
                   >
@@ -1788,16 +2035,29 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 </div>
                 <div class="runtime-editor__stack">
                   <Form.Item
+                    name="historyTablePrefix"
                     :extra="rt('archiveHistoryTablePrefixHelp')"
                     :label="rt('historyTablePrefix')"
                   >
                     <Input v-model:value="archiveForm.historyTablePrefix" />
                   </Form.Item>
                   <Form.Item
+                    name="historyTableNameRule"
                     :extra="rt('archiveHistoryTableNameRuleHelp')"
                     :label="rt('historyTableNameRule')"
                   >
                     <Input v-model:value="archiveForm.historyTableNameRule" />
+                  </Form.Item>
+                  <Form.Item
+                    name="maxHistoryTables"
+                    :extra="rt('maxHistoryTablesHelp')"
+                    :label="rt('maxHistoryTables')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.maxHistoryTables"
+                      class="w-full"
+                      :min="0"
+                    />
                   </Form.Item>
                 </div>
               </section>
@@ -1817,6 +2077,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 </div>
                 <div class="runtime-editor__stack">
                   <Form.Item
+                    name="archiveCondition"
                     :extra="rt('archiveConditionHelp')"
                     :label="rt('archiveCondition')"
                   >
@@ -1826,6 +2087,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     />
                   </Form.Item>
                   <Form.Item
+                    name="deleteCondition"
                     :extra="rt('archiveDeleteConditionHelp')"
                     :label="rt('deleteCondition')"
                   >
@@ -1835,6 +2097,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     />
                   </Form.Item>
                   <Form.Item
+                    name="remark"
                     :extra="rt('archiveRemarkHelp')"
                     :label="rt('remark')"
                   >
@@ -1867,8 +2130,8 @@ function runtimeActionSuccess(type: RuntimeActionType) {
           </Tag>
           <span>release_id={{ rollbackRelease?.id }}</span>
         </div>
-        <Form layout="vertical">
-          <Form.Item :label="rt('remark')">
+        <Form layout="vertical" name="runtime-action">
+          <Form.Item name="remark" :label="rt('remark')">
             <Textarea v-model:value="actionRemark" :rows="3" />
           </Form.Item>
         </Form>

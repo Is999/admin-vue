@@ -32,6 +32,7 @@ import {
   buildRoleCacheTemplateKeys,
   openSystemCachePage,
 } from '#/utils/cache/navigation';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 
 import TreeExpandToolbar from '../components/tree-expand-toolbar.vue';
 import { useColumns, useGridFormSchema } from './data';
@@ -79,7 +80,7 @@ const canUpdateRolePermission = computed(() =>
 // PermissionModal 用于保存角色权限关系。
 const [PermissionModal, permissionModalApi] = useVbenModal({
   appendToMain: true,
-  class: 'w-[1120px] max-w-[calc(100vw-48px)]',
+  class: 'w-[calc(100%-24px)] max-w-[1120px]',
   destroyOnClose: true,
   draggable: true,
   onConfirm: onSavePermissions,
@@ -302,7 +303,14 @@ async function onStatusChange(newStatus: number, row: SystemRoleApi.Item) {
           ]),
           $t('business.message.switchRoleStatus'),
         ));
-    await updateRoleStatus(row.id, newStatus as SystemRoleApi.Status);
+    const cacheSyncResult = await updateRoleStatus(
+      row.id,
+      newStatus as SystemRoleApi.Status,
+    );
+    showCacheSyncResult(
+      cacheSyncResult,
+      $t('business.message.roleStatusUpdated'),
+    );
     return true;
   } catch {
     return false;
@@ -344,16 +352,21 @@ async function onSavePermissions() {
   const savedRoleID = currentRole.value.id;
   permissionModalApi.setState({ loading: true });
   updateRolePermissions(savedRoleID, permissionIDs)
-    .then(async () => {
-      message.success($t('business.message.rolePermissionsConfigured'));
-      await refreshCurrentAccessAfterRolePermissionSave(savedRoleID).catch(
-        () => {
-          accessStore.setIsAccessChecked(false);
-          message.warning(
-            $t('business.message.currentMenuPermissionsRefreshFailed'),
-          );
-        },
+    .then(async (cacheSyncResult) => {
+      showCacheSyncResult(
+        cacheSyncResult,
+        $t('business.message.rolePermissionsConfigured'),
       );
+      if (!cacheSyncResult?.syncPending) {
+        await refreshCurrentAccessAfterRolePermissionSave(savedRoleID).catch(
+          () => {
+            accessStore.setIsAccessChecked(false);
+            message.warning(
+              $t('business.message.currentMenuPermissionsRefreshFailed'),
+            );
+          },
+        );
+      }
       permissionModalApi.close();
       onRefresh();
     })
@@ -383,11 +396,13 @@ async function refreshCurrentAccessAfterRolePermissionSave(roleID?: number) {
   ) {
     return;
   }
-  await refreshAccessState(router, {
+  const result = await refreshAccessState(router, {
     force: true,
     reason: 'role-permission-save',
   });
-  message.info($t('business.message.currentMenuPermissionsRefreshed'));
+  if (!result.skipped) {
+    message.info($t('business.message.currentMenuPermissionsRefreshed'));
+  }
 }
 
 // onDelete 删除角色。
@@ -404,8 +419,8 @@ function onDelete(row: SystemRoleApi.Item) {
       ]),
     okType: 'danger',
     onOk: async () => {
-      await deleteRole(row.id);
-      message.success($t('business.message.roleDeleted'));
+      const cacheSyncResult = await deleteRole(row.id);
+      showCacheSyncResult(cacheSyncResult, $t('business.message.roleDeleted'));
       onRefresh();
     },
     title: $t('business.message.deleteRoleDangerTitle'),

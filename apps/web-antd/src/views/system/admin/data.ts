@@ -20,32 +20,48 @@ function statusOptions() {
   ];
 }
 
-// useFormSchema 返回用户新增与编辑表单配置。
-export function useFormSchema(): VbenFormSchema[] {
+// useFormSchema 返回用户新增与编辑表单配置，账号和 MFA 状态仅在编辑时展示。
+export function useFormSchema(isEdit = false): VbenFormSchema[] {
   return [
     {
       component: 'Input',
+      componentProps: {
+        autocomplete: 'username',
+        disabled: isEdit,
+      },
       fieldName: 'username',
       label: $t('business.message.loginUsername'),
       rules: 'required',
     },
     {
       component: 'Input',
+      componentProps: {
+        autocomplete: 'name',
+      },
       fieldName: 'realName',
       label: $t('business.message.realName'),
     },
     {
       component: 'Input',
+      componentProps: {
+        autocomplete: 'email',
+      },
       fieldName: 'email',
       label: $t('business.message.email'),
     },
     {
       component: 'Input',
+      componentProps: {
+        autocomplete: 'tel',
+      },
       fieldName: 'phone',
       label: $t('business.message.phone'),
     },
     {
       component: 'InputPassword',
+      componentProps: {
+        autocomplete: 'new-password',
+      },
       fieldName: 'password',
       help: $t('business.message.adminPasswordHelp'),
       label: $t('business.message.loginPassword'),
@@ -54,34 +70,41 @@ export function useFormSchema(): VbenFormSchema[] {
     },
     {
       component: 'Input',
+      componentProps: {
+        autocomplete: 'off',
+      },
       fieldName: 'avatar',
       label: $t('business.message.avatarUrl'),
     },
-    {
-      component: 'Select',
-      defaultValue: 1,
-      fieldName: 'status',
-      label: $t('business.message.accountStatus'),
-      componentProps: {
-        options: statusOptions(),
-        style: { width: '100%' },
-      },
-      formItemClass: 'col-span-1',
-    },
-    {
-      component: 'Select',
-      defaultValue: 0,
-      fieldName: 'mfaStatus',
-      label: $t('business.message.mfaStatus'),
-      componentProps: {
-        options: [
-          { label: $t('business.message.disabled'), value: 0 },
-          { label: $t('business.message.enabled'), value: 1 },
-        ],
-        style: { width: '100%' },
-      },
-      formItemClass: 'col-span-1',
-    },
+    ...(isEdit
+      ? [
+          {
+            component: 'Select' as const,
+            defaultValue: 1,
+            fieldName: 'status',
+            label: $t('business.message.accountStatus'),
+            componentProps: {
+              options: statusOptions(),
+              style: { width: '100%' },
+            },
+            formItemClass: 'col-span-1',
+          },
+          {
+            component: 'Select' as const,
+            defaultValue: 0,
+            fieldName: 'mfaStatus',
+            label: $t('business.message.mfaStatus'),
+            componentProps: {
+              options: [
+                { label: $t('business.message.disabled'), value: 0 },
+                { label: $t('business.message.enabled'), value: 1 },
+              ],
+              style: { width: '100%' },
+            },
+            formItemClass: 'col-span-1',
+          },
+        ]
+      : []),
     {
       component: 'Textarea',
       fieldName: 'description',
@@ -99,6 +122,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.loginUsername'),
       componentProps: {
         allowClear: true,
+        autocomplete: 'off',
         placeholder: $t('business.message.filterByLoginUsername'),
       },
     },
@@ -108,6 +132,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.realName'),
       componentProps: {
         allowClear: true,
+        autocomplete: 'off',
         placeholder: $t('business.message.filterByRealName'),
       },
     },
@@ -228,9 +253,10 @@ export function useColumns<T = SystemAdminApi.Item>(
             code: 'edit',
             iconOnly: true,
             text: $t('business.message.edit'),
-            auth: asActionPermission(
+            allAuth: asActionPermission([
               SYSTEM_ACTION_PERMISSION_CODES.ADMIN_UPDATE,
-            ),
+              SYSTEM_ACTION_PERMISSION_CODES.ADMIN_INFO,
+            ]),
           },
           {
             code: 'cache',
@@ -245,9 +271,10 @@ export function useColumns<T = SystemAdminApi.Item>(
             code: 'roleConfig',
             iconOnly: true,
             text: $t('business.message.roleConfig'),
-            auth: asActionPermission(
+            allAuth: asActionPermission([
+              SYSTEM_ACTION_PERMISSION_CODES.ADMIN_ROLE_UPDATE,
               SYSTEM_ACTION_PERMISSION_CODES.ADMIN_ROLE_LIST,
-            ),
+            ]),
           },
           {
             code: 'delete',
@@ -271,7 +298,7 @@ export function useColumns<T = SystemAdminApi.Item>(
             iconOnly: true,
             text: $t('business.message.resetUser'),
             auth: asActionPermission(
-              SYSTEM_ACTION_PERMISSION_CODES.ADMIN_PASSWORD_RESET,
+              SYSTEM_ACTION_PERMISSION_CODES.ADMIN_RESET_INITIAL_STATE,
             ),
           },
         ],

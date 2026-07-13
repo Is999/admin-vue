@@ -20,9 +20,23 @@ interface WebAntdPreferencesExtension {
 export const overridesPreferences = defineOverridesPreferences({
   // overrides
   app: {
+    // 业务头像和品牌资源只在应用层覆盖，避免修改 Vben 核心默认配置。
+    defaultAvatar: '/favicon.svg',
     // 登录后默认进入个人信息管理页，避免普通用户误入任务中心。
     defaultHomePath: APP_DEFAULT_HOME_PATH,
+    // 在 JWT 临期前主动续签；401 后仍必须重新认证，不启用失效令牌重放。
+    enableRefreshToken: true,
     name: import.meta.env.VITE_APP_TITLE,
+    // 默认自动选择偏好设置入口位置，随当前布局在顶栏或悬浮位置展示。
+    preferencesButtonPosition: 'auto',
+  },
+  copyright: {
+    companyName: 'Admin',
+    companySiteLink: '/',
+    date: '2026',
+  },
+  logo: {
+    source: '/favicon.svg',
   },
   shortcutKeys: {
     // 强制启用全局锁屏快捷键，避免用户本地偏好缓存导致 Alt/Option + L 失效。

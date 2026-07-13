@@ -877,6 +877,9 @@ function formatCount(value: number) {
             </div>
             <Input
               v-model:value="searchBizType"
+              id="collector-biz-type-filter"
+              name="collector-biz-type-filter"
+              autocomplete="off"
               allow-clear
               :placeholder="$t('business.message.collectorBizTypePlaceholder')"
             />
@@ -912,6 +915,8 @@ function formatCount(value: number) {
             </div>
             <InputNumber
               v-model:value="runLimit"
+              id="collector-run-limit"
+              name="collector-run-limit"
               :min="1"
               :precision="0"
               class="w-full"
@@ -924,6 +929,8 @@ function formatCount(value: number) {
             </div>
             <InputNumber
               v-model:value="retryDelaySeconds"
+              id="collector-retry-delay-seconds"
+              name="collector-retry-delay-seconds"
               :min="0"
               :precision="0"
               class="w-full"
@@ -936,6 +943,8 @@ function formatCount(value: number) {
             </div>
             <InputNumber
               v-model:value="retryLimit"
+              id="collector-retry-limit"
+              name="collector-retry-limit"
               :min="1"
               :precision="0"
               class="w-full"

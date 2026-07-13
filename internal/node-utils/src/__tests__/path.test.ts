@@ -14,7 +14,7 @@ describe('toPosixPath', () => {
 
   // 确认 POSIX 风格路径不会被改变
   it('leaves POSIX-style paths unchanged', () => {
-    const posixPath = '/home/admin/file.txt';
+    const posixPath = '/home/user/file.txt';
     expect(toPosixPath(posixPath)).toBe(posixPath);
   });
 

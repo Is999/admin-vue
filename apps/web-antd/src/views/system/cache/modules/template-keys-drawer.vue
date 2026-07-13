@@ -46,6 +46,7 @@ interface TemplateKeyDrawerData {
   initialSearchResp?: SystemCacheApi.SearchResp;
   keyword?: string;
   sourceKey?: string;
+  warmupSupported?: boolean;
 }
 
 // emit 向父级回传刷新事件，便于联动主页面。
@@ -59,6 +60,8 @@ const keyword = ref('');
 const keyFilter = ref('');
 // sourceKey 保存触发模板实例搜索的模板键定义。
 const sourceKey = ref('');
+// warmupSupported 表示当前来源模板是否属于后端安全预热白名单。
+const warmupSupported = ref(false);
 // searchResult 保存当前模板实例搜索命中的真实缓存键列表。
 const searchResult = ref<SystemCacheApi.SearchItem[]>([]);
 // searchPage 保存模板实例当前页码。
@@ -143,6 +146,7 @@ const [Drawer, drawerApi] = useVbenDrawer({
     keyword.value = data.keyword || '';
     keyFilter.value = '';
     sourceKey.value = data.sourceKey || '';
+    warmupSupported.value = data.warmupSupported === true;
     if (data.initialSearchResp) {
       applySearchResp(data.initialSearchResp);
     } else {
@@ -388,9 +392,9 @@ const canUseTemplateModeHint = computed(() =>
 );
 
 // canWarmupTemplateKey 判断当前是否具备模板预热的上下文。
-// 只有通过“模板键跳转”进入子页面时，才会携带 sourceKey，可用于“从无到有”的预热。
-const canWarmupTemplateKey = computed(() =>
-  isTemplateCacheKey(sourceKey.value),
+// 只有来源模板属于后端白名单时，才允许执行“从无到有”的预热。
+const canWarmupTemplateKey = computed(
+  () => isTemplateCacheKey(sourceKey.value) && warmupSupported.value,
 );
 
 // canRefreshItem 判断当前真实缓存实例是否允许执行刷新。
@@ -467,7 +471,10 @@ function onWarmupTemplateKey() {
       <Space class="w-full" wrap>
         <Input
           v-model:value="keyword"
+          autocomplete="off"
           class="w-[360px]"
+          id="template-cache-keyword"
+          name="template-cache-keyword"
           :placeholder="$t('business.message.templateCacheSearchPlaceholder')"
           @press-enter="() => loadSearchResult(1)"
         />
@@ -483,7 +490,10 @@ function onWarmupTemplateKey() {
         </VbenButton>
         <Input
           v-model:value="keyFilter"
+          autocomplete="off"
           class="w-[280px]"
+          id="template-cache-key-filter"
+          name="template-cache-key-filter"
           :placeholder="$t('business.message.realKeyFilterPlaceholder')"
         />
         <VbenButton :disabled="!keyFilter.trim()" @click="clearKeyFilter">
@@ -502,7 +512,9 @@ function onWarmupTemplateKey() {
         </VbenButton>
         <InputNumber
           v-model:value="warmupLimit"
+          id="template-cache-warmup-limit"
           :min="0"
+          name="template-cache-warmup-limit"
           class="w-[120px]"
           :placeholder="$t('business.message.warmupLimit')"
           size="small"

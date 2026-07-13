@@ -11,7 +11,9 @@ function useAccess() {
   });
 
   /**
-   * 判断当前用户是否命中任一角色。
+   * 基于角色判断是否有权限
+   * @description: Determine whether there is permission，The role is judged by the user's role
+   * @param roles
    */
   function hasAccessByRoles(roles: string[]) {
     const userRoleSet = new Set(userStore.userRoles);
@@ -20,7 +22,9 @@ function useAccess() {
   }
 
   /**
-   * 判断当前用户是否命中任一权限码。
+   * 基于权限码判断是否有权限
+   * @description: Determine whether there is permission，The permission code is judged by the user's permission code
+   * @param codes
    */
   function hasAccessByCodes(codes: string[]) {
     const userCodesSet = new Set(accessStore.accessCodes);

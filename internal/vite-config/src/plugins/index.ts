@@ -25,6 +25,7 @@ import { viteImportMapPlugin } from './importmap';
 import { viteInjectAppLoadingPlugin } from './inject-app-loading';
 import { viteMetadataPlugin } from './inject-metadata';
 import { viteLicensePlugin } from './license';
+import { viteNitroMockPlugin } from './nitro-mock';
 import { vitePrintPlugin } from './print';
 import { viteTailwindReferencePlugin } from './tailwind-reference';
 import { viteVxeTableImportsPlugin } from './vxe-table';
@@ -37,7 +38,7 @@ async function loadConditionPlugins(conditionPlugins: ConditionPlugin[]) {
   const plugins: PluginOption[] = [];
   for (const conditionPlugin of conditionPlugins) {
     if (conditionPlugin.condition) {
-      const realPlugins = (await conditionPlugin.plugins()) as PluginOption[];
+      const realPlugins = await conditionPlugin.plugins();
       plugins.push(...realPlugins);
     }
   }
@@ -111,6 +112,8 @@ async function loadApplicationPlugins(
     importmapOptions,
     injectAppLoading,
     license,
+    nitroMock,
+    nitroMockOptions,
     print,
     printInfoMap,
     pwa,
@@ -143,8 +146,17 @@ async function loadApplicationPlugins(
     },
     {
       condition: vxeTableLazyImport,
-      plugins: () => viteVxeTableImportsPlugin(),
+      plugins: async () => {
+        return [await viteVxeTableImportsPlugin()];
+      },
     },
+    {
+      condition: nitroMock,
+      plugins: async () => {
+        return [await viteNitroMockPlugin(nitroMockOptions)];
+      },
+    },
+
     {
       condition: injectAppLoading,
       plugins: async () => [await viteInjectAppLoadingPlugin(!!isBuild, env)],
@@ -193,7 +205,9 @@ async function loadApplicationPlugins(
     },
     {
       condition: isBuild && importmap,
-      plugins: () => viteImportMapPlugin(importmapOptions),
+      plugins: () => {
+        return [viteImportMapPlugin(importmapOptions)];
+      },
     },
     {
       condition: isBuild && extraAppConfig,

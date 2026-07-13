@@ -9,6 +9,12 @@ type QueueOption = {
   value: string;
 };
 
+// TASK_FORM_LIMITS 与后端任务投递硬上限保持一致，避免人工操作制造重试风暴或超长执行。
+export const TASK_FORM_LIMITS = {
+  retry: 25,
+  timeoutSeconds: 86_400,
+} as const;
+
 // useTriggerWorkflowSchema 返回“手动触发工作流”表单配置。
 export function useTriggerWorkflowSchema(
   queueOptions: QueueOption[] = [],
@@ -34,7 +40,7 @@ export function useTriggerWorkflowSchema(
       fieldName: 'targetsText',
       label: $t('business.message.executionTargets'),
       componentProps: {
-        autoSize: { minRows: 4, maxRows: 8 },
+        rows: 4,
         placeholder: $t('business.message.executionTargetsPlaceholder'),
       },
     },
@@ -95,6 +101,7 @@ export function useTriggerWorkflowSchema(
       label: $t('business.message.retryCount'),
       defaultValue: taskConsoleDefaults.retry,
       componentProps: {
+        max: TASK_FORM_LIMITS.retry,
         min: 0,
         addonAfter: $t('business.message.timesUnit'),
         style: { width: '100%' },
@@ -106,6 +113,7 @@ export function useTriggerWorkflowSchema(
       label: $t('business.message.timeoutSeconds'),
       defaultValue: taskConsoleDefaults.timeoutSeconds,
       componentProps: {
+        max: TASK_FORM_LIMITS.timeoutSeconds,
         min: 1,
         addonAfter: $t('business.message.secondsUnit'),
         style: { width: '100%' },
@@ -169,7 +177,7 @@ export function useEnqueueTaskSchema(
       label: $t('business.message.taskPayload'),
       rules: 'required',
       componentProps: {
-        autoSize: { minRows: 6, maxRows: 10 },
+        rows: 6,
         placeholder: '{\n  "appId": "203"\n}',
       },
     },
@@ -200,6 +208,7 @@ export function useEnqueueTaskSchema(
       label: $t('business.message.retryCount'),
       defaultValue: taskConsoleDefaults.retry,
       componentProps: {
+        max: TASK_FORM_LIMITS.retry,
         min: 0,
         addonAfter: $t('business.message.timesUnit'),
         style: { width: '100%' },
@@ -211,6 +220,7 @@ export function useEnqueueTaskSchema(
       label: $t('business.message.timeoutSeconds'),
       defaultValue: taskConsoleDefaults.timeoutSeconds,
       componentProps: {
+        max: TASK_FORM_LIMITS.timeoutSeconds,
         min: 1,
         addonAfter: $t('business.message.secondsUnit'),
         style: { width: '100%' },

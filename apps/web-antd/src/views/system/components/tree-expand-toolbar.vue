@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, useId } from 'vue';
 
 import { VbenButton } from '@vben/common-ui';
 
@@ -21,7 +21,7 @@ const props = withDefaults(
     collapseLevelHandler?: TreeExpandLevelHandler;
     expandAllHandler?: TreeExpandHandler;
     expandLevelHandler?: TreeExpandLevelHandler;
-    gridApi: TreeExpandGridApi;
+    gridApi?: TreeExpandGridApi;
     maxLevel?: number;
     minLevel?: number;
   }>(),
@@ -31,12 +31,15 @@ const props = withDefaults(
     collapseLevelHandler: undefined,
     expandAllHandler: undefined,
     expandLevelHandler: undefined,
+    gridApi: undefined,
     maxLevel: 10,
     minLevel: 1,
   },
 );
 
 const level = ref<number | undefined>(2);
+// levelInputId 为每个工具栏实例提供唯一表单标识，避免同页多个树工具栏发生重复。
+const levelInputId = `tree-expand-level-${useId()}`;
 // operating 表示当前是否正在执行树展开/折叠批量操作，避免重复点击叠加渲染任务。
 const operating = ref(false);
 
@@ -225,6 +228,8 @@ async function collapseN() {
       :min="minLevel"
       :precision="0"
       :step="1"
+      :id="levelInputId"
+      :name="levelInputId"
       class="w-[86px]"
       :disabled="operating"
       size="small"

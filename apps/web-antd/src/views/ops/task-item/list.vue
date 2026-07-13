@@ -9,6 +9,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { Page, VbenButton } from '@vben/common-ui';
 import { useAccessStore } from '@vben/stores';
 
+import { QuestionCircleOutlined } from '@ant-design/icons-vue';
 import {
   Alert,
   Button,
@@ -41,9 +42,9 @@ import { $t } from '#/locales';
 import { copyTextToClipboard } from '#/utils/security/password';
 
 import {
+  getTaskQueueOptions,
   getTaskQueueDescription,
   safePrettyJson,
-  TASK_QUEUE_OPTIONS,
 } from '../shared';
 import {
   buildTaskTraceDetailRows,
@@ -75,7 +76,10 @@ const route = useRoute();
 const router = useRouter();
 const accessStore = useAccessStore();
 const queueOptions = ref<Array<{ label: string; value: string }>>(
-  TASK_QUEUE_OPTIONS.map((item) => ({ label: item.label, value: item.value })),
+  getTaskQueueOptions().map((item) => ({
+    label: item.label,
+    value: item.value,
+  })),
 );
 const searchQueue = ref('');
 const searchState = ref<TaskStateFilterValue>('');
@@ -87,6 +91,17 @@ const searchTaskName = ref('');
 const searchWorkflowId = ref('');
 // searchTimeRange 保存任务活动时间范围；scheduled 状态对应 nextProcessAt。
 const searchTimeRange = ref<TaskTimeRangeValue>();
+// vTaskTimeRangeIdentifiers 为 RangePicker 的开始、结束输入补充独立表单标识。
+const vTaskTimeRangeIdentifiers = {
+  mounted(element: HTMLElement) {
+    const [startInput, endInput] =
+      element.querySelectorAll<HTMLInputElement>('input');
+    startInput?.setAttribute('id', 'task-item-time-range-start');
+    startInput?.setAttribute('name', 'task-item-time-range-start');
+    endInput?.setAttribute('id', 'task-item-time-range-end');
+    endInput?.setAttribute('name', 'task-item-time-range-end');
+  },
+};
 // routeWorkflowNode 保存工作流状态页带入的节点名称，用于提示当前列表正在定位哪个节点。
 const routeWorkflowNode = ref('');
 const routeSource = ref('');
@@ -108,7 +123,6 @@ const currentStateTotals = ref<TaskStateTotals>({});
 const autoOpenedTaskSignature = ref('');
 const initializing = ref(true);
 const suppressRouteQueryWatch = ref(false);
-const showQueueHint = ref(false);
 
 type HandleSearchOptions = {
   // clearTaskDetailQuery 表示是否清理任务详情深链参数，手动查询时避免重复弹出旧详情。
@@ -1837,6 +1851,9 @@ watch(
                 </div>
                 <Input
                   v-model:value="searchWorkflowId"
+                  id="task-item-workflow-id-filter"
+                  name="task-item-workflow-id-filter"
+                  autocomplete="off"
                   allow-clear
                   class="w-full"
                   :placeholder="
@@ -1850,6 +1867,9 @@ watch(
                 </div>
                 <Input
                   v-model:value="searchTaskName"
+                  id="task-item-name-filter"
+                  name="task-item-name-filter"
+                  autocomplete="off"
                   allow-clear
                   class="w-full"
                   :placeholder="
@@ -1863,6 +1883,9 @@ watch(
                 </div>
                 <Input
                   v-model:value="searchTaskId"
+                  id="task-item-id-filter"
+                  name="task-item-id-filter"
+                  autocomplete="off"
                   allow-clear
                   class="w-full"
                   :placeholder="$t('business.message.taskIdFilterPlaceholder')"
@@ -1874,6 +1897,9 @@ watch(
                 </div>
                 <Input
                   v-model:value="searchGroup"
+                  id="task-item-group-filter"
+                  name="task-item-group-filter"
+                  autocomplete="off"
                   allow-clear
                   class="w-full"
                   :placeholder="
@@ -1881,7 +1907,7 @@ watch(
                   "
                 />
               </div>
-              <div class="min-w-0">
+              <div v-task-time-range-identifiers class="min-w-0">
                 <div class="mb-2 text-sm font-medium">
                   {{ $t('business.message.timeRange') }}
                 </div>
@@ -1897,8 +1923,15 @@ watch(
                 />
               </div>
               <div class="min-w-0">
-                <div class="mb-2 text-sm font-medium">
-                  {{ $t('business.message.queueName') }}
+                <div class="mb-2 flex items-center gap-2 text-sm font-medium">
+                  <span>{{ $t('business.message.queueName') }}</span>
+                  <Tooltip v-bind="buildOverflowTooltipProps(queueHintText)">
+                    <QuestionCircleOutlined
+                      class="cursor-help text-[var(--vben-text-color-secondary)]"
+                      tabindex="0"
+                      :aria-label="$t('business.message.queueNameGuide')"
+                    />
+                  </Tooltip>
                 </div>
                 <Select
                   v-model:value="searchQueue"
@@ -1993,118 +2026,6 @@ watch(
       </Card>
 
       <div
-        v-if="
-          quickSummaryActionButtons.length > 0 ||
-          currentPageFailedTasks.length > 0 ||
-          canBatchRun ||
-          canBatchDelete
-        "
-        class="min-w-0 rounded-2xl border border-slate-200/70 bg-white/95 px-4 py-3 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
-      >
-        <div
-          class="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] xl:items-start"
-        >
-          <div v-if="quickSummaryActionButtons.length > 0" class="space-y-2">
-            <div
-              class="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400"
-            >
-              {{ $t('business.message.viewSwitch') }}
-            </div>
-            <Space :size="[8, 8]" wrap>
-              <Button
-                v-for="item in quickSummaryActionButtons"
-                :key="item.label"
-                size="middle"
-                @click="handleQuickStateFilter(item.state)"
-              >
-                {{ item.label }}（{{ item.count }}）
-              </Button>
-            </Space>
-          </div>
-
-          <div v-if="currentPageFailedTasks.length > 0" class="space-y-2">
-            <div
-              class="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400"
-            >
-              {{ $t('business.message.failureTools') }}
-            </div>
-            <Space :size="[8, 8]" wrap>
-              <Button
-                size="middle"
-                @click="handleCopyFailedTaskIds(currentPageFailedTasks)"
-              >
-                {{
-                  $t('business.message.copyFailedTaskIds', [
-                    currentPageFailedTasks.length,
-                  ])
-                }}
-              </Button>
-              <Button
-                size="middle"
-                @click="handleCopyFailedTaskQueuePairs(currentPageFailedTasks)"
-              >
-                {{ $t('business.message.copyQueueTaskIds') }}
-              </Button>
-              <Button
-                v-if="currentPageFailedRunnableTasks.length > 0"
-                size="middle"
-                @click="handleCopyFailedTaskIds(currentPageFailedRunnableTasks)"
-              >
-                {{
-                  $t('business.message.copyRunnableTaskIds', [
-                    currentPageFailedRunnableTasks.length,
-                  ])
-                }}
-              </Button>
-            </Space>
-          </div>
-
-          <div
-            v-if="canBatchRun || canBatchDelete"
-            class="space-y-2 xl:justify-self-end"
-          >
-            <div
-              class="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400 xl:text-right"
-            >
-              {{ $t('business.message.batchProcess') }}
-            </div>
-            <Space :size="[8, 8]" wrap>
-              <Button
-                v-if="canBatchRun"
-                v-access="
-                  asActionPermission(OPS_ACTION_PERMISSION_CODES.TASK_RUN)
-                "
-                size="middle"
-                type="primary"
-                @click="handleBatchRunCurrentPage"
-              >
-                {{
-                  $t('business.message.batchRunNowCount', [
-                    currentPageRunnableTasks.length,
-                  ])
-                }}
-              </Button>
-              <Button
-                v-if="canBatchDelete"
-                v-access="
-                  asActionPermission(OPS_ACTION_PERMISSION_CODES.TASK_DELETE)
-                "
-                danger
-                size="middle"
-                @click="handleBatchDeleteCurrentPage"
-              >
-                {{
-                  $t('business.message.batchDeleteCount', [
-                    currentPageDeletableTasks.length,
-                  ])
-                }}
-              </Button>
-            </Space>
-          </div>
-        </div>
-      </div>
-
-      <div
         class="min-w-0 rounded-2xl border border-slate-200/70 bg-white/95 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
       >
         <div
@@ -2120,32 +2041,90 @@ watch(
               {{ $t('business.message.taskListGridDesc') }}
             </div>
           </div>
+          <div
+            v-if="
+              quickSummaryActionButtons.length > 0 ||
+              currentPageFailedTasks.length > 0 ||
+              canBatchRun ||
+              canBatchDelete
+            "
+            class="flex min-w-0 flex-wrap items-center justify-end gap-2"
+          >
+            <Space v-if="quickSummaryActionButtons.length > 0" :size="8" wrap>
+              <Button
+                v-for="item in quickSummaryActionButtons"
+                :key="item.label"
+                size="small"
+                @click="handleQuickStateFilter(item.state)"
+              >
+                {{ item.label }}（{{ item.count }}）
+              </Button>
+            </Space>
+            <Space v-if="currentPageFailedTasks.length > 0" :size="8" wrap>
+              <Button
+                size="small"
+                @click="handleCopyFailedTaskIds(currentPageFailedTasks)"
+              >
+                {{
+                  $t('business.message.copyFailedTaskIds', [
+                    currentPageFailedTasks.length,
+                  ])
+                }}
+              </Button>
+              <Button
+                size="small"
+                @click="handleCopyFailedTaskQueuePairs(currentPageFailedTasks)"
+              >
+                {{ $t('business.message.copyQueueTaskIds') }}
+              </Button>
+              <Button
+                v-if="currentPageFailedRunnableTasks.length > 0"
+                size="small"
+                @click="handleCopyFailedTaskIds(currentPageFailedRunnableTasks)"
+              >
+                {{
+                  $t('business.message.copyRunnableTaskIds', [
+                    currentPageFailedRunnableTasks.length,
+                  ])
+                }}
+              </Button>
+            </Space>
+            <Space v-if="canBatchRun || canBatchDelete" :size="8" wrap>
+              <Button
+                v-if="canBatchRun"
+                v-access="
+                  asActionPermission(OPS_ACTION_PERMISSION_CODES.TASK_RUN)
+                "
+                size="small"
+                type="primary"
+                @click="handleBatchRunCurrentPage"
+              >
+                {{
+                  $t('business.message.batchRunNowCount', [
+                    currentPageRunnableTasks.length,
+                  ])
+                }}
+              </Button>
+              <Button
+                v-if="canBatchDelete"
+                v-access="
+                  asActionPermission(OPS_ACTION_PERMISSION_CODES.TASK_DELETE)
+                "
+                danger
+                size="small"
+                @click="handleBatchDeleteCurrentPage"
+              >
+                {{
+                  $t('business.message.batchDeleteCount', [
+                    currentPageDeletableTasks.length,
+                  ])
+                }}
+              </Button>
+            </Space>
+          </div>
         </div>
         <Grid :table-title="$t('business.message.taskList')" />
       </div>
-
-      <Card
-        class="min-w-0 border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
-        :title="$t('business.message.queueNameGuide')"
-      >
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div class="text-sm leading-6 text-slate-500 dark:text-slate-300">
-            {{ $t('business.message.queueNameGuideDesc') }}
-          </div>
-          <Button size="small" @click="showQueueHint = !showQueueHint">
-            {{
-              showQueueHint
-                ? $t('business.message.collapseDescription')
-                : $t('business.message.viewDescription')
-            }}
-          </Button>
-        </div>
-        <pre
-          v-if="showQueueHint"
-          class="mt-4 overflow-auto rounded-2xl border border-cyan-500/20 bg-slate-950 p-4 text-sm text-cyan-100 shadow-inner"
-          v-text="queueHintText"
-        ></pre>
-      </Card>
     </div>
   </Page>
 </template>

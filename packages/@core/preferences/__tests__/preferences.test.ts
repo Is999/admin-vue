@@ -61,6 +61,18 @@ describe('preferences', () => {
     expect(preferences).toEqual(defaultPreferences);
   });
 
+  it('does not create an unprefixed localStorage manager before initialization', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      new PreferenceManager();
+      expect(warn).not.toHaveBeenCalledWith(
+        expect.stringContaining('[StorageManager] empty prefix'),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('initializes preferences with overrides', async () => {
     const overrides: any = {
       app: {
