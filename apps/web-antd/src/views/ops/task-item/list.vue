@@ -3,15 +3,7 @@ import type { Dayjs } from 'dayjs';
 
 import type { TaskApi } from '#/api/ops/task';
 
-import {
-  computed,
-  h,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  ref,
-  watch,
-} from 'vue';
+import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { Page, VbenButton } from '@vben/common-ui';
@@ -146,16 +138,12 @@ const currentTaskTotal = ref(0);
 const currentStateTotals = ref<TaskStateTotals>({});
 const autoOpenedTaskSignature = ref('');
 const initializing = ref(true);
-const suppressRouteQueryWatch = ref(false);
+// routeTaskDetailConsumed 标记当前路由中的详情深链已消费，避免页面内查询重复打开。
+const routeTaskDetailConsumed = ref(false);
 
 type HandleSearchOptions = {
-  // clearTaskDetailQuery 表示是否清理任务详情深链参数，手动查询时避免重复弹出旧详情。
+  // clearTaskDetailQuery 表示是否在本地消费入口上下文，手动查询不改写路由。
   clearTaskDetailQuery?: boolean;
-};
-
-type ClearTaskDetailRouteQueryOptions = {
-  // clearSource 表示是否同步清理来源提示，重置或手动查询时当前结果已不再来自原入口。
-  clearSource?: boolean;
 };
 
 type OverflowTooltipProps = InstanceType<typeof Tooltip>['$props'];
@@ -591,41 +579,6 @@ function normalizeRouteTimeRange(): TaskTimeRangeValue {
     return undefined;
   }
   return [startAt, endAt];
-}
-
-async function clearTaskDetailRouteQuery(
-  options: ClearTaskDetailRouteQueryOptions = {},
-) {
-  const { clearSource = false } = options;
-  const nextQuery = { ...route.query };
-  let changed = false;
-
-  // taskId 是一次性详情深链参数，消费后必须移除，否则列表重新查询会再次打开弹窗。
-  if (Object.prototype.hasOwnProperty.call(nextQuery, 'taskId')) {
-    delete nextQuery.taskId;
-    changed = true;
-  }
-
-  // source 只用于提示来源；用户手动查询后清理，避免提示和当前筛选条件不一致。
-  if (clearSource) {
-    routeSource.value = '';
-    if (Object.prototype.hasOwnProperty.call(nextQuery, 'source')) {
-      delete nextQuery.source;
-      changed = true;
-    }
-  }
-
-  if (!changed) {
-    return;
-  }
-
-  suppressRouteQueryWatch.value = true;
-  try {
-    await router.replace({ path: route.path, query: nextQuery });
-    await nextTick();
-  } finally {
-    suppressRouteQueryWatch.value = false;
-  }
 }
 
 async function loadQueueOptions() {
@@ -1565,7 +1518,7 @@ async function queryTaskDetail(
 async function tryAutoOpenTaskDetail() {
   const queue = searchQueue.value.trim();
   const taskId = normalizeRouteQueryValue(route.query.taskId);
-  if (!queue || !taskId) {
+  if (routeTaskDetailConsumed.value || !queue || !taskId) {
     return;
   }
   const currentSignature = [
@@ -1584,7 +1537,7 @@ async function tryAutoOpenTaskDetail() {
   autoOpenedTaskSignature.value = currentSignature;
   try {
     await queryTaskDetail({ queue, taskId });
-    await clearTaskDetailRouteQuery();
+    routeTaskDetailConsumed.value = true;
   } catch {
     autoOpenedTaskSignature.value = '';
   }
@@ -1615,6 +1568,7 @@ function applyRouteQueryToFilters() {
   searchTimeRange.value = normalizeRouteTimeRange();
   routeWorkflowNode.value = routeNode;
   routeSource.value = normalizeRouteQueryValue(route.query.source);
+  routeTaskDetailConsumed.value = false;
 }
 
 function onActionClick(e: TableActionParams<TaskApi.TaskItem>) {
@@ -1694,7 +1648,10 @@ async function handleSearch(options: HandleSearchOptions = {}) {
   const { clearTaskDetailQuery = true } = options;
   autoOpenedTaskSignature.value = '';
   if (clearTaskDetailQuery) {
-    await clearTaskDetailRouteQuery({ clearSource: true });
+    // Vben 会把 query 变化当成页签重新激活，因此页面内筛选只消费上下文。
+    routeTaskDetailConsumed.value = true;
+    routeSource.value = '';
+    routeWorkflowNode.value = '';
   }
   await gridApi.query();
 }
@@ -1893,15 +1850,18 @@ async function handleReset() {
   currentTaskTotal.value = 0;
   currentStateTotals.value = {};
   autoOpenedTaskSignature.value = '';
-  await clearTaskDetailRouteQuery({ clearSource: true });
+  routeTaskDetailConsumed.value = true;
   await gridApi.query();
 }
 
 onMounted(async () => {
-  await loadQueueOptions();
+  // 路由筛选必须在首个异步请求前完成，避免用户首次操作被迟到的初始化状态覆盖。
   applyRouteQueryToFilters();
   initializing.value = false;
-  await handleSearch({ clearTaskDetailQuery: false });
+  await Promise.all([
+    loadQueueOptions(),
+    handleSearch({ clearTaskDetailQuery: false }),
+  ]);
 });
 
 onBeforeUnmount(() => {
@@ -1912,7 +1872,7 @@ onBeforeUnmount(() => {
 watch(
   () => route.fullPath,
   async () => {
-    if (initializing.value || suppressRouteQueryWatch.value) {
+    if (initializing.value) {
       return;
     }
     applyRouteQueryToFilters();

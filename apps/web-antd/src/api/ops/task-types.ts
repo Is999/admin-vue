@@ -1,5 +1,7 @@
 // TASK_API_LIMITS 与后端任务资源硬上限保持一致，供任务入口表单复用。
 export const TASK_API_LIMITS = {
+  // periodicEverySeconds 限制固定间隔周期任务的最小秒数。
+  periodicEverySeconds: 5,
   retry: 25,
   shardTotal: 128,
   timeoutSeconds: 86_400,
