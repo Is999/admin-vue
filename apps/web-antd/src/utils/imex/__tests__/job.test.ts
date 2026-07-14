@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AsyncJobPollingTimeoutError, createAsyncJobPoller } from '../job';
+import {
+  AsyncJobPollingTimeoutError,
+  createAsyncJobPoller,
+  createAsyncJobSession,
+} from '../job';
 
 interface TestJobStatus {
   jobId: string;
@@ -200,5 +204,38 @@ describe('async job poller', () => {
     expect(signals[0]?.aborted).toBe(true);
     expect(signals[1]?.aborted).toBe(true);
     expect(onError).not.toHaveBeenCalled();
+  });
+});
+
+describe('async job session', () => {
+  it('restores state after the page creates a new session handle', () => {
+    const first = createAsyncJobSession<TestJobStatus>(
+      'test-job-restore',
+      () => 'account-a',
+    );
+    first.clear();
+    first.save({ jobId: 'job-1', status: 'running' });
+
+    const restored = createAsyncJobSession<TestJobStatus>(
+      'test-job-restore',
+      () => 'account-a',
+    );
+
+    expect(restored.load()).toEqual({ jobId: 'job-1', status: 'running' });
+    restored.clear();
+  });
+
+  it('drops state when the account scope changes', () => {
+    let scope = 'account-a';
+    const session = createAsyncJobSession<TestJobStatus>(
+      'test-job-account',
+      () => scope,
+    );
+    session.clear();
+    session.save({ jobId: 'job-a', status: 'queued' });
+
+    scope = 'account-b';
+
+    expect(session.load()).toBeUndefined();
   });
 });

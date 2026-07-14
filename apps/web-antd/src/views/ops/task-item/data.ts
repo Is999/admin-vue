@@ -16,9 +16,9 @@ import { $t } from '#/locales';
 import { copyTextToClipboard } from '#/utils/security/password';
 
 import {
-  TASK_QUEUE_OPTIONS,
   formatDurationMs,
   formatTraceCount as formatSharedTraceCount,
+  getTaskQueueOptions,
 } from '../shared';
 import { latencyTagMeta, taskQueueTagMap } from '../table-tags';
 import { hasTaskExecutionTrace } from '../task-trace';
@@ -247,7 +247,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.queueName'),
       componentProps: {
         allowClear: true,
-        options: TASK_QUEUE_OPTIONS,
+        options: getTaskQueueOptions(),
         placeholder: $t('business.message.queueAllPlaceholder'),
       },
       help: $t('business.message.queueNameHelp'),

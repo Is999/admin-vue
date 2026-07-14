@@ -291,6 +291,48 @@ const enabledOptions = computed(() => [
   { label: rt('disabled'), value: 'disabled' },
 ]);
 
+// archiveTimeColumnTypeOptions 定义后端支持的归档时间列类型。
+const archiveTimeColumnTypeOptions = computed(() => [
+  { label: rt('timeColumnTypeTime'), value: 'time' },
+  { label: rt('timeColumnTypeString'), value: 'string' },
+  { label: rt('timeColumnTypeUnix'), value: 'unix' },
+]);
+// archiveUnixUnitOptions 定义 Unix 时间列支持的单位。
+const archiveUnixUnitOptions = computed(() => [
+  { label: rt('unixUnitSeconds'), value: 'seconds' },
+  { label: rt('unixUnitMilliseconds'), value: 'milliseconds' },
+]);
+// archiveSplitUnitOptions 定义历史表支持的拆分粒度。
+const archiveSplitUnitOptions = computed(() => [
+  { label: rt('splitYear'), value: 'year' },
+  { label: rt('splitQuarter'), value: 'quarter' },
+  { label: rt('splitMonth'), value: 'month' },
+  { label: rt('splitWeek'), value: 'week' },
+  { label: rt('splitDay'), value: 'day' },
+  { label: rt('splitCustomDays'), value: 'custom_days' },
+]);
+// archiveWindowModeOptions 定义归档窗口推进模式。
+const archiveWindowModeOptions = computed(() => [
+  { label: rt('archiveWindowModeAuto'), value: 'auto' },
+  { label: rt('archiveWindowModeFixed'), value: 'fixed' },
+]);
+// archiveUsesStringTime 控制字符串时间格式字段显示。
+const archiveUsesStringTime = computed(
+  () => archiveForm.timeColumnType === 'string',
+);
+// archiveUsesUnixTime 控制 Unix 时间单位字段显示。
+const archiveUsesUnixTime = computed(
+  () => archiveForm.timeColumnType === 'unix',
+);
+// archiveUsesCustomDays 控制自定义分段天数字段显示。
+const archiveUsesCustomDays = computed(
+  () => archiveForm.splitUnit === 'custom_days',
+);
+// archiveUsesAutoWindow 控制自动追赶参数显示。
+const archiveUsesAutoWindow = computed(
+  () => archiveForm.archiveWindowMode === 'auto',
+);
+
 const periodicColumns = computed(() => [
   { title: rt('name'), dataIndex: 'name', key: 'name', width: 220 },
   { title: rt('workflow'), dataIndex: 'workflow', key: 'workflow', width: 240 },
@@ -423,6 +465,8 @@ function newArchiveForm(): RuntimeConfigApi.ArchiveJobItem {
     splitUnit: 'month',
     tableName: '',
     timeColumn: '',
+    timeColumnType: 'time',
+    timeColumnUnixUnit: 'seconds',
   };
 }
 
@@ -621,12 +665,15 @@ function snapshotDiffItemKey(value: unknown) {
 }
 
 function openArchiveDrawer(row?: Record<string, any>) {
-  assignForm(
-    archiveForm,
-    row
-      ? ({ ...newArchiveForm(), ...row } as RuntimeConfigApi.ArchiveJobItem)
-      : newArchiveForm(),
-  );
+  const nextForm = row
+    ? ({ ...newArchiveForm(), ...row } as RuntimeConfigApi.ArchiveJobItem)
+    : newArchiveForm();
+  nextForm.timeColumnType = nextForm.timeColumnType?.trim() || 'time';
+  nextForm.timeColumnUnixUnit =
+    nextForm.timeColumnUnixUnit?.trim() || 'seconds';
+  nextForm.splitUnit = nextForm.splitUnit?.trim() || 'month';
+  nextForm.archiveWindowMode = nextForm.archiveWindowMode?.trim() || 'auto';
+  assignForm(archiveForm, nextForm);
   archiveDrawerApi.open();
 }
 
@@ -1675,6 +1722,35 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     <Input v-model:value="archiveForm.timeColumn" />
                   </Form.Item>
                   <Form.Item
+                    :extra="rt('timeColumnTypeHelp')"
+                    :label="rt('timeColumnType')"
+                  >
+                    <Select
+                      v-model:value="archiveForm.timeColumnType"
+                      :options="archiveTimeColumnTypeOptions"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    v-if="archiveUsesStringTime"
+                    :extra="rt('timeColumnFormatHelp')"
+                    :label="rt('timeColumnFormat')"
+                  >
+                    <Input
+                      v-model:value="archiveForm.timeColumnFormat"
+                      placeholder="2006-01-02 15:04:05"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    v-if="archiveUsesUnixTime"
+                    :extra="rt('timeColumnUnixUnitHelp')"
+                    :label="rt('timeColumnUnixUnit')"
+                  >
+                    <Select
+                      v-model:value="archiveForm.timeColumnUnixUnit"
+                      :options="archiveUnixUnitOptions"
+                    />
+                  </Form.Item>
+                  <Form.Item
                     :extra="rt('archivePrimaryKeyHelp')"
                     :label="rt('primaryKey')"
                   >
@@ -1684,7 +1760,21 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     :extra="rt('archiveSplitUnitHelp')"
                     :label="rt('splitUnit')"
                   >
-                    <Input v-model:value="archiveForm.splitUnit" />
+                    <Select
+                      v-model:value="archiveForm.splitUnit"
+                      :options="archiveSplitUnitOptions"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    v-if="archiveUsesCustomDays"
+                    :extra="rt('customDaysHelp')"
+                    :label="rt('customDays')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.customDays"
+                      class="w-full"
+                      :min="0"
+                    />
                   </Form.Item>
                   <Form.Item
                     :extra="rt('archiveHotKeepDaysHelp')"
@@ -1707,12 +1797,69 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     />
                   </Form.Item>
                   <Form.Item
+                    :extra="rt('archiveWindowModeHelp')"
+                    :label="rt('archiveWindowMode')"
+                  >
+                    <Select
+                      v-model:value="archiveForm.archiveWindowMode"
+                      :options="archiveWindowModeOptions"
+                    />
+                  </Form.Item>
+                  <Form.Item
                     :extra="rt('archiveWindowSecondsHelp')"
                     :label="rt('archiveWindowSeconds')"
                   >
                     <InputNumber
                       v-model:value="archiveForm.archiveWindowSeconds"
                       class="w-full"
+                      :max="604800"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    :extra="rt('archiveMaxWindowsPerRunHelp')"
+                    :label="rt('archiveMaxWindowsPerRun')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.archiveMaxWindowsPerRun"
+                      class="w-full"
+                      :max="1000"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    v-if="archiveUsesAutoWindow"
+                    :extra="rt('archiveAutoMaxWindowsHelp')"
+                    :label="rt('archiveAutoMaxWindows')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.archiveAutoMaxWindows"
+                      class="w-full"
+                      :max="1000"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    v-if="archiveUsesAutoWindow"
+                    :extra="rt('archiveAutoLightRowsHelp')"
+                    :label="rt('archiveAutoLightRows')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.archiveAutoLightRows"
+                      class="w-full"
+                      :max="20000"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    v-if="archiveUsesAutoWindow"
+                    :extra="rt('archiveAutoLightMsHelp')"
+                    :label="rt('archiveAutoLightMs')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.archiveAutoLightMs"
+                      class="w-full"
+                      :max="30000"
                       :min="0"
                     />
                   </Form.Item>
@@ -1747,6 +1894,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     <InputNumber
                       v-model:value="archiveForm.batchSize"
                       class="w-full"
+                      :max="20000"
                       :min="0"
                     />
                   </Form.Item>
@@ -1757,6 +1905,39 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     <InputNumber
                       v-model:value="archiveForm.deleteBatchSize"
                       class="w-full"
+                      :max="20000"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    :extra="rt('deleteDelayDaysHelp')"
+                    :label="rt('deleteDelayDays')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.deleteDelayDays"
+                      class="w-full"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    :extra="rt('deleteWindowSecondsHelp')"
+                    :label="rt('deleteWindowSeconds')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.deleteWindowSeconds"
+                      class="w-full"
+                      :max="604800"
+                      :min="0"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    :extra="rt('deleteMaxWindowsPerRunHelp')"
+                    :label="rt('deleteMaxWindowsPerRun')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.deleteMaxWindowsPerRun"
+                      class="w-full"
+                      :max="1000"
                       :min="0"
                     />
                   </Form.Item>
@@ -1798,6 +1979,16 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     :label="rt('historyTableNameRule')"
                   >
                     <Input v-model:value="archiveForm.historyTableNameRule" />
+                  </Form.Item>
+                  <Form.Item
+                    :extra="rt('maxHistoryTablesHelp')"
+                    :label="rt('maxHistoryTables')"
+                  >
+                    <InputNumber
+                      v-model:value="archiveForm.maxHistoryTables"
+                      class="w-full"
+                      :min="0"
+                    />
                   </Form.Item>
                 </div>
               </section>

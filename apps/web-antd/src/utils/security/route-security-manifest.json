@@ -824,6 +824,17 @@
       "responseCipher": []
     },
     {
+      "alias": "cache.server.info",
+      "method": "GET",
+      "path": "/api/caches/metrics",
+      "access": "auth",
+      "describe": "查看表缓存运行指标",
+      "requestSign": [],
+      "requestCipher": [],
+      "responseSign": [],
+      "responseCipher": []
+    },
+    {
       "alias": "cache.key.info",
       "method": "GET",
       "path": "/api/caches/key-info",

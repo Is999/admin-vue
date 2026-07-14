@@ -175,6 +175,7 @@ export function showCacheInfoModal(
   const cacheValueText = buildJsonText(info.value);
   Modal.info({
     closable: true,
+    maskClosable: true,
     content: h('div', { class: 'space-y-4' }, [
       h(
         Descriptions,

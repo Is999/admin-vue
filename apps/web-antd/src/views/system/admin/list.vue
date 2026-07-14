@@ -10,6 +10,7 @@ import {
   defineComponent,
   h,
   onBeforeUnmount,
+  onMounted,
   reactive,
   ref,
 } from 'vue';
@@ -59,8 +60,10 @@ import {
 } from '#/utils/file/download';
 import {
   AsyncJobPollingTimeoutError,
+  createAsyncJobSession,
   createAsyncJobPoller,
   isAsyncJobPollingAbortError,
+  isAsyncJobRunning,
 } from '#/utils/imex/job';
 import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
 import {
@@ -230,6 +233,12 @@ const lastAdminQuery = ref<SystemAdminApi.ExportParams>({});
 const exportSubmitting = ref(false);
 const exportDownloading = ref(false);
 const exportStatus = ref<null | SystemAdminApi.ExportStatusResp>(null);
+// adminExportSession 在同一账号切换菜单时保留导出状态。
+const adminExportSession =
+  createAsyncJobSession<SystemAdminApi.ExportStatusResp>(
+    'admin-list-export',
+    currentSessionStateIdentity,
+  );
 const adminExportPoller = createAsyncJobPoller<SystemAdminApi.ExportStatusResp>(
   {
     fetchStatus: fetchAdminExportStatus,
@@ -253,6 +262,7 @@ const adminExportPoller = createAsyncJobPoller<SystemAdminApi.ExportStatusResp>(
     },
     onStatusChange: (status) => {
       exportStatus.value = status;
+      saveAdminExportSession();
     },
   },
 );
@@ -260,6 +270,7 @@ const adminExportPoller = createAsyncJobPoller<SystemAdminApi.ExportStatusResp>(
 // unregisterAdminExportSessionCleanup 在账号切换时停止旧账号导出轮询并清空页面局部状态。
 const unregisterAdminExportSessionCleanup = registerSessionStateCleanup(() => {
   adminExportPoller.stop();
+  adminExportSession.clear();
   exportStatus.value = null;
   exportSubmitting.value = false;
   exportDownloading.value = false;
@@ -484,6 +495,7 @@ async function onTriggerExport() {
       total: 0,
       updatedAt: '',
     };
+    saveAdminExportSession(true);
     message.success($t('business.message.adminExportSubmitted'));
     await refreshAdminExportStatus(false);
   } finally {
@@ -592,6 +604,31 @@ function stopAdminExportPolling() {
   adminExportPoller.stop();
 }
 
+// saveAdminExportSession 保存当前任务，旧页面的异步回调不得覆盖新任务。
+function saveAdminExportSession(replace = false) {
+  const status = exportStatus.value;
+  if (!status?.jobId) {
+    return;
+  }
+  const cached = adminExportSession.load();
+  if (!replace && cached && cached.jobId !== status.jobId) {
+    return;
+  }
+  adminExportSession.save(status);
+}
+
+// restoreAdminExportSession 恢复菜单切换前的导出状态并续查未完成任务。
+async function restoreAdminExportSession() {
+  const cached = adminExportSession.load();
+  if (!cached?.jobId) {
+    return;
+  }
+  exportStatus.value = cached;
+  if (isAsyncJobRunning(cached.status)) {
+    await refreshAdminExportStatus(false);
+  }
+}
+
 // normalizeAdminExportParams 把表格搜索条件归一化为导出请求参数。
 function normalizeAdminExportParams(formValues: Record<string, any> = {}) {
   const roleID = Number(formValues.roleID || 0);
@@ -642,7 +679,12 @@ const exportProgressSummary = computed(() => {
   return summaryParts.join($t('business.message.commaSeparator'));
 });
 
+onMounted(() => {
+  void restoreAdminExportSession();
+});
+
 onBeforeUnmount(() => {
+  saveAdminExportSession();
   unregisterAdminExportSessionCleanup();
   stopAdminExportPolling();
 });

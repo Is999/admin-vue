@@ -1,3 +1,5 @@
+import { registerSessionStateCleanup } from '../session-state-gate';
+
 // AsyncJobStatus 表示异步导入导出任务的统一状态。
 export type AsyncJobStatus = 'failed' | 'queued' | 'running' | 'succeeded';
 
@@ -18,6 +20,19 @@ export interface AsyncJobPollerOptions<T extends AsyncJobItem> {
   onStatusChange?: (status: T) => Promise<void> | void;
 }
 
+// AsyncJobSession 提供异步任务在页面重建后的账号级内存状态。
+export interface AsyncJobSession<T> {
+  clear: () => void;
+  load: () => T | undefined;
+  save: (value: T) => void;
+}
+
+// AsyncJobSessionEntry 保存任务状态及其所属账号。
+interface AsyncJobSessionEntry {
+  scopeKey: unknown;
+  value: unknown;
+}
+
 // AsyncJobPollingTimeoutError 表示前端已达连续轮询上限，后端任务仍可通过手动刷新继续查询。
 export class AsyncJobPollingTimeoutError extends Error {
   readonly code = 'ASYNC_JOB_POLL_TIMEOUT';
@@ -36,6 +51,41 @@ const DEFAULT_MAX_DURATION_MS = 65 * 60 * 1000;
 const DEFAULT_MAX_ERROR_RETRIES = 3;
 // MAX_RETRY_DELAY_MS 限制指数退避上限，避免短时抖动后过久不再查询。
 const MAX_RETRY_DELAY_MS = 30_000;
+// asyncJobSessions 保存 SPA 运行期内的异步任务状态，账号切换时统一清空。
+const asyncJobSessions = new Map<string, AsyncJobSessionEntry>();
+
+registerSessionStateCleanup(() => {
+  asyncJobSessions.clear();
+});
+
+// createAsyncJobSession 创建账号隔离的内存状态，供页面卸载后恢复任务进度。
+export function createAsyncJobSession<T>(
+  key: string,
+  getScopeKey: () => unknown,
+): AsyncJobSession<T> {
+  return {
+    clear() {
+      asyncJobSessions.delete(key);
+    },
+    load() {
+      const entry = asyncJobSessions.get(key);
+      if (!entry) {
+        return undefined;
+      }
+      if (!Object.is(entry.scopeKey, getScopeKey())) {
+        asyncJobSessions.delete(key);
+        return undefined;
+      }
+      return entry.value as T;
+    },
+    save(value) {
+      asyncJobSessions.set(key, {
+        scopeKey: getScopeKey(),
+        value,
+      });
+    },
+  };
+}
 
 // PollRun 保存单次 refresh 启动的可取消轮询上下文。
 interface PollRun {

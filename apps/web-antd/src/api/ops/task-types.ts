@@ -555,6 +555,8 @@ export namespace TaskApi {
     syncIntervalSeconds: number;
     /** 调度器心跳间隔，单位秒 */
     heartbeatIntervalSeconds: number;
+    /** 周期任务投递前允许的队列积压上限，0 表示关闭背压 */
+    maxQueueBacklog: number;
     /** 当前有效周期任务数量 */
     periodicTaskCount: number;
     /** 最近一次调度器总体状态 */

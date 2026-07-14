@@ -117,6 +117,29 @@ export function useColumns<T = any>(
         },
         name: 'CellTag',
       },
+      field: 'archived',
+      title: $t('business.message.archivedTaskCount'),
+      width: 100,
+    },
+    {
+      field: 'aggregating',
+      title: $t('business.message.aggregatingTaskCount'),
+      width: 100,
+    },
+    {
+      field: 'processed',
+      title: $t('business.message.processedTaskCount'),
+      width: 110,
+    },
+    {
+      align: 'center',
+      cellRender: {
+        attrs: {
+          getMeta: ({ value }: { value: unknown }) =>
+            countRiskTagMeta(value, 'error'),
+        },
+        name: 'CellTag',
+      },
       field: 'failed',
       title: $t('business.message.todayFailed'),
       width: 100,

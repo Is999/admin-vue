@@ -9,6 +9,7 @@ import {
   defineComponent,
   h,
   onBeforeUnmount,
+  onMounted,
   reactive,
   ref,
 } from 'vue';
@@ -55,8 +56,10 @@ import {
 } from '#/utils/file/download';
 import {
   AsyncJobPollingTimeoutError,
+  createAsyncJobSession,
   createAsyncJobPoller,
   isAsyncJobPollingAbortError,
+  isAsyncJobRunning,
 } from '#/utils/imex/job';
 import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
 import {
@@ -114,6 +117,12 @@ interface PasswordEditorState {
 interface RuntimeSyncState {
   profile: boolean;
   sessions: boolean;
+}
+
+// UserExportSessionState 保存用户导出状态及已下载分片。
+interface UserExportSessionState {
+  downloadedParts: number[];
+  status: UserApi.ExportStatusResp;
 }
 
 // PasswordEditor 用于重置用户密码，并提供随机密码生成和复制能力。
@@ -184,6 +193,11 @@ const exportStatus = ref<null | UserApi.ExportStatusResp>(null);
 const downloadedUserExportParts = ref<Set<number>>(new Set());
 // downloadingUserExportParts 记录当前正在下载的文件编号，避免重复请求。
 const downloadingUserExportParts = ref<Set<number>>(new Set());
+// userExportSession 在同一账号切换菜单时保留导出状态。
+const userExportSession = createAsyncJobSession<UserExportSessionState>(
+  'user-list-export',
+  currentSessionStateIdentity,
+);
 // userExportPoller 统一轮询用户导出任务状态。
 const userExportPoller = createAsyncJobPoller<UserApi.ExportStatusResp>({
   fetchStatus: fetchUserExportStatus,
@@ -207,6 +221,7 @@ const userExportPoller = createAsyncJobPoller<UserApi.ExportStatusResp>({
   },
   onStatusChange: async (status) => {
     exportStatus.value = status;
+    saveUserExportSession();
     await downloadReadyUserExportFiles(status, false);
   },
 });
@@ -214,6 +229,7 @@ const userExportPoller = createAsyncJobPoller<UserApi.ExportStatusResp>({
 // unregisterUserExportSessionCleanup 在账号切换时停止旧账号导出轮询并清空页面局部状态。
 const unregisterUserExportSessionCleanup = registerSessionStateCleanup(() => {
   userExportPoller.stop();
+  userExportSession.clear();
   exportStatus.value = null;
   exportSubmitting.value = false;
   exportDownloading.value = false;
@@ -429,12 +445,12 @@ async function onTriggerExport() {
   const sourceSessionIdentity = currentSessionStateIdentity();
   exportSubmitting.value = true;
   stopUserExportPolling();
-  resetUserExportDownloadState();
   try {
     const response = await triggerUserExport(lastUserQuery.value);
     if (sourceSessionIdentity !== currentSessionStateIdentity()) {
       return;
     }
+    resetUserExportDownloadState();
     exportStatus.value = {
       averageRowsPerSec: 0,
       createdAt: '',
@@ -459,6 +475,7 @@ async function onTriggerExport() {
       total: 0,
       updatedAt: '',
     };
+    saveUserExportSession(true);
     message.success($t('business.message.userExportSubmitted'));
     await refreshUserExportStatus(false);
   } finally {
@@ -532,6 +549,7 @@ async function downloadUserExportFile(
     const fileName = file.fileName || `user_export_part_${file.partNo}.xlsx`;
     downloadBlobFile(blob, fileName);
     setUserExportPartSet(downloadedUserExportParts, file.partNo, true);
+    saveUserExportSession();
     message.success(
       $t('business.message.userExportPartDownloadSucceeded', [fileName]),
     );
@@ -586,6 +604,40 @@ function setUserExportPartSet(
 function resetUserExportDownloadState() {
   downloadedUserExportParts.value = new Set();
   downloadingUserExportParts.value = new Set();
+}
+
+// saveUserExportSession 保存当前任务，旧页面的异步回调不得覆盖新任务。
+function saveUserExportSession(replace = false) {
+  const status = exportStatus.value;
+  if (!status?.jobId) {
+    return;
+  }
+  const cached = userExportSession.load();
+  if (!replace && cached && cached.status.jobId !== status.jobId) {
+    return;
+  }
+  userExportSession.save({
+    downloadedParts: [...downloadedUserExportParts.value].toSorted(
+      (left, right) => left - right,
+    ),
+    status,
+  });
+}
+
+// restoreUserExportSession 恢复菜单切换前的导出状态并续查未完成任务。
+async function restoreUserExportSession() {
+  const cached = userExportSession.load();
+  if (!cached?.status.jobId) {
+    return;
+  }
+  exportStatus.value = cached.status;
+  downloadedUserExportParts.value = new Set(cached.downloadedParts);
+  downloadingUserExportParts.value = new Set();
+  if (isAsyncJobRunning(cached.status.status)) {
+    await refreshUserExportStatus(false);
+    return;
+  }
+  await downloadReadyUserExportFiles(cached.status, false);
 }
 
 // refreshUserExportStatus 查询用户导出进度，并在未完成时继续轮询。
@@ -702,7 +754,12 @@ const exportProgressSummary = computed(() => {
   return summaryParts.join($t('business.message.commaSeparator'));
 });
 
+onMounted(() => {
+  void restoreUserExportSession();
+});
+
 onBeforeUnmount(() => {
+  saveUserExportSession();
   unregisterUserExportSessionCleanup();
   stopUserExportPolling();
 });

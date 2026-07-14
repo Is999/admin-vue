@@ -25,12 +25,12 @@ import { $t } from '#/locales';
 import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
 
 import {
+  getTaskQueueOptions,
   getTaskQueueDescription,
   normalizeOptionalNumber,
   safePrettyJson,
   splitTextToItems,
   splitTextToNumberItems,
-  TASK_QUEUE_OPTIONS,
 } from '../shared';
 import {
   USER_TAG_FORM_LIMITS,
@@ -74,7 +74,10 @@ const USER_TAG_MODE_META: Record<
 // 用户标签工作流触发表单。
 const router = useRouter();
 const queueOptions = ref<Array<{ label: string; value: string }>>(
-  TASK_QUEUE_OPTIONS.map((item) => ({ label: item.label, value: item.value })),
+  getTaskQueueOptions().map((item) => ({
+    label: item.label,
+    value: item.value,
+  })),
 );
 const selectedMode = ref<UserTagModeValue>('full');
 const [WorkflowForm, workflowFormApi] = useVbenForm({
