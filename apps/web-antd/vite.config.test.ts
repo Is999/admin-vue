@@ -35,7 +35,7 @@ describe('production security env', () => {
     ).not.toThrow();
   });
 
-  it('allows MD5 signing without AES or RSA material', () => {
+  it('rejects removed MD5 signing', () => {
     expect(() =>
       validate({
         VITE_ADMIN_CRYPTO_ENABLED: 'false',
@@ -43,7 +43,7 @@ describe('production security env', () => {
         VITE_ADMIN_SIGNATURE_ENABLED: 'true',
         VITE_ADMIN_SIGNATURE_TYPE: 'M',
       }),
-    ).not.toThrow();
+    ).toThrow(/仅允许 A 或 R/);
   });
 
   it('allows AES encryption without signing', () => {

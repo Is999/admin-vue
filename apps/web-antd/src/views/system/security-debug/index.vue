@@ -33,12 +33,11 @@ import {
   aesCbcEncrypt,
   aesCbcSign,
   bytesToBase64,
-  md5Hex,
   rsaPkcs1Sign,
   rsaPkcs1Verify,
 } from '#/utils/security/crypto';
 import {
-  buildSignStringByType,
+  buildSignString,
   resolvePolicyForAlias,
   resolveRouteSecurityRule,
   resolveSignatureType,
@@ -47,7 +46,7 @@ import {
 import { resolveBackendMessage } from '../shared';
 
 type DebugFlowMode = 'request' | 'response';
-type DebugSignatureType = 'A' | 'M' | 'R';
+type DebugSignatureType = 'A' | 'R';
 type DebugCryptoType = 'A' | 'R';
 
 const CIPHER_JSON_PREFIX = 'json:';
@@ -101,7 +100,6 @@ const flowOptions = [
 const signatureOptions = [
   { label: 'RSA', value: 'R' },
   { label: 'AES', value: 'A' },
-  { label: 'MD5', value: 'M' },
 ] satisfies Array<{ label: string; value: DebugSignatureType }>;
 
 // cryptoOptions 定义加密方式选项。
@@ -421,9 +419,6 @@ function setNestedFieldValue(
 
 // signTextLocally 在浏览器端模拟前端请求签名。
 async function signTextLocally(text: string, type: DebugSignatureType) {
-  if (type === 'M') {
-    return md5Hex(text);
-  }
   if (type === 'A') {
     const { iv, key } = getAESConfig();
     return aesCbcSign(text, key, iv);
@@ -437,9 +432,6 @@ async function verifyTextLocally(
   sign: string,
   type: DebugSignatureType,
 ) {
-  if (type === 'M') {
-    return md5Hex(text) === sign;
-  }
   if (type === 'A') {
     const { iv, key } = getAESConfig();
     return (await aesCbcSign(text, key, iv)) === sign;
@@ -533,13 +525,12 @@ async function signRequestLocally(): Promise<SystemSecurityDebugApi.SignResult> 
   const payload = parseJSONObjectText(payloadText.value);
   const currentTraceId = resolveActionTraceId();
   const currentTimestamp = resolveActionTimestamp();
-  const signText = buildSignStringByType(
+  const signText = buildSignString(
     payload,
     effectiveSignFields.value,
     currentTraceId,
     currentTimestamp,
     appId.value.trim(),
-    signatureType.value,
   );
   const sign = await signTextLocally(signText, signatureType.value);
   return {
@@ -571,13 +562,12 @@ async function verifyResponseLocally(): Promise<SystemSecurityDebugApi.VerifyRes
     throw new Error($t('business.message.signValueRequired'));
   }
   const payload = parseJSONObjectText(payloadText.value);
-  const signText = buildSignStringByType(
+  const signText = buildSignString(
     payload,
     effectiveSignFields.value,
     currentTraceId,
     currentTimestamp,
     appId.value.trim(),
-    signatureType.value,
   );
   return {
     appId: appId.value.trim(),

@@ -4,7 +4,6 @@ import { aesCbcEncrypt, aesCbcSign } from '../crypto';
 import routeSecurityManifest from '../route-security-manifest.json';
 import {
   buildSignString,
-  buildSignStringByType,
   encodeCipherHeader,
   handleAdminSecurityResponse,
   resolvePolicyForAlias,
@@ -136,32 +135,15 @@ describe('security vectors', () => {
     expect(resolvePolicyForAlias(rule?.alias).requestSign || []).toEqual([]);
   });
 
-  it('accepts MD5, AES and RSA signature configuration', () => {
+  it('accepts AES and RSA signature configuration', () => {
     expect(resolveSignatureType('a')).toBe('A');
     expect(resolveSignatureType('R')).toBe('R');
-    expect(resolveSignatureType('M')).toBe('M');
-    expect(resolveSignatureType('md5')).toBe('M');
     expect(resolveSignatureType('')).toBe('R');
-    expect(() => resolveSignatureType('unknown')).toThrow(
+    expect(() => resolveSignatureType('MD5')).toThrow(
       /unsupportedSignatureType/,
     );
-  });
-
-  it('keeps the legacy MD5 sign string compatible with the backend', () => {
-    expect(
-      buildSignStringByType(
-        {
-          token: 'token-value',
-          user: { phone: '138****0000' },
-        },
-        ['token', 'user.phone'],
-        'req',
-        '1700000000',
-        'app',
-        'M',
-      ),
-    ).toBe(
-      'token=token-value&user.phone=138****0000&key=27a7b5b98263d73425f421dbfd16de41',
+    expect(() => resolveSignatureType('unknown')).toThrow(
+      /unsupportedSignatureType/,
     );
   });
 

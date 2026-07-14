@@ -36,8 +36,8 @@ export function assertProductionSecurityEnv(
   if ((signatureEnabled || cryptoEnabled) && !appId) {
     errors.push('缺少 VITE_ADMIN_SECURITY_APP_ID');
   }
-  if (signatureEnabled && !['A', 'M', 'MD5', 'R'].includes(signatureType)) {
-    errors.push('VITE_ADMIN_SIGNATURE_TYPE 仅允许 M、A 或 R');
+  if (signatureEnabled && !['A', 'R'].includes(signatureType)) {
+    errors.push('VITE_ADMIN_SIGNATURE_TYPE 仅允许 A 或 R');
   }
   if (cryptoEnabled && cryptoType !== 'A') {
     errors.push('VITE_ADMIN_CRYPTO_TYPE 必须为 A');

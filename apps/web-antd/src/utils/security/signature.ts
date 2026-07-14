@@ -6,14 +6,13 @@ import {
   aesCbcEncrypt,
   aesCbcSign,
   bytesToBase64,
-  md5Hex,
   rsaPkcs1Sign,
   rsaPkcs1Verify,
 } from './crypto';
 import routeSecurityManifest from './route-security-manifest.json';
 
 // SignatureType 表示浏览器端允许使用的签名方式。
-export type SignatureType = 'A' | 'M' | 'R';
+export type SignatureType = 'A' | 'R';
 
 // CryptoType 表示后端支持的加密方式。
 type CryptoType = 'A' | 'R';
@@ -54,9 +53,6 @@ export function resolveSignatureType(value?: unknown): SignatureType {
     .toUpperCase();
   if (signatureType === 'A' || signatureType === 'R') {
     return signatureType;
-  }
-  if (signatureType === 'M' || signatureType === 'MD5') {
-    return 'M';
   }
   throw new Error(
     $t('business.message.unsupportedSignatureType', [signatureType || '-']),
@@ -312,35 +308,6 @@ export function buildSignString(
   return text;
 }
 
-// buildSignStringByType 为 MD5 保留既有协议，AES/RSA 使用无歧义 v2 协议。
-export function buildSignStringByType(
-  data: Record<string, any>,
-  params: string[],
-  traceId: string,
-  timestamp: string,
-  appID: string,
-  signatureType: SignatureType,
-) {
-  if (signatureType !== 'M') {
-    return buildSignString(data, params, traceId, timestamp, appID);
-  }
-
-  const chunks: string[] = [];
-  for (const key of [...resolveSignParams(data, params)].toSorted()) {
-    const value = getNestedFieldValue(data, key);
-    if (isEmptySignValue(value)) {
-      continue;
-    }
-    const text = signValueString(value);
-    assertSecurityTextSize(key, text, MAX_SECURITY_FIELD_BYTES);
-    chunks.push(`${key}=${text}`);
-  }
-  chunks.push(`key=${md5Hex(`${appID}-${traceId}-${timestamp}`)}`);
-  const text = chunks.join('&');
-  assertSecurityTextSize('signature', text, MAX_SECURITY_REQUEST_BODY_BYTES);
-  return text;
-}
-
 // lengthPrefixedSignPart 按 UTF-8 字节长度编码签名片段，与 Go 后端 len(string) 语义一致。
 function lengthPrefixedSignPart(value: string) {
   return `${new TextEncoder().encode(value).byteLength}:${value}`;
@@ -468,9 +435,6 @@ function hasResponseSignature(payload: any, headers: Record<string, any>) {
 
 // signString 按指定签名方式生成 sign 字段。
 async function signString(text: string, type: SignatureType) {
-  if (type === 'M') {
-    return md5Hex(text);
-  }
   if (type === 'A') {
     return aesCbcSign(
       text,
@@ -487,9 +451,6 @@ async function signString(text: string, type: SignatureType) {
 // verifyString 按指定签名方式校验 sign 字段。
 // 响应验签阶段会复用这套规则，保证前后端对签名算法的判断完全一致。
 async function verifyString(text: string, sign: string, type: SignatureType) {
-  if (type === 'M') {
-    return md5Hex(text) === sign;
-  }
   if (type === 'A') {
     const expected = await aesCbcSign(
       text,
@@ -526,13 +487,12 @@ async function attachSignature(
   const signatureType = resolveSignatureType(
     import.meta.env.VITE_ADMIN_SIGNATURE_TYPE,
   );
-  const signStringText = buildSignStringByType(
+  const signStringText = buildSignString(
     body,
     policy.requestSign || [],
     String(traceId),
     String(timestamp),
     appID,
-    signatureType,
   );
   setHeader(headers, 'X-App-Id', encodeAppID(appID));
   setHeader(headers, 'X-Trace-Id', traceId);
@@ -796,13 +756,12 @@ async function verifyResponseSignature(
   ) {
     throw new Error($t('business.message.responseSignVerifyFailed'));
   }
-  const signText = buildSignStringByType(
+  const signText = buildSignString(
     data,
     signFields,
     requestTraceID,
     requestTimestamp,
     appID,
-    signatureType,
   );
   assertSecurityTextSize(
     'response signature',
