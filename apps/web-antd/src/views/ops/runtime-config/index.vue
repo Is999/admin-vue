@@ -817,7 +817,11 @@ async function submitRuntimeAction() {
     lastPublishResult.value = result;
     validateResult.value = null;
     actionModalOpen.value = false;
-    message.success(runtimeActionSuccess(actionType.value));
+    if (result.applied) {
+      message.success(runtimeActionSuccess(actionType.value));
+    } else {
+      message.warning(rt('publishApplyPending'));
+    }
     await refreshAll();
   } finally {
     submitting.value = false;
@@ -1267,14 +1271,19 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                 <Alert
                   v-if="lastPublishResult"
                   :type="
-                    lastPublishResult.restartRequired ? 'warning' : 'success'
+                    !lastPublishResult.applied ||
+                    lastPublishResult.restartRequired
+                      ? 'warning'
+                      : 'success'
                   "
                   show-icon
                   :message="`${rt('version')} ${lastPublishResult.versionNo} ${rt('created')}`"
                   :description="
-                    lastPublishResult.restartRequired
-                      ? `${rt('restartRequired')}: ${lastPublishResult.restartReason}`
-                      : `release_id=${lastPublishResult.releaseId} checksum=${formatShortChecksum(lastPublishResult.checksum)}`
+                    !lastPublishResult.applied
+                      ? rt('publishApplyPending')
+                      : lastPublishResult.restartRequired
+                        ? `${rt('restartRequired')}: ${lastPublishResult.restartReason}`
+                        : `release_id=${lastPublishResult.releaseId} checksum=${formatShortChecksum(lastPublishResult.checksum)}`
                   "
                 />
               </div>

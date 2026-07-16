@@ -27,6 +27,7 @@ import {
   buildSecretKeyCacheTemplateKeys,
   openSystemCachePage,
 } from '#/utils/cache/navigation';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
 
 import { useColumns, useGridFormSchema } from './data';
@@ -152,7 +153,7 @@ async function onStatusChange(newStatus: number, row: SystemSecretKeyApi.Item) {
       ]),
       $t('business.message.switchSecretStatus'),
     );
-    await submitWithMfaRetry(
+    const cacheSyncResult = await submitWithMfaRetry(
       MFA_SCENARIO_SECRET_KEY_MANAGE,
       (ticket) =>
         updateSecretKeyStatus(
@@ -162,7 +163,10 @@ async function onStatusChange(newStatus: number, row: SystemSecretKeyApi.Item) {
         ),
       $t('business.message.switchSecretStatusMfaTitle'),
     );
-    message.success($t('business.message.secretStatusUpdated'));
+    showCacheSyncResult(
+      cacheSyncResult,
+      $t('business.message.secretStatusUpdated'),
+    );
     return true;
   } catch {
     return false;

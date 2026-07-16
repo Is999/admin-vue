@@ -16,6 +16,7 @@ import {
 
 import { Page, useVbenDrawer, VbenButton } from '@vben/common-ui';
 import { Plus } from '@vben/icons';
+import { useAccessStore } from '@vben/stores';
 
 import {
   Alert,
@@ -46,6 +47,7 @@ import {
 } from '#/api/user';
 import {
   asActionPermission,
+  hasEveryPermission,
   USER_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
@@ -87,6 +89,30 @@ const USER_PASSWORD_MAX_LENGTH = 64;
 const USER_SHARD_NO_MOD = 1024;
 // USER_EXPORT_POLL_INTERVAL_MS 表示用户导出状态轮询间隔。
 const USER_EXPORT_POLL_INTERVAL_MS = 2000;
+// accessStore 保存当前管理员的接口权限码。
+const accessStore = useAccessStore();
+// canQueryUserExport 控制用户导出状态查询入口。
+const canQueryUserExport = computed(() =>
+  hasEveryPermission(
+    accessStore.accessCodes,
+    USER_ACTION_PERMISSION_CODES.USER_EXPORT_STATUS,
+  ),
+);
+// canTriggerUserExport 确保提交导出后有权限继续查询异步进度。
+const canTriggerUserExport = computed(() =>
+  hasEveryPermission(accessStore.accessCodes, [
+    USER_ACTION_PERMISSION_CODES.USER_EXPORT,
+    USER_ACTION_PERMISSION_CODES.USER_EXPORT_DOWNLOAD,
+    USER_ACTION_PERMISSION_CODES.USER_EXPORT_STATUS,
+  ]),
+);
+// canDownloadUserExport 控制用户导出文件下载入口。
+const canDownloadUserExport = computed(() =>
+  hasEveryPermission(
+    accessStore.accessCodes,
+    USER_ACTION_PERMISSION_CODES.USER_EXPORT_DOWNLOAD,
+  ),
+);
 
 // UserExportStatusMap 把导出状态映射成易读文案。
 const UserExportStatusMap: Record<UserApi.ExportStatusResp['status'], string> =
@@ -183,6 +209,12 @@ const editorSubmitting = ref(false);
 const currentUser = ref<null | UserApi.Item>(null);
 // lastUserQuery 保存当前列表筛选条件，供异步导出复用。
 const lastUserQuery = ref<UserApi.ExportParams>({});
+// userListCursorByPage 保存分表列表页码到后端游标的映射，只允许从已访问页继续前后翻页。
+const userListCursorByPage = new Map<number, string>([[1, '']]);
+// userListCursorQueryKey 标识游标所属筛选条件和页大小，条件变化时清空旧游标。
+let userListCursorQueryKey = '';
+// userStatusFilterSupported 表示当前后端列表模式是否支持状态筛选。
+let userStatusFilterSupported = true;
 // exportSubmitting 避免重复提交用户导出任务。
 const exportSubmitting = ref(false);
 // exportDownloading 标记导出文件下载中。
@@ -222,7 +254,9 @@ const userExportPoller = createAsyncJobPoller<UserApi.ExportStatusResp>({
   onStatusChange: async (status) => {
     exportStatus.value = status;
     saveUserExportSession();
-    await downloadReadyUserExportFiles(status, false);
+    if (canDownloadUserExport.value) {
+      await downloadReadyUserExportFiles(status, false);
+    }
   },
 });
 
@@ -292,12 +326,41 @@ const [Grid, gridApi] = useVbenVxeGrid({
       ajax: {
         // 查询用户列表，只传后端支持的索引筛选字段。
         query: async ({ page }: { page: any }, formValues: any) => {
-          lastUserQuery.value = normalizeListParams(formValues);
-          return await fetchUserList({
-            page: page.currentPage,
-            pageSize: page.pageSize,
-            ...normalizeListParams(formValues),
+          const listParams = normalizeListParams(formValues);
+          if (listParams.status !== undefined && !userStatusFilterSupported) {
+            throw new Error(
+              $t('business.message.userStatusFilterUnavailableInShardMode'),
+            );
+          }
+          let currentPage = Number(page.currentPage || 1);
+          const pageSize = Number(page.pageSize || 10);
+          const queryKey = JSON.stringify([listParams, pageSize]);
+          if (queryKey !== userListCursorQueryKey) {
+            userListCursorQueryKey = queryKey;
+            userListCursorByPage.clear();
+            userListCursorByPage.set(1, '');
+            // 筛选或页大小变化后必须从第一页重建游标链。
+            currentPage = 1;
+            page.currentPage = 1;
+          }
+          if (currentPage > 1 && !userListCursorByPage.has(currentPage)) {
+            // 直接跳页或旧页码缺失游标时回退到首页，避免发送无效分表请求。
+            currentPage = 1;
+            page.currentPage = 1;
+          }
+          lastUserQuery.value = listParams;
+          const response = await fetchUserList({
+            cursorId:
+              currentPage > 1
+                ? userListCursorByPage.get(currentPage)
+                : undefined,
+            page: currentPage,
+            pageSize,
+            ...listParams,
           });
+          await syncUserListCapabilities(response.meta);
+          syncUserListCursor(currentPage, response.meta);
+          return response;
         },
       },
       response: {
@@ -318,18 +381,54 @@ const [Grid, gridApi] = useVbenVxeGrid({
   },
 });
 
+// syncUserListCapabilities 根据后端明确回执同步分表阶段可用筛选项。
+async function syncUserListCapabilities(meta?: UserApi.ListMeta) {
+  const supported = meta?.statusFilterSupported !== false;
+  if (supported === userStatusFilterSupported) {
+    return;
+  }
+  userStatusFilterSupported = supported;
+  if (!supported) {
+    await gridApi.formApi.setFieldValue('status', undefined);
+  }
+  gridApi.formApi.updateSchema(useGridFormSchema(supported));
+}
+
+// syncUserListCursor 记录后端返回的下一页游标，末页同时清理失效的后续页游标。
+function syncUserListCursor(page: number, meta?: UserApi.ListMeta) {
+  if (meta?.exactTotal !== false) {
+    return;
+  }
+  const nextPage = page + 1;
+  const nextCursor = String(meta.nextCursorId || '').trim();
+  for (const pageNo of userListCursorByPage.keys()) {
+    if (pageNo >= nextPage) {
+      userListCursorByPage.delete(pageNo);
+    }
+  }
+  if (meta.hasMore && nextCursor && nextCursor !== '0') {
+    userListCursorByPage.set(nextPage, nextCursor);
+  }
+}
+
 // normalizeListParams 清洗列表查询参数，避免空字符串落到后端条件中。
 function normalizeListParams(values: Record<string, any> = {}) {
   const id = String(values.id || '').trim();
   const shardNo = Number(values.shardNo);
+  // email 和 phone 是分表身份索引的两条独立查询路径，不能组合提交。
+  const email = String(values.email || '').trim();
+  const phone = String(values.phone || '').trim();
+  if (email && phone) {
+    throw new Error($t('business.message.userContactFilterExclusive'));
+  }
   const status =
     values.status === 0 || values.status === 1
       ? (values.status as UserApi.Status)
       : undefined;
   return {
-    email: String(values.email || '').trim() || undefined,
+    email: email || undefined,
     id: /^[1-9]\d*$/.test(id) ? id : undefined,
-    phone: String(values.phone || '').trim() || undefined,
+    phone: phone || undefined,
     shardNo: shardNo >= 0 && shardNo < USER_SHARD_NO_MOD ? shardNo : undefined,
     status,
     username: String(values.username || '').trim() || undefined,
@@ -626,6 +725,9 @@ function saveUserExportSession(replace = false) {
 
 // restoreUserExportSession 恢复菜单切换前的导出状态并续查未完成任务。
 async function restoreUserExportSession() {
+  if (!canQueryUserExport.value) {
+    return;
+  }
   const cached = userExportSession.load();
   if (!cached?.status.jobId) {
     return;
@@ -637,7 +739,9 @@ async function restoreUserExportSession() {
     await refreshUserExportStatus(false);
     return;
   }
-  await downloadReadyUserExportFiles(cached.status, false);
+  if (canDownloadUserExport.value) {
+    await downloadReadyUserExportFiles(cached.status, false);
+  }
 }
 
 // refreshUserExportStatus 查询用户导出进度，并在未完成时继续轮询。
@@ -1003,14 +1107,14 @@ function confirm(content: string, title: string) {
             {{ exportProgressSummary }}
           </span>
           <VbenButton
-            v-if="exportStatus?.jobId"
+            v-if="canQueryUserExport && exportStatus?.jobId"
             :disabled="exportSubmitting"
             @click="refreshUserExportStatus(true)"
           >
             {{ $t('business.message.refreshProgress') }}
           </VbenButton>
           <VbenButton
-            v-if="pendingUserExportDownloadCount > 0"
+            v-if="canDownloadUserExport && pendingUserExportDownloadCount > 0"
             :loading="exportDownloading"
             @click="onDownloadExport"
           >
@@ -1021,9 +1125,7 @@ function confirm(content: string, title: string) {
             }}
           </VbenButton>
           <VbenButton
-            v-access="
-              asActionPermission(USER_ACTION_PERMISSION_CODES.USER_EXPORT)
-            "
+            v-if="canTriggerUserExport"
             :loading="exportSubmitting"
             @click="onTriggerExport"
           >

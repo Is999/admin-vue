@@ -23,6 +23,7 @@ import {
   validateSecretKeyPaths,
 } from '#/api/system';
 import { $t } from '#/locales';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 import { downloadBlobFile } from '#/utils/file/download';
 import { generateLocalRSAPemPair } from '#/utils/security/crypto';
 import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
@@ -298,7 +299,7 @@ async function onSubmit() {
   const isEdit = Boolean(formData.value?.id);
   drawerApi.lock();
   try {
-    await submitWithMfaRetry(
+    const cacheSyncResult = await submitWithMfaRetry(
       MFA_SCENARIO_SECRET_KEY_MANAGE,
       (ticket) =>
         isEdit
@@ -314,7 +315,8 @@ async function onSubmit() {
         ? $t('business.message.secretEditMfaTitle')
         : $t('business.message.secretAddMfaTitle'),
     );
-    message.success(
+    showCacheSyncResult(
+      cacheSyncResult,
       isEdit
         ? $t('business.message.secretEditSucceeded')
         : $t('business.message.secretAddSucceeded'),

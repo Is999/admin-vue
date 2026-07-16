@@ -220,11 +220,7 @@ function handleNotificationsChanged() {
   refreshNotifications().catch(() => undefined);
 }
 
-onMounted(async () => {
-  await refreshNotifications();
-  notificationPoller = window.setInterval(() => {
-    refreshNotifications().catch(() => undefined);
-  }, 30_000);
+onMounted(() => {
   window.addEventListener(
     ACCESS_SYNC_FORBIDDEN_EVENT,
     handleAccessForbiddenSync,
@@ -236,6 +232,10 @@ onMounted(async () => {
   accessSyncPoller = window.setInterval(() => {
     refreshAccessSilently('interval');
   }, ACCESS_SYNC_INTERVAL_MS);
+  notificationPoller = window.setInterval(() => {
+    refreshNotifications().catch(() => undefined);
+  }, 30_000);
+  refreshNotifications().catch(() => undefined);
 });
 
 onBeforeUnmount(() => {

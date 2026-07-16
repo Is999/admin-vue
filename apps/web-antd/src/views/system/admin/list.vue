@@ -18,6 +18,7 @@ import { useRouter } from 'vue-router';
 
 import { Page, useVbenDrawer, useVbenModal, VbenButton } from '@vben/common-ui';
 import { Plus } from '@vben/icons';
+import { useAccessStore } from '@vben/stores';
 
 import {
   Alert,
@@ -46,6 +47,7 @@ import {
 } from '#/api/system';
 import {
   asActionPermission,
+  hasEveryPermission,
   SYSTEM_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
@@ -53,6 +55,7 @@ import {
   buildAdminCacheTargets,
   openSystemCachePage,
 } from '#/utils/cache/navigation';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 import {
   downloadBlobFile,
   ensureDownloadBlobSuccess,
@@ -103,6 +106,30 @@ const MFA_SCENARIO_USER_STATUS = 4;
 const MFA_SCENARIO_EDIT_USER = 6;
 // ADMIN_EXPORT_POLL_INTERVAL_MS 表示管理员导出状态轮询间隔。
 const ADMIN_EXPORT_POLL_INTERVAL_MS = 2000;
+// accessStore 保存当前管理员的接口权限码。
+const accessStore = useAccessStore();
+// canQueryAdminExport 控制管理员导出状态查询入口。
+const canQueryAdminExport = computed(() =>
+  hasEveryPermission(
+    accessStore.accessCodes,
+    SYSTEM_ACTION_PERMISSION_CODES.ADMIN_EXPORT_STATUS,
+  ),
+);
+// canTriggerAdminExport 确保提交导出后有权限继续查询异步进度。
+const canTriggerAdminExport = computed(() =>
+  hasEveryPermission(accessStore.accessCodes, [
+    SYSTEM_ACTION_PERMISSION_CODES.ADMIN_EXPORT,
+    SYSTEM_ACTION_PERMISSION_CODES.ADMIN_EXPORT_DOWNLOAD,
+    SYSTEM_ACTION_PERMISSION_CODES.ADMIN_EXPORT_STATUS,
+  ]),
+);
+// canDownloadAdminExport 控制管理员导出文件下载入口。
+const canDownloadAdminExport = computed(() =>
+  hasEveryPermission(
+    accessStore.accessCodes,
+    SYSTEM_ACTION_PERMISSION_CODES.ADMIN_EXPORT_DOWNLOAD,
+  ),
+);
 // router 用于跳转缓存管理页并带入管理员相关缓存 key。
 const router = useRouter();
 
@@ -619,6 +646,9 @@ function saveAdminExportSession(replace = false) {
 
 // restoreAdminExportSession 恢复菜单切换前的导出状态并续查未完成任务。
 async function restoreAdminExportSession() {
+  if (!canQueryAdminExport.value) {
+    return;
+  }
   const cached = adminExportSession.load();
   if (!cached?.jobId) {
     return;
@@ -703,7 +733,7 @@ async function onStatusChange(newStatus: number, row: SystemAdminApi.Item) {
       ]),
       $t('business.message.switchUserStatus'),
     );
-    await submitWithMfaRetry(
+    const cacheSyncResult = await submitWithMfaRetry(
       MFA_SCENARIO_USER_STATUS,
       (ticket) =>
         updateAdminStatus(
@@ -712,6 +742,10 @@ async function onStatusChange(newStatus: number, row: SystemAdminApi.Item) {
           ticketPayload(ticket),
         ),
       $t('business.message.switchUserStatusMfaTitle'),
+    );
+    showCacheSyncResult(
+      cacheSyncResult,
+      $t('business.message.userStatusUpdated'),
     );
     return true;
   } catch {
@@ -763,8 +797,11 @@ async function onSaveRoles() {
       ),
     $t('business.message.editUserRoleMfaTitle'),
   )
-    .then(() => {
-      message.success($t('business.message.userRolesConfigured'));
+    .then((cacheSyncResult) => {
+      showCacheSyncResult(
+        cacheSyncResult,
+        $t('business.message.userRolesConfigured'),
+      );
       roleModalApi.close();
       onRefresh();
     })
@@ -797,12 +834,15 @@ function onResetPassword(row: SystemAdminApi.Item) {
         message.error(passwordError);
         throw new Error(passwordError);
       }
-      await submitWithMfaRetry(
+      const cacheSyncResult = await submitWithMfaRetry(
         MFA_SCENARIO_RESET_USER_PASSWORD,
         (ticket) => resetAdminPassword(row.id, password, ticketPayload(ticket)),
         $t('business.message.resetPasswordMfaTitle'),
       );
-      message.success($t('business.message.userPasswordReset'));
+      showCacheSyncResult(
+        cacheSyncResult,
+        $t('business.message.userPasswordReset'),
+      );
     },
     title: $t('business.message.resetUserPassword'),
   });
@@ -834,13 +874,16 @@ function onResetInitialState(row: SystemAdminApi.Item) {
         message.error(passwordError);
         throw new Error(passwordError);
       }
-      await submitWithMfaRetry(
+      const cacheSyncResult = await submitWithMfaRetry(
         MFA_SCENARIO_RESET_USER_INITIAL_STATE,
         (ticket) =>
           resetAdminInitialState(row.id, password, ticketPayload(ticket)),
         $t('business.message.resetInitialStateMfaTitle'),
       );
-      message.success($t('business.message.accountResetBeforeFirstLogin'));
+      showCacheSyncResult(
+        cacheSyncResult,
+        $t('business.message.accountResetBeforeFirstLogin'),
+      );
       onRefresh();
     },
     title: $t('business.message.resetInitialState'),
@@ -852,12 +895,12 @@ function onDelete(row: SystemAdminApi.Item) {
   Modal.confirm({
     content: $t('business.message.confirmDeleteUser', [row.username]),
     onOk: async () => {
-      await submitWithMfaRetry(
+      const cacheSyncResult = await submitWithMfaRetry(
         MFA_SCENARIO_DELETE_USER,
         (ticket) => deleteAdmin(row.id, ticketPayload(ticket)),
         $t('business.message.deleteUserMfaTitle'),
       );
-      message.success($t('business.message.userDeleted'));
+      showCacheSyncResult(cacheSyncResult, $t('business.message.userDeleted'));
       onRefresh();
     },
     title: $t('business.message.deleteUser'),
@@ -974,23 +1017,21 @@ function confirm(content: string, title: string) {
             {{ exportProgressSummary }}
           </span>
           <VbenButton
-            v-if="exportStatus?.jobId"
+            v-if="canQueryAdminExport && exportStatus?.jobId"
             :disabled="exportSubmitting"
             @click="refreshAdminExportStatus(true)"
           >
             {{ $t('business.message.refreshProgress') }}
           </VbenButton>
           <VbenButton
-            v-if="exportStatus?.downloadReady"
+            v-if="canDownloadAdminExport && exportStatus?.downloadReady"
             :loading="exportDownloading"
             @click="onDownloadExport"
           >
             {{ $t('business.message.downloadFile') }}
           </VbenButton>
           <VbenButton
-            v-access="
-              asActionPermission(SYSTEM_ACTION_PERMISSION_CODES.ADMIN_EXPORT)
-            "
+            v-if="canTriggerAdminExport"
             :loading="exportSubmitting"
             @click="onTriggerExport"
           >

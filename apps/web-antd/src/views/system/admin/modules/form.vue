@@ -4,7 +4,7 @@ import type { AdminFormValues } from '../form-payload';
 
 import type { SystemAdminApi } from '#/api/system';
 
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 
 import { useVbenDrawer } from '@vben/common-ui';
 
@@ -30,6 +30,7 @@ import {
   updateAdminStatus,
 } from '#/api/system';
 import { $t } from '#/locales';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 import { resolveRequestErrorMessage } from '#/utils/file/download';
 import { cropAvatarFile, resolveDisplayFileURL } from '#/utils/file/image';
 import { submitWithMfaRetry, ticketPayload } from '#/utils/security/mfa';
@@ -77,6 +78,8 @@ const roleTree = ref<Array<Record<string, any>>>([]);
 const avatarUploading = ref(false);
 // avatarPreviewURL 保存当前头像预览地址。
 const avatarPreviewURL = ref('');
+// avatarLocalPreviewURL 保存上传后、资料保存前的本地预览地址。
+const avatarLocalPreviewURL = ref('');
 // avatarInputRef 绑定头像文件选择器。
 const avatarInputRef = ref<HTMLInputElement | null>(null);
 // roleKeyword 保存角色树筛选关键字。
@@ -85,6 +88,17 @@ const roleKeyword = ref('');
 const selectedRoleIds = ref<number[]>([]);
 // expandedRoleIds 保存角色树已展开节点。
 const expandedRoleIds = ref<number[]>([]);
+
+// clearAvatarLocalPreviewURL 释放头像本地预览对象，避免反复打开抽屉积累 Blob URL。
+function clearAvatarLocalPreviewURL() {
+  if (avatarLocalPreviewURL.value) {
+    URL.revokeObjectURL(avatarLocalPreviewURL.value);
+    avatarLocalPreviewURL.value = '';
+  }
+}
+
+// onBeforeUnmount 组件销毁时释放头像本地预览对象。
+onBeforeUnmount(clearAvatarLocalPreviewURL);
 
 // [Form, formApi] 创建 Vben 表单实例。
 const [Form, formApi] = useVbenForm({
@@ -170,9 +184,11 @@ const [Drawer, drawerApi] = useVbenDrawer({
   onConfirm: onSubmit,
   async onOpenChange(isOpen) {
     if (!isOpen) {
+      clearAvatarLocalPreviewURL();
       return;
     }
     const data = drawerApi.getData<Partial<SystemAdminApi.Item>>();
+    clearAvatarLocalPreviewURL();
     formApi.resetForm();
     formData.value = {};
     roleKeyword.value = '';
@@ -300,10 +316,9 @@ async function onAvatarFileChange(event: Event) {
     if (!avatarURL) {
       throw new Error($t('business.message.avatarUploadNoAccessUrl'));
     }
-    avatarPreviewURL.value = resolveDisplayFileURL(
-      avatarURL,
-      requestClient.getBaseUrl(),
-    );
+    clearAvatarLocalPreviewURL();
+    avatarLocalPreviewURL.value = URL.createObjectURL(file);
+    avatarPreviewURL.value = avatarLocalPreviewURL.value;
     await formApi.setFieldValue('avatar', avatarURL, false);
     message.success($t('business.message.avatarUploadedSaveToApply'));
   } catch (error) {
@@ -352,10 +367,12 @@ async function onSubmit() {
     return;
   }
   drawerApi.lock();
+  // 编辑包含资料、状态和 MFA 多步提交；任一步待同步都必须保留最终警告。
+  let syncPending = false;
   try {
     if (isEdit) {
       const updatePayload = buildUpdateAdminParams(values, roleIDs);
-      await submitWithMfaRetry(
+      const cacheSyncResult = await submitWithMfaRetry(
         MFA_SCENARIO_EDIT_USER,
         (ticket) =>
           updateAdmin(adminID, {
@@ -364,6 +381,7 @@ async function onSubmit() {
           }),
         $t('business.message.editUserMfaTitle'),
       );
+      syncPending = syncPending || Boolean(cacheSyncResult?.syncPending);
     } else {
       const createPayload = buildCreateAdminParams(values, roleIDs);
       await submitWithMfaRetry(
@@ -377,15 +395,16 @@ async function onSubmit() {
       );
     }
     if (shouldUpdateStatus) {
-      await submitWithMfaRetry(
+      const cacheSyncResult = await submitWithMfaRetry(
         MFA_SCENARIO_USER_STATUS,
         (ticket) =>
           updateAdminStatus(adminID, nextStatus, ticketPayload(ticket)),
         $t('business.message.switchUserStatusMfaTitle'),
       );
+      syncPending = syncPending || Boolean(cacheSyncResult?.syncPending);
     }
     if (shouldUpdateMfaStatus) {
-      await submitWithMfaRetry(
+      const cacheSyncResult = await submitWithMfaRetry(
         MFA_SCENARIO_MFA_STATUS,
         (ticket) =>
           updateAdminMfaStatus(adminID, {
@@ -394,8 +413,10 @@ async function onSubmit() {
           }),
         $t('business.message.switchUserMfaStatusMfaTitle'),
       );
+      syncPending = syncPending || Boolean(cacheSyncResult?.syncPending);
     }
-    message.success(
+    showCacheSyncResult(
+      { syncPending },
       isEdit
         ? $t('business.message.userUpdated')
         : $t('business.message.userCreated'),

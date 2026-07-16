@@ -447,9 +447,10 @@ export function useColumns<T = SystemSecretKeyApi.Item>(
             icon: 'edit',
             iconOnly: true,
             text: $t('business.message.edit'),
-            auth: asActionPermission(
+            allAuth: asActionPermission([
               SYSTEM_ACTION_PERMISSION_CODES.SECRET_KEY_EDIT,
-            ),
+              SYSTEM_ACTION_PERMISSION_CODES.SECRET_KEY_GET,
+            ]),
           },
           {
             code: 'cache',

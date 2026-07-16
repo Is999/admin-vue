@@ -28,6 +28,7 @@ import {
   buildConfigCacheTargets,
   openSystemCachePage,
 } from '#/utils/cache/navigation';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 import {
   downloadBlobFile,
   ensureDownloadBlobSuccess,
@@ -320,7 +321,8 @@ async function onImportFileChange(event: Event) {
       file,
     });
     const result = await importConfigExcel(session.uploadId);
-    message.success(
+    showCacheSyncResult(
+      result,
       $t('business.message.dictionaryImportCompleted', [
         result.created,
         result.updated,

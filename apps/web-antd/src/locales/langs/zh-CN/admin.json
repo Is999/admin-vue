@@ -170,6 +170,7 @@
     "pollIntervalDesc": "DB 模式只轮询 active 版本状态",
     "primaryKey": "主键列",
     "publishConfig": "发布运行配置",
+    "publishApplyPending": "版本已提交，但当前实例尚未完成运行态应用；后台 watcher 将继续重试，请关注热加载状态",
     "publishDescription": "发布会读取当前草稿生成不可变快照，并刷新运行配置缓存。",
     "publishDraft": "发布草稿",
     "publishSuccess": "运行配置已发布",

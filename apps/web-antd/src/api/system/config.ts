@@ -54,6 +54,7 @@ export namespace SystemConfigApi {
     created: number; // 新增数量
     updated: number; // 更新数量
     skipped: number; // 跳过数量
+    syncPending: boolean; // 是否仍需操作员手动刷新配置缓存
   }
 }
 
@@ -79,7 +80,7 @@ export async function fetchBoundedConfigItems() {
 
 // createConfig 新增字典配置。
 export async function createConfig(data: SystemConfigApi.SaveParams) {
-  return requestClient.post('/dicts', data);
+  return requestClient.post<CommonApi.CacheSyncResp>('/dicts', data);
 }
 
 // downloadConfigExcel 导出字典配置 Excel。
@@ -107,7 +108,7 @@ export async function updateConfig(
   id: number,
   data: SystemConfigApi.SaveParams,
 ) {
-  return requestClient.patch(`/dicts/${id}`, data);
+  return requestClient.patch<CommonApi.CacheSyncResp>(`/dicts/${id}`, data);
 }
 
 // fetchConfigCache 查看字典配置缓存。

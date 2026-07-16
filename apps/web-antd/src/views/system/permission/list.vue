@@ -9,7 +9,7 @@ import { useRouter } from 'vue-router';
 import { Page, useVbenDrawer, VbenButton } from '@vben/common-ui';
 import { Plus } from '@vben/icons';
 
-import { message, Modal } from 'ant-design-vue';
+import { Modal } from 'ant-design-vue';
 
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
 import {
@@ -24,9 +24,9 @@ import {
 import { $t } from '#/locales';
 import {
   buildPermissionCacheTargets,
-  buildPermissionCacheTemplateKeys,
   openSystemCachePage,
 } from '#/utils/cache/navigation';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 
 import TreeExpandToolbar from '../components/tree-expand-toolbar.vue';
 import { useColumns, useGridFormSchema } from './data';
@@ -412,7 +412,6 @@ function onRefresh() {
 async function onOpenPermissionCache() {
   await openSystemCachePage(router, {
     source: $t('business.message.permissionManagement'),
-    templateKeys: buildPermissionCacheTemplateKeys(),
     targets: buildPermissionCacheTargets(),
   });
 }
@@ -431,9 +430,13 @@ async function onStatusChange(newStatus: number, row: PermissionTreeRow) {
       ]),
       $t('business.message.switchPermissionStatus'),
     );
-    await updatePermissionStatus(
+    const cacheSyncResult = await updatePermissionStatus(
       row.id,
       newStatus as SystemPermissionApi.Status,
+    );
+    showCacheSyncResult(
+      cacheSyncResult,
+      $t('business.message.permissionStatusUpdated'),
     );
     updatePermissionStatusCache(
       Number(row.id),
@@ -463,8 +466,11 @@ function onDelete(row: SystemPermissionApi.Item) {
       ]),
     okType: 'danger',
     onOk: async () => {
-      await deletePermission(row.id);
-      message.success($t('business.message.permissionDeleted'));
+      const cacheSyncResult = await deletePermission(row.id);
+      showCacheSyncResult(
+        cacheSyncResult,
+        $t('business.message.permissionDeleted'),
+      );
       onRefresh();
     },
     title: $t('business.message.deletePermissionDangerTitle'),

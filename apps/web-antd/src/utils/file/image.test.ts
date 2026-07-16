@@ -28,7 +28,7 @@ describe('resolveDisplayFileURL', () => {
     expect(resolveDisplayFileURL('http://[')).toBe('');
   });
 
-  it('requires uploadId for managed file access URLs', () => {
+  it('requires objectKey for managed file access URLs', () => {
     expect(
       resolveDisplayFileURL(
         '/api/file-transfer/access',
@@ -37,10 +37,12 @@ describe('resolveDisplayFileURL', () => {
     ).toBe('');
     expect(
       resolveDisplayFileURL(
-        '/api/file-transfer/access?uploadId=upload-1',
+        '/api/file-transfer/access?objectKey=admin-avatar%2F202607%2F16%2Favatar.png',
         'https://admin.example',
       ),
-    ).toBe('https://admin.example/api/file-transfer/access?uploadId=upload-1');
+    ).toBe(
+      'https://admin.example/api/file-transfer/access?objectKey=admin-avatar%2F202607%2F16%2Favatar.png',
+    );
   });
 });
 

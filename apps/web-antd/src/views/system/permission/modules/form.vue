@@ -6,8 +6,6 @@ import { computed, ref } from 'vue';
 
 import { useVbenDrawer } from '@vben/common-ui';
 
-import { message } from 'ant-design-vue';
-
 import { useVbenForm } from '#/adapter/form';
 import {
   createPermission,
@@ -16,6 +14,7 @@ import {
   updatePermission,
 } from '#/api/system';
 import { $t } from '#/locales';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 
 import FormTips from '../../components/form-tips.vue';
 import { useFormSchema } from '../data';
@@ -153,8 +152,9 @@ async function onSubmit() {
     ? updatePermission(formData.value.id, values)
     : createPermission(values);
   action
-    .then(() => {
-      message.success(
+    .then((cacheSyncResult) => {
+      showCacheSyncResult(
+        cacheSyncResult,
         formData.value?.id
           ? $t('business.message.permissionUpdated')
           : $t('business.message.permissionCreated'),

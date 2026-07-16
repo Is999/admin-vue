@@ -107,8 +107,8 @@ function normalizeDisplayFileBaseURL(baseURL: string, fallbackOrigin: string) {
   return new URL(normalizedBaseURL, fallbackOrigin).toString();
 }
 
-// isInvalidManagedAccessURL 判断统一文件访问地址是否缺少必要的 uploadId。
-// 缺少 uploadId 时直接忽略，避免头像预览打出无效访问请求。
+// isInvalidManagedAccessURL 判断统一公开文件访问地址是否缺少持久化对象 key。
+// 缺少 objectKey 时直接忽略，避免头像预览打出无效访问请求。
 function isInvalidManagedAccessURL(url: URL) {
   const normalizedPath = String(url.pathname || '').trim();
   if (
@@ -117,7 +117,7 @@ function isInvalidManagedAccessURL(url: URL) {
   ) {
     return false;
   }
-  return String(url.searchParams.get('uploadId') || '').trim() === '';
+  return String(url.searchParams.get('objectKey') || '').trim() === '';
 }
 
 // cropAvatarFile 打开头像裁剪弹窗，并返回裁剪后的文件对象。

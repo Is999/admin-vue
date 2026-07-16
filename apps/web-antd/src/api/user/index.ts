@@ -27,6 +27,7 @@ export namespace UserApi {
   export interface ListParams {
     page?: number; // 当前页码
     pageSize?: number; // 每页条数
+    cursorId?: string; // 分表阶段下一页用户 ID 游标，首页不传
     id?: string; // 用户雪花 ID
     shardNo?: number; // 取模分片
     username?: string; // 用户名前缀
@@ -95,6 +96,9 @@ export namespace UserApi {
   // ListMeta 表示用户列表附加分页口径。
   export interface ListMeta {
     exactTotal?: boolean; // 是否为精确总数
+    hasMore?: boolean; // 分表阶段是否仍有下一页
+    nextCursorId?: string; // 下一页用户 ID 游标，末页为空或 0
+    statusFilterSupported?: boolean; // 当前列表模式是否支持状态筛选
   }
 
   // ListResult 表示用户列表响应。

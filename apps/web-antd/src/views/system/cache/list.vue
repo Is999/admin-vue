@@ -144,7 +144,6 @@ const cacheSearchProviderPrefixes = [
   'admin_roles_detail:',
   'config_uuid:',
   'role_permission:',
-  'route_permission_ids:',
   'secret_key_aes:',
   'secret_key_route:',
   'secret_key_rsa:',

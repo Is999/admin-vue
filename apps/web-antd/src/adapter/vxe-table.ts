@@ -560,6 +560,16 @@ setupVbenVxeTable({
           if (typeof item !== 'string' && item?.visible === false) {
             return false;
           }
+          // allAuth 用于必须同时具备多个接口权限的复合行操作；auth 继续保留原有任一权限语义。
+          const allAuth = item?.allAuth;
+          if (allAuth) {
+            const requiredCodes = Array.isArray(allAuth) ? allAuth : [allAuth];
+            if (
+              !requiredCodes.every((code: string) => hasAccessByCodes([code]))
+            ) {
+              return false;
+            }
+          }
           const auth = item?.auth;
           if (!auth) return true;
           const auths = Array.isArray(auth) ? auth : [auth];

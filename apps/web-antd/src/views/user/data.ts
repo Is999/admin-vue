@@ -21,7 +21,9 @@ export function userStatusOptions() {
 const USER_SHARD_NO_MAX = 1023;
 
 // useGridFormSchema 返回用户列表筛选表单配置。
-export function useGridFormSchema(): VbenFormSchema[] {
+export function useGridFormSchema(
+  statusFilterSupported = true,
+): VbenFormSchema[] {
   return [
     {
       component: 'Input',
@@ -77,8 +79,11 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.accountStatus'),
       componentProps: {
         allowClear: true,
+        disabled: !statusFilterSupported,
         options: userStatusOptions(),
-        placeholder: $t('business.message.filterByStatus'),
+        placeholder: statusFilterSupported
+          ? $t('business.message.filterByStatus')
+          : $t('business.message.userStatusFilterUnavailableInShardMode'),
       },
     },
   ];
@@ -172,7 +177,10 @@ export function useColumns<T = UserApi.Item>(
         name: 'CellOperation',
         options: [
           {
-            auth: asActionPermission(USER_ACTION_PERMISSION_CODES.USER_UPDATE),
+            allAuth: asActionPermission([
+              USER_ACTION_PERMISSION_CODES.USER_UPDATE,
+              USER_ACTION_PERMISSION_CODES.USER_INFO,
+            ]),
             code: 'edit',
             iconOnly: true,
             text: $t('business.message.edit'),

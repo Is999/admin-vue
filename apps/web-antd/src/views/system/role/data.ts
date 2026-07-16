@@ -200,7 +200,7 @@ export function useColumns<T = SystemRoleApi.Item>(
             icon: 'setting',
             iconOnly: true,
             text: $t('business.message.permissionConfig'),
-            auth: asActionPermission([
+            allAuth: asActionPermission([
               SYSTEM_ACTION_PERMISSION_CODES.ROLE_PERMISSION_TREE,
               SYSTEM_ACTION_PERMISSION_CODES.ROLE_PERMISSION_UPDATE,
             ]),

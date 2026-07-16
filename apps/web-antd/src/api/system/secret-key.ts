@@ -153,7 +153,7 @@ export async function fetchSecretKeyDetail(
 
 // createSecretKey 新增秘钥配置。
 export async function createSecretKey(data: SystemSecretKeyApi.SaveParams) {
-  return requestClient.post('/secret-keys', data);
+  return requestClient.post<CommonApi.CacheSyncResp>('/secret-keys', data);
 }
 
 // updateSecretKey 编辑秘钥配置。
@@ -161,7 +161,10 @@ export async function updateSecretKey(
   id: number,
   data: SystemSecretKeyApi.SaveParams,
 ) {
-  return requestClient.patch(`/secret-keys/${id}`, data);
+  return requestClient.patch<CommonApi.CacheSyncResp>(
+    `/secret-keys/${id}`,
+    data,
+  );
 }
 
 // updateSecretKeyStatus 修改秘钥启用状态。
@@ -170,10 +173,13 @@ export async function updateSecretKeyStatus(
   status: SystemSecretKeyApi.Status,
   twoStep?: CommonApi.TwoStepReq,
 ) {
-  return requestClient.patch(`/secret-keys/status/${id}`, {
-    status,
-    ...twoStep,
-  });
+  return requestClient.patch<CommonApi.CacheSyncResp>(
+    `/secret-keys/status/${id}`,
+    {
+      status,
+      ...twoStep,
+    },
+  );
 }
 
 // renewSecretKeyCache 刷新指定 AppID 的秘钥缓存。

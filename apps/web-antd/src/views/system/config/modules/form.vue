@@ -15,6 +15,7 @@ import {
   updateConfig,
 } from '#/api/system';
 import { $t } from '#/locales';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 import { resolveRequestErrorMessage } from '#/utils/file/download';
 
 import FormTips from '../../components/form-tips.vue';
@@ -182,10 +183,11 @@ async function onSubmit() {
   };
   drawerApi.lock();
   try {
-    await (formData.value?.id
+    const cacheSyncResult = await (formData.value?.id
       ? updateConfig(formData.value.id, payload)
       : createConfig(payload));
-    message.success(
+    showCacheSyncResult(
+      cacheSyncResult,
       formData.value?.id
         ? $t('business.message.dictionaryUpdated')
         : $t('business.message.dictionaryCreated'),

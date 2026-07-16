@@ -235,9 +235,10 @@ export function useColumns<T = SystemAdminApi.Item>(
             code: 'edit',
             iconOnly: true,
             text: $t('business.message.edit'),
-            auth: asActionPermission(
+            allAuth: asActionPermission([
               SYSTEM_ACTION_PERMISSION_CODES.ADMIN_UPDATE,
-            ),
+              SYSTEM_ACTION_PERMISSION_CODES.ADMIN_INFO,
+            ]),
           },
           {
             code: 'cache',
@@ -252,9 +253,10 @@ export function useColumns<T = SystemAdminApi.Item>(
             code: 'roleConfig',
             iconOnly: true,
             text: $t('business.message.roleConfig'),
-            auth: asActionPermission(
+            allAuth: asActionPermission([
               SYSTEM_ACTION_PERMISSION_CODES.ADMIN_ROLE_UPDATE,
-            ),
+              SYSTEM_ACTION_PERMISSION_CODES.ADMIN_ROLE_LIST,
+            ]),
           },
           {
             code: 'delete',

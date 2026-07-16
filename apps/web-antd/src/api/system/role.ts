@@ -72,17 +72,17 @@ export async function fetchRoleParentTreeOptions() {
 
 // createRole 新增角色。
 export async function createRole(data: SystemRoleApi.SaveParams) {
-  return requestClient.post('/roles', data);
+  return requestClient.post<CommonApi.CacheSyncResp>('/roles', data);
 }
 
 // updateRole 编辑角色。
 export async function updateRole(id: number, data: SystemRoleApi.SaveParams) {
-  return requestClient.patch(`/roles/${id}`, data);
+  return requestClient.patch<CommonApi.CacheSyncResp>(`/roles/${id}`, data);
 }
 
 // deleteRole 删除角色。
 export async function deleteRole(id: number) {
-  return requestClient.delete(`/roles/${id}`);
+  return requestClient.delete<CommonApi.CacheSyncResp>(`/roles/${id}`);
 }
 
 // updateRoleStatus 修改角色状态。
@@ -90,7 +90,9 @@ export async function updateRoleStatus(
   id: number,
   status: SystemRoleApi.Status,
 ) {
-  return requestClient.patch(`/roles/status/${id}`, { status });
+  return requestClient.patch<CommonApi.CacheSyncResp>(`/roles/status/${id}`, {
+    status,
+  });
 }
 
 // fetchRolePermissionTree 查询角色权限树，checked 字段表示已授权。
@@ -102,5 +104,8 @@ export async function fetchRolePermissionTree(id: number, isPid = false) {
 
 // updateRolePermissions 覆盖保存角色权限。
 export async function updateRolePermissions(id: number, permissions: number[]) {
-  return requestClient.patch(`/roles/permissions/${id}`, { permissions });
+  return requestClient.patch<CommonApi.CacheSyncResp>(
+    `/roles/permissions/${id}`,
+    { permissions },
+  );
 }

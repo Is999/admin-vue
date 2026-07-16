@@ -170,6 +170,7 @@
     "pollIntervalDesc": "DB mode only polls active version state",
     "primaryKey": "Primary Key",
     "publishConfig": "Publish Runtime Config",
+    "publishApplyPending": "The version was committed but has not been applied by this instance. The background watcher will keep retrying; monitor the reload status.",
     "publishDescription": "Publish reads the current draft, creates an immutable snapshot, and refreshes runtime config cache.",
     "publishDraft": "Publish Draft",
     "publishSuccess": "Runtime config published",

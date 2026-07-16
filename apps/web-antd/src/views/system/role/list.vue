@@ -32,6 +32,7 @@ import {
   buildRoleCacheTemplateKeys,
   openSystemCachePage,
 } from '#/utils/cache/navigation';
+import { showCacheSyncResult } from '#/utils/cache/sync';
 
 import TreeExpandToolbar from '../components/tree-expand-toolbar.vue';
 import { useColumns, useGridFormSchema } from './data';
@@ -302,7 +303,14 @@ async function onStatusChange(newStatus: number, row: SystemRoleApi.Item) {
           ]),
           $t('business.message.switchRoleStatus'),
         ));
-    await updateRoleStatus(row.id, newStatus as SystemRoleApi.Status);
+    const cacheSyncResult = await updateRoleStatus(
+      row.id,
+      newStatus as SystemRoleApi.Status,
+    );
+    showCacheSyncResult(
+      cacheSyncResult,
+      $t('business.message.roleStatusUpdated'),
+    );
     return true;
   } catch {
     return false;
@@ -344,16 +352,21 @@ async function onSavePermissions() {
   const savedRoleID = currentRole.value.id;
   permissionModalApi.setState({ loading: true });
   updateRolePermissions(savedRoleID, permissionIDs)
-    .then(async () => {
-      message.success($t('business.message.rolePermissionsConfigured'));
-      await refreshCurrentAccessAfterRolePermissionSave(savedRoleID).catch(
-        () => {
-          accessStore.setIsAccessChecked(false);
-          message.warning(
-            $t('business.message.currentMenuPermissionsRefreshFailed'),
-          );
-        },
+    .then(async (cacheSyncResult) => {
+      showCacheSyncResult(
+        cacheSyncResult,
+        $t('business.message.rolePermissionsConfigured'),
       );
+      if (!cacheSyncResult?.syncPending) {
+        await refreshCurrentAccessAfterRolePermissionSave(savedRoleID).catch(
+          () => {
+            accessStore.setIsAccessChecked(false);
+            message.warning(
+              $t('business.message.currentMenuPermissionsRefreshFailed'),
+            );
+          },
+        );
+      }
       permissionModalApi.close();
       onRefresh();
     })
@@ -406,8 +419,8 @@ function onDelete(row: SystemRoleApi.Item) {
       ]),
     okType: 'danger',
     onOk: async () => {
-      await deleteRole(row.id);
-      message.success($t('business.message.roleDeleted'));
+      const cacheSyncResult = await deleteRole(row.id);
+      showCacheSyncResult(cacheSyncResult, $t('business.message.roleDeleted'));
       onRefresh();
     },
     title: $t('business.message.deleteRoleDangerTitle'),

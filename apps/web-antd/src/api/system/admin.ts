@@ -168,7 +168,7 @@ export async function updateAdmin(
   id: number,
   data: SystemAdminApi.UpdateParams,
 ) {
-  return requestClient.patch(`/admins/${id}`, data);
+  return requestClient.patch<CommonApi.CacheSyncResp>(`/admins/${id}`, data);
 }
 
 // updateAdminMfaStatus 修改管理员 MFA 状态。
@@ -176,12 +176,15 @@ export async function updateAdminMfaStatus(
   id: number,
   data: SystemAdminApi.MfaStatusParams,
 ) {
-  return requestClient.patch(`/admins/mfa-status/${id}`, data);
+  return requestClient.patch<CommonApi.CacheSyncResp>(
+    `/admins/mfa-status/${id}`,
+    data,
+  );
 }
 
 // deleteAdmin 删除管理员。
 export async function deleteAdmin(id: number, twoStep?: CommonApi.TwoStepReq) {
-  return requestClient.delete(`/admins/${id}`, {
+  return requestClient.delete<CommonApi.CacheSyncResp>(`/admins/${id}`, {
     data: { ...twoStep },
   });
 }
@@ -192,7 +195,10 @@ export async function updateAdminStatus(
   status: SystemAdminApi.Status,
   twoStep?: CommonApi.TwoStepReq,
 ) {
-  return requestClient.patch(`/admins/status/${id}`, { status, ...twoStep });
+  return requestClient.patch<CommonApi.CacheSyncResp>(`/admins/status/${id}`, {
+    status,
+    ...twoStep,
+  });
 }
 
 // resetAdminPassword 重置管理员密码。
@@ -201,10 +207,13 @@ export async function resetAdminPassword(
   password: string,
   twoStep?: CommonApi.TwoStepReq,
 ) {
-  return requestClient.post(`/admins/password/reset/${id}`, {
-    password,
-    ...twoStep,
-  });
+  return requestClient.post<CommonApi.CacheSyncResp>(
+    `/admins/password/reset/${id}`,
+    {
+      password,
+      ...twoStep,
+    },
+  );
 }
 
 // resetAdminInitialState 重置管理员到首次登录前状态。
@@ -213,10 +222,13 @@ export async function resetAdminInitialState(
   password: string,
   twoStep?: CommonApi.TwoStepReq,
 ) {
-  return requestClient.post(`/admins/initial-state/reset/${id}`, {
-    password,
-    ...twoStep,
-  });
+  return requestClient.post<CommonApi.CacheSyncResp>(
+    `/admins/initial-state/reset/${id}`,
+    {
+      password,
+      ...twoStep,
+    },
+  );
 }
 
 // fetchAdminRoles 查询管理员已绑定角色。
@@ -230,5 +242,8 @@ export async function updateAdminRoles(
   roleIDs: number[],
   payload?: CommonApi.TwoStepReq,
 ) {
-  return requestClient.patch(`/admins/roles/${id}`, { roleIDs, ...payload });
+  return requestClient.patch<CommonApi.CacheSyncResp>(`/admins/roles/${id}`, {
+    roleIDs,
+    ...payload,
+  });
 }

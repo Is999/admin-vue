@@ -83,7 +83,7 @@ export async function fetchPermissionMaxUuid() {
 
 // createPermission 新增权限。
 export async function createPermission(data: SystemPermissionApi.SaveParams) {
-  return requestClient.post('/permissions', data);
+  return requestClient.post<CommonApi.CacheSyncResp>('/permissions', data);
 }
 
 // updatePermission 编辑权限。
@@ -91,12 +91,15 @@ export async function updatePermission(
   id: number,
   data: SystemPermissionApi.SaveParams,
 ) {
-  return requestClient.patch(`/permissions/${id}`, data);
+  return requestClient.patch<CommonApi.CacheSyncResp>(
+    `/permissions/${id}`,
+    data,
+  );
 }
 
 // deletePermission 删除权限。
 export async function deletePermission(id: number) {
-  return requestClient.delete(`/permissions/${id}`);
+  return requestClient.delete<CommonApi.CacheSyncResp>(`/permissions/${id}`);
 }
 
 // updatePermissionStatus 修改权限状态。
@@ -104,5 +107,8 @@ export async function updatePermissionStatus(
   id: number,
   status: SystemPermissionApi.Status,
 ) {
-  return requestClient.patch(`/permissions/status/${id}`, { status });
+  return requestClient.patch<CommonApi.CacheSyncResp>(
+    `/permissions/status/${id}`,
+    { status },
+  );
 }

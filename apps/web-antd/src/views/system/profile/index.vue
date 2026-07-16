@@ -135,10 +135,20 @@ const profileNeedResetPassword = computed(
 const avatarUploading = ref(false);
 // avatarPreviewURL 保存当前头像预览地址。
 const avatarPreviewURL = ref('');
+// avatarLocalPreviewURL 保存上传后、资料保存前的本地预览地址。
+const avatarLocalPreviewURL = ref('');
 // avatarPreviewFailed 标识当前头像预览是否加载失败，失败后回退到占位展示。
 const avatarPreviewFailed = ref(false);
 // avatarInputRef 绑定头像文件选择器。
 const avatarInputRef = ref<HTMLInputElement | null>(null);
+
+// clearAvatarLocalPreviewURL 释放头像本地预览对象，避免重复上传积累 Blob URL。
+function clearAvatarLocalPreviewURL() {
+  if (avatarLocalPreviewURL.value) {
+    URL.revokeObjectURL(avatarLocalPreviewURL.value);
+    avatarLocalPreviewURL.value = '';
+  }
+}
 
 // formatProfileText 归一化个人信息展示值，避免空字符串把表格撑成空白。
 function formatProfileText(value: unknown) {
@@ -250,6 +260,7 @@ onMounted(() => {
 
 // onBeforeUnmount 组件销毁时清理全局 MFA 状态同步监听。
 onBeforeUnmount(() => {
+  clearAvatarLocalPreviewURL();
   if (typeof window !== 'undefined') {
     window.removeEventListener('login-mfa-user-updated', onLoginMfaUserUpdated);
   }
@@ -260,11 +271,14 @@ async function loadProfile() {
   loading.value = true;
   try {
     const data = await fetchProfileInfo();
-    profile.value = data;
-    avatarPreviewURL.value = resolveDisplayFileURL(
+    // nextAvatarPreviewURL 在释放本地预览前先准备好新头像地址。
+    const nextAvatarPreviewURL = resolveDisplayFileURL(
       String(data.avatar || ''),
       requestClient.getBaseUrl(),
     );
+    clearAvatarLocalPreviewURL();
+    profile.value = data;
+    avatarPreviewURL.value = nextAvatarPreviewURL;
     avatarPreviewFailed.value = false;
     profileFormApi.setValues(profile.value);
   } finally {
@@ -338,10 +352,9 @@ async function onAvatarFileChange(event: Event) {
     if (!avatarURL) {
       throw new Error($t('business.message.avatarUploadMissingUrl'));
     }
-    avatarPreviewURL.value = resolveDisplayFileURL(
-      avatarURL,
-      requestClient.getBaseUrl(),
-    );
+    clearAvatarLocalPreviewURL();
+    avatarLocalPreviewURL.value = URL.createObjectURL(file);
+    avatarPreviewURL.value = avatarLocalPreviewURL.value;
     avatarPreviewFailed.value = false;
     profile.value = {
       ...profile.value,

@@ -22,6 +22,9 @@ export const SYSTEM_ACTION_PERMISSION_CODES = {
   ADMIN_ADD: '100025',
   ADMIN_DELETE: '100071',
   ADMIN_EXPORT: '100074',
+  ADMIN_EXPORT_DOWNLOAD: '100077',
+  ADMIN_EXPORT_STATUS: '100076',
+  ADMIN_INFO: '100072',
   ADMIN_PASSWORD_RESET: '100033',
   ADMIN_RESET_INITIAL_STATE: '100075',
   ADMIN_ROLE_LIST: '100029',
@@ -228,6 +231,18 @@ export function hasAnyPermission(
     ? targetCodes
     : [targetCodes];
   return currentTargetCodes.some((code) => currentOwnedCodes.has(code));
+}
+
+// hasEveryPermission 判断当前权限集合中是否拥有全部目标权限码。
+export function hasEveryPermission(
+  ownedCodes: readonly string[] | undefined,
+  targetCodes: PermissionCode | readonly PermissionCode[],
+) {
+  const currentOwnedCodes = new Set(ownedCodes || []);
+  const currentTargetCodes = Array.isArray(targetCodes)
+    ? targetCodes
+    : [targetCodes];
+  return currentTargetCodes.every((code) => currentOwnedCodes.has(code));
 }
 
 // hasSuperAdminRoleId 判断当前角色 ID 列表中是否包含超级管理员角色。
