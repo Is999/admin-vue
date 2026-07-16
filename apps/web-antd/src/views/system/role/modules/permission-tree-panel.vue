@@ -16,12 +16,14 @@ import {
 
 import { $t, $te } from '#/locales';
 
+import TreeExpandToolbar from '../../components/tree-expand-toolbar.vue';
 import { typeOptions, typeTagMeta } from '../../permission/data';
 import {
   buildDisplayedPermissionCheckedIds,
   buildPermissionRelationMaps,
   buildPermissionViewTree,
   collectAllPermissionIds,
+  collectPermissionIdsByDepth,
   collectPermissionState,
   isPermissionNodeCheckable,
   updateSelectedPermissionIds,
@@ -239,6 +241,28 @@ function onCollapseAll() {
   expandedPermissionIds.value = [];
 }
 
+// onExpandLevel 补充展开前 N 层节点，同时保留用户已手动展开的更深层节点。
+function onExpandLevel(level: number) {
+  const targetIds = collectPermissionIdsByDepth(
+    filteredPermissionTree.value,
+    1,
+    level - 1,
+  );
+  expandedPermissionIds.value = [
+    ...new Set([...expandedPermissionIds.value, ...targetIds]),
+  ];
+}
+
+// onCollapseLevel 从第 N 层开始折叠节点及后代，保留更高层级的展开状态。
+function onCollapseLevel(level: number) {
+  const collapsedIds = new Set(
+    collectPermissionIdsByDepth(filteredPermissionTree.value, level),
+  );
+  expandedPermissionIds.value = expandedPermissionIds.value.filter(
+    (item) => !collapsedIds.has(item),
+  );
+}
+
 // onCheckAllEnabled 勾选全部可用权限。
 function onCheckAllEnabled() {
   const walk = (items: SystemPermissionApi.Item[]): number[] =>
@@ -374,12 +398,12 @@ watch(
         </Checkbox>
       </Space>
       <Space wrap>
-        <Button size="small" @click="onExpandAll">
-          {{ $t('business.message.expand') }}
-        </Button>
-        <Button size="small" @click="onCollapseAll">
-          {{ $t('business.message.collapse') }}
-        </Button>
+        <TreeExpandToolbar
+          :collapse-all-handler="onCollapseAll"
+          :collapse-level-handler="onCollapseLevel"
+          :expand-all-handler="onExpandAll"
+          :expand-level-handler="onExpandLevel"
+        />
         <Button v-if="canWrite" size="small" @click="onCheckAllEnabled">
           {{ $t('business.message.checkAllEnabled') }}
         </Button>

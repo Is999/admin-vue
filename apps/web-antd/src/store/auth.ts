@@ -131,7 +131,7 @@ export const useAuthStore = defineStore('auth', () => {
         });
         assertCurrentLoginAttempt(attemptVersion);
         await router.push({
-          name: 'SystemProfile',
+          path: APP_DEFAULT_HOME_PATH,
           query: { forceChangePassword: '1' },
         });
         assertCurrentLoginAttempt(attemptVersion);

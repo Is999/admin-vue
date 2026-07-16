@@ -21,7 +21,7 @@ const props = withDefaults(
     collapseLevelHandler?: TreeExpandLevelHandler;
     expandAllHandler?: TreeExpandHandler;
     expandLevelHandler?: TreeExpandLevelHandler;
-    gridApi: TreeExpandGridApi;
+    gridApi?: TreeExpandGridApi;
     maxLevel?: number;
     minLevel?: number;
   }>(),
@@ -31,6 +31,7 @@ const props = withDefaults(
     collapseLevelHandler: undefined,
     expandAllHandler: undefined,
     expandLevelHandler: undefined,
+    gridApi: undefined,
     maxLevel: 10,
     minLevel: 1,
   },
