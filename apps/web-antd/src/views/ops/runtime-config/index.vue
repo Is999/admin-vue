@@ -986,7 +986,11 @@ async function submitRuntimeAction() {
   }
 }
 
-async function viewRelease(row: Record<string, any>) {
+async function viewRelease(row: Record<string, any>, event: MouseEvent) {
+  // 切换页签前释放查看按钮焦点，避免隐藏的发布面板继续持有焦点。
+  if (event.currentTarget instanceof HTMLElement) {
+    event.currentTarget.blur();
+  }
   releaseDetailLoading.value = true;
   activeTab.value = 'snapshot';
   try {
@@ -1571,7 +1575,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                         <Button
                           size="small"
                           type="text"
-                          @click="viewRelease(record)"
+                          @click="viewRelease(record, $event)"
                         >
                           <EyeOutlined />
                         </Button>
