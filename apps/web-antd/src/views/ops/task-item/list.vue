@@ -19,6 +19,7 @@ import {
   Modal,
   Select,
   Space,
+  Table,
   Tag,
   Tooltip,
 } from 'ant-design-vue';
@@ -28,6 +29,7 @@ import dayjs from 'dayjs';
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
 import {
   deleteTask,
+  fetchTaskFailures,
   fetchTaskItemsOverview,
   fetchTaskQueues,
   getTaskInfo,
@@ -65,6 +67,9 @@ import {
   TASK_STATE_OPTIONS,
   useColumns,
 } from './data';
+
+// FAILURE_HISTORY_DAYS 与后端默认失败摘要保留期一致，列表使用游标按需加载。
+const FAILURE_HISTORY_DAYS = 14;
 
 type TableActionParams<T = any> = {
   code: string;
@@ -138,6 +143,17 @@ const currentTaskTotal = ref(0);
 const currentStateTotals = ref<TaskStateTotals>({});
 const autoOpenedTaskSignature = ref('');
 const initializing = ref(true);
+// failureHistoryRows 保存 DB 中短期最终失败摘要，不和 Redis 实时任务混合分页。
+const failureHistoryRows = ref<TaskApi.TaskFailureItem[]>([]);
+const failureHistoryLoading = ref(false);
+const failureHistoryLoadFailed = ref(false);
+const failureRerunCheckError = ref('');
+const failureHistoryRequestSeq = ref(0);
+const failureHistoryNextCursor = ref('');
+const failureHistoryHasMore = ref(false);
+const failureHistoryStartTime = ref('');
+const failureHistoryEndTime = ref('');
+const failureRerunTaskId = ref('');
 // routeTaskDetailConsumed 标记当前路由中的详情深链已消费，避免页面内查询重复打开。
 const routeTaskDetailConsumed = ref(false);
 
@@ -180,6 +196,59 @@ const canBatchDelete = computed(() =>
     OPS_ACTION_PERMISSION_CODES.TASK_DELETE,
   ]),
 );
+
+// failureHistoryColumns 定义失败补偿所需的最小字段。
+const failureHistoryColumns = computed(() => [
+  {
+    dataIndex: 'taskId',
+    ellipsis: true,
+    title: $t('business.message.taskId'),
+    width: 240,
+  },
+  {
+    dataIndex: 'taskName',
+    title: $t('business.message.taskName'),
+    width: 170,
+  },
+  {
+    dataIndex: 'queue',
+    title: $t('business.message.queue'),
+    width: 120,
+  },
+  {
+    dataIndex: 'periodicName',
+    ellipsis: true,
+    title: $t('business.message.periodicTaskName'),
+    width: 180,
+  },
+  {
+    dataIndex: 'workflowId',
+    ellipsis: true,
+    title: $t('business.message.workflowId'),
+    width: 220,
+  },
+  {
+    dataIndex: 'retried',
+    title: $t('business.message.retried'),
+    width: 90,
+  },
+  {
+    dataIndex: 'errorMessage',
+    ellipsis: true,
+    title: $t('business.message.latestFailureReason'),
+    width: 300,
+  },
+  {
+    dataIndex: 'failedAt',
+    title: $t('business.message.failedAt'),
+    width: 190,
+  },
+  {
+    key: 'action',
+    title: $t('business.message.actions'),
+    width: 120,
+  },
+]);
 
 const queueHintText = computed(() =>
   queueOptions.value
@@ -596,6 +665,62 @@ async function loadQueueOptions() {
     }
   } catch {
     // 读取队列失败时继续使用内置兜底队列，避免查询入口失效。
+  }
+}
+
+// loadFailureHistory 独立加载最终失败历史，数据库异常不影响 Redis 实时任务操作。
+async function loadFailureHistory(options: { append?: boolean } = {}) {
+  if (failureHistoryLoading.value) {
+    return;
+  }
+  const append = options.append === true;
+  const cursor = append ? failureHistoryNextCursor.value : undefined;
+  if (append && !cursor) {
+    return;
+  }
+  if (!append) {
+    const end = new Date();
+    failureHistoryEndTime.value = end.toISOString();
+    failureHistoryStartTime.value = new Date(
+      end.getTime() - FAILURE_HISTORY_DAYS * 86_400_000,
+    ).toISOString();
+  }
+  const sourceSessionIdentity = currentSessionStateIdentity();
+  const requestSeq = failureHistoryRequestSeq.value + 1;
+  failureHistoryRequestSeq.value = requestSeq;
+  failureHistoryLoading.value = true;
+  failureHistoryLoadFailed.value = false;
+  failureRerunCheckError.value = '';
+  try {
+    const result = await fetchTaskFailures({
+      cursor,
+      endTime: failureHistoryEndTime.value,
+      pageSize: 20,
+      startTime: failureHistoryStartTime.value,
+    });
+    if (
+      requestSeq !== failureHistoryRequestSeq.value ||
+      sourceSessionIdentity !== currentSessionStateIdentity()
+    ) {
+      return;
+    }
+    const rows = result.items || [];
+    failureHistoryRows.value = append
+      ? [...failureHistoryRows.value, ...rows]
+      : rows;
+    failureHistoryNextCursor.value = result.nextCursor || '';
+    failureHistoryHasMore.value = Boolean(
+      result.hasMore && failureHistoryNextCursor.value,
+    );
+    failureRerunCheckError.value = result.rerunCheckError || '';
+  } catch {
+    if (requestSeq === failureHistoryRequestSeq.value) {
+      failureHistoryLoadFailed.value = true;
+    }
+  } finally {
+    if (requestSeq === failureHistoryRequestSeq.value) {
+      failureHistoryLoading.value = false;
+    }
   }
 }
 
@@ -1066,7 +1191,17 @@ function stopTaskListAutoRefresh() {
 // resetTaskListSessionState 清理旧账号遗留的轮询、列表快照和任务详情。
 function resetTaskListSessionState() {
   taskListRequestSeq.value += 1;
+  failureHistoryRequestSeq.value += 1;
   taskListAutoRefreshing.value = false;
+  failureHistoryLoading.value = false;
+  failureHistoryLoadFailed.value = false;
+  failureRerunCheckError.value = '';
+  failureHistoryRows.value = [];
+  failureHistoryNextCursor.value = '';
+  failureHistoryHasMore.value = false;
+  failureHistoryStartTime.value = '';
+  failureHistoryEndTime.value = '';
+  failureRerunTaskId.value = '';
   currentQueryState.value = '';
   currentTaskRows.value = [];
   currentTaskTotal.value = 0;
@@ -1625,6 +1760,31 @@ function handleRunTask(row: TaskApi.TaskItem) {
   });
 }
 
+// handleRunFailure 仅对仍存在 Redis archived 任务的失败历史开放补偿执行。
+function handleRunFailure(record: Record<string, any>) {
+  const row = record as TaskApi.TaskFailureItem;
+  if (!row.rerunnable) {
+    message.warning($t('business.message.failureHistoryRerunExpired'));
+    return;
+  }
+  Modal.confirm({
+    title: $t('business.message.confirmRunTaskNow'),
+    content: $t('business.message.confirmRunTaskNowContent', [row.taskId]),
+    async onOk() {
+      failureRerunTaskId.value = row.taskId;
+      try {
+        await runTaskNow({ queue: row.queue, taskId: row.taskId });
+        message.success(
+          $t('business.message.taskRunNowSucceeded', [row.taskId]),
+        );
+        await Promise.all([loadFailureHistory(), handleSearch()]);
+      } finally {
+        failureRerunTaskId.value = '';
+      }
+    },
+  });
+}
+
 function handleDeleteTask(row: TaskApi.TaskItem) {
   if (!canDeleteTask(row)) {
     message.warning($t('business.message.taskDeleteStateLimited'));
@@ -1860,6 +2020,7 @@ onMounted(async () => {
   initializing.value = false;
   await Promise.all([
     loadQueueOptions(),
+    loadFailureHistory(),
     handleSearch({ clearTaskDetailQuery: false }),
   ]);
 });
@@ -1964,6 +2125,12 @@ watch(
         "
         show-icon
         type="warning"
+      />
+      <Alert
+        show-icon
+        type="info"
+        :message="$t('business.message.taskRealtimeRetentionTitle')"
+        :description="$t('business.message.taskRealtimeRetentionDesc')"
       />
 
       <Card
@@ -2255,6 +2422,80 @@ watch(
         </div>
         <Grid :table-title="$t('business.message.taskList')" />
       </div>
+
+      <Card
+        class="min-w-0 border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+        :title="$t('business.message.failureHistory')"
+      >
+        <template #extra>
+          <Button
+            size="small"
+            :loading="failureHistoryLoading"
+            @click="loadFailureHistory()"
+          >
+            {{ $t('business.message.refresh') }}
+          </Button>
+        </template>
+        <Alert
+          v-if="failureHistoryLoadFailed"
+          class="mb-3"
+          show-icon
+          type="warning"
+          :message="$t('business.message.failureHistoryLoadFailed')"
+        />
+        <Alert
+          v-else-if="failureRerunCheckError"
+          class="mb-3"
+          show-icon
+          type="warning"
+          :message="$t('business.message.failureRerunCheckFailed')"
+          :description="failureRerunCheckError"
+        />
+        <Table
+          :columns="failureHistoryColumns"
+          :data-source="failureHistoryRows"
+          :loading="failureHistoryLoading"
+          :locale="{ emptyText: $t('business.message.failureHistoryEmpty') }"
+          :pagination="false"
+          row-key="id"
+          :scroll="{ x: 1630 }"
+          size="small"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'action'">
+              <Tooltip
+                :title="
+                  record.rerunnable
+                    ? $t('business.message.taskRunNow')
+                    : $t('business.message.failureHistoryRerunExpired')
+                "
+              >
+                <Button
+                  v-access="
+                    asActionPermission(OPS_ACTION_PERMISSION_CODES.TASK_RUN)
+                  "
+                  :disabled="!record.rerunnable"
+                  :loading="failureRerunTaskId === record.taskId"
+                  size="small"
+                  type="link"
+                  @click="handleRunFailure(record)"
+                >
+                  {{ $t('business.message.taskRunNow') }}
+                </Button>
+              </Tooltip>
+            </template>
+          </template>
+        </Table>
+        <div v-if="failureHistoryHasMore" class="mt-3 text-center">
+          <Button
+            :loading="failureHistoryLoading"
+            size="small"
+            @click="loadFailureHistory({ append: true })"
+          >
+            {{ $t('business.message.loadMoreHistory') }}
+          </Button>
+        </div>
+      </Card>
     </div>
   </Page>
 </template>

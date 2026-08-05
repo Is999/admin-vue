@@ -10,6 +10,11 @@ export function splitTextToItems(text: string) {
     .filter(Boolean);
 }
 
+// utf8ByteLength 返回字符串实际 UTF-8 字节数，与后端 Go len(string) 边界保持一致。
+export function utf8ByteLength(value: string) {
+  return new TextEncoder().encode(value).byteLength;
+}
+
 // TASK_QUEUE_DEFINITIONS 定义运维任务当前约定的内置队列及多语言键。
 const TASK_QUEUE_DEFINITIONS = [
   {

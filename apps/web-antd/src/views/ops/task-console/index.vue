@@ -25,6 +25,7 @@ import {
   fetchTaskRegistryWorkflows,
   triggerTaskWorkflow,
 } from '#/api/ops/task';
+import { TASK_API_LIMITS } from '#/api/ops/task-types';
 import {
   asActionPermission,
   OPS_ACTION_PERMISSION_CODES,
@@ -40,6 +41,7 @@ import {
   parsePayloadText,
   safePrettyJson,
   splitTextToItems,
+  utf8ByteLength,
 } from '../shared';
 import { useEnqueueTaskSchema, useTriggerWorkflowSchema } from './data';
 import {
@@ -382,10 +384,7 @@ const schedulerConfigRows = computed(() => {
     },
     {
       label: $t('business.message.schedulerMaxQueueBacklog'),
-      value:
-        status.maxQueueBacklog > 0
-          ? String(status.maxQueueBacklog)
-          : $t('business.message.disabled'),
+      value: String(status.maxQueueBacklog || 0),
       description: $t('business.message.schedulerMaxQueueBacklogDesc'),
     },
   ];
@@ -955,13 +954,33 @@ async function handleTriggerWorkflow() {
   try {
     const values =
       await triggerWorkflowFormApi.getValues<Record<string, any>>();
+    const targets = splitTextToItems(values.targetsText || '');
+    const targetsBytes = targets.reduce(
+      (total, target) => total + utf8ByteLength(target),
+      0,
+    );
+    if (targetsBytes > TASK_API_LIMITS.workflowTargetsBytes) {
+      throw new Error(
+        $t('business.message.workflowTargetsTooLarge', [
+          String(TASK_API_LIMITS.workflowTargetsBytes),
+        ]),
+      );
+    }
+    const uniqueKey = String(values.uniqueKey || '').trim();
+    if (utf8ByteLength(uniqueKey) > TASK_API_LIMITS.uniqueKeyBytes) {
+      throw new Error(
+        $t('business.message.uniqueKeyTooLarge', [
+          String(TASK_API_LIMITS.uniqueKeyBytes),
+        ]),
+      );
+    }
     const requestPayload: TaskApi.TriggerWorkflowReq = {
       name: values.name,
-      targets: splitTextToItems(values.targetsText || ''),
+      targets,
       queue: values.queue || undefined,
       shardTotal: normalizeOptionalNumber(values.shardTotal),
       grayPercent: normalizeOptionalNumber(values.grayPercent),
-      uniqueKey: values.uniqueKey || undefined,
+      uniqueKey: uniqueKey || undefined,
       uniqueTTLSeconds: normalizeOptionalNumber(values.uniqueTTLSeconds),
       retry: normalizeOptionalNumber(values.retry),
       timeoutSeconds: normalizeOptionalNumber(values.timeoutSeconds),
@@ -996,9 +1015,17 @@ async function handleEnqueueTask() {
   submitting.value = true;
   try {
     const values = await enqueueTaskFormApi.getValues<Record<string, any>>();
+    const payloadText = String(values.payloadText || '{}');
+    if (utf8ByteLength(payloadText) > TASK_API_LIMITS.payloadBytes) {
+      throw new Error(
+        $t('business.message.taskPayloadTooLarge', [
+          String(TASK_API_LIMITS.payloadBytes),
+        ]),
+      );
+    }
     const requestPayload: TaskApi.EnqueueTaskReq = {
       taskType: values.taskType,
-      payload: parsePayloadText(values.payloadText || '{}'),
+      payload: parsePayloadText(payloadText),
       queue: values.queue || undefined,
       group: values.group || undefined,
       retry: normalizeOptionalNumber(values.retry),

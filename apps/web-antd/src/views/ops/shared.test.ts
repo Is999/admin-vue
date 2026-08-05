@@ -22,3 +22,12 @@ describe('task queue locale text', () => {
     );
   });
 });
+
+describe('utf8ByteLength', () => {
+  it('counts UTF-8 bytes instead of JavaScript characters', async () => {
+    const { utf8ByteLength } = await import('./shared');
+
+    expect(utf8ByteLength('task')).toBe(4);
+    expect(utf8ByteLength('任务')).toBe(6);
+  });
+});

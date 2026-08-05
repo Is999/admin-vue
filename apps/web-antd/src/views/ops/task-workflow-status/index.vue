@@ -15,11 +15,12 @@ import {
   Input,
   message,
   Modal,
+  Table,
   Tag,
   Tooltip,
 } from 'ant-design-vue';
 
-import { getTaskWorkflowStatus } from '#/api/ops/task';
+import { fetchTaskWorkflows, getTaskWorkflowStatus } from '#/api/ops/task';
 import {
   asActionPermission,
   OPS_ACTION_PERMISSION_CODES,
@@ -51,6 +52,8 @@ import {
 // ================= 页面状态 =================
 // WORKFLOW_STATUS_AUTO_REFRESH_INTERVAL_MS 表示工作流运行态自动刷新间隔，与后端指标心跳保持一致。
 const WORKFLOW_STATUS_AUTO_REFRESH_INTERVAL_MS = 5000;
+// WORKFLOW_HISTORY_DAYS 与后端默认工作流历史保留期一致，页面按游标加载短期快照。
+const WORKFLOW_HISTORY_DAYS = 7;
 // WORKFLOW_TERMINAL_STATUSES 表示停止自动刷新的工作流终态集合。
 const WORKFLOW_TERMINAL_STATUSES = new Set<TaskApi.WorkflowStatus>([
   'failed',
@@ -73,11 +76,11 @@ const router = useRouter();
 const workflowStatusResultText = ref('');
 // workflowStatus 保存最近一次工作流状态查询结果。
 const workflowStatus = ref<null | TaskApi.WorkflowStatusResp>(null);
-// workflowTraceDetailsModalOpen 控制分片处理明细弹窗。
+// workflowTraceDetailsModalOpen 控制节点或分片处理明细弹窗。
 const workflowTraceDetailsModalOpen = ref(false);
-// workflowTraceDetailsModalTitle 保存当前分片明细弹窗标题。
+// workflowTraceDetailsModalTitle 保存当前处理明细弹窗标题。
 const workflowTraceDetailsModalTitle = ref('');
-// workflowTraceDetailsModalRows 保存当前分片完整处理明细。
+// workflowTraceDetailsModalRows 保存当前节点或分片的完整处理明细。
 const workflowTraceDetailsModalRows = ref<TaskApi.TaskExecutionTraceDetail[]>(
   [],
 );
@@ -87,6 +90,15 @@ const workflowQuerySource = ref('');
 const workflowIdInput = ref('');
 // workflowIdInvalid 标记 workflowId 空值校验状态。
 const workflowIdInvalid = ref(false);
+// workflowHistoryRows 保存 DB 短期工作流历史，和单实例实时查询并行展示。
+const workflowHistoryRows = ref<TaskApi.TaskWorkflowHistoryItem[]>([]);
+const workflowHistoryLoading = ref(false);
+const workflowHistoryLoadFailed = ref(false);
+const workflowHistoryRequestSeq = ref(0);
+const workflowHistoryNextCursor = ref('');
+const workflowHistoryHasMore = ref(false);
+const workflowHistoryStartTime = ref('');
+const workflowHistoryEndTime = ref('');
 // autoQueriedWorkflowId 防止同一个路由 workflowId 被 watch 重复自动查询。
 const autoQueriedWorkflowId = ref('');
 // showWorkflowStatusRaw 控制原始 JSON 回执是否展开。
@@ -241,14 +253,28 @@ function hasTraceDetailRows(details?: TaskApi.TaskExecutionTraceDetail[]) {
   return (details || []).length > 0;
 }
 
-// showWorkflowTraceDetails 打开分片完整处理明细弹窗。
-function showWorkflowTraceDetails(row: WorkflowShardTraceRow) {
-  const shardTotal = row.shard.shardTotal || 1;
-  workflowTraceDetailsModalTitle.value = `${row.nodeName || '-'} ${row.shard.shardIndex}/${shardTotal}`;
-  workflowTraceDetailsModalRows.value = [
-    ...(row.shard.executionTrace?.details || []),
-  ];
+// openWorkflowTraceDetails 打开节点或分片处理明细弹窗。
+function openWorkflowTraceDetails(
+  title: string,
+  details?: TaskApi.TaskExecutionTraceDetail[],
+) {
+  workflowTraceDetailsModalTitle.value = title || '-';
+  workflowTraceDetailsModalRows.value = [...(details || [])];
   workflowTraceDetailsModalOpen.value = true;
+}
+
+// showWorkflowNodeTraceDetails 打开节点聚合处理明细弹窗。
+function showWorkflowNodeTraceDetails(node: TaskApi.WorkflowNodeItem) {
+  openWorkflowTraceDetails(node.name, node.executionTrace?.details);
+}
+
+// showWorkflowShardTraceDetails 打开分片完整处理明细弹窗。
+function showWorkflowShardTraceDetails(row: WorkflowShardTraceRow) {
+  const shardTotal = row.shard.shardTotal || 1;
+  openWorkflowTraceDetails(
+    `${row.nodeName || '-'} ${row.shard.shardIndex}/${shardTotal}`,
+    row.shard.executionTrace?.details,
+  );
 }
 
 // normalizeRouteQueryValue 统一提取单值 query 参数。
@@ -287,6 +313,121 @@ function resetWorkflowStatusSessionState() {
   workflowTraceDetailsModalOpen.value = false;
   workflowTraceDetailsModalTitle.value = '';
   workflowTraceDetailsModalRows.value = [];
+  workflowHistoryRequestSeq.value += 1;
+  workflowHistoryLoading.value = false;
+  workflowHistoryLoadFailed.value = false;
+  workflowHistoryRows.value = [];
+  workflowHistoryNextCursor.value = '';
+  workflowHistoryHasMore.value = false;
+  workflowHistoryStartTime.value = '';
+  workflowHistoryEndTime.value = '';
+}
+
+// workflowHistoryColumns 定义短期历史列表最小观测字段。
+const workflowHistoryColumns = computed(() => [
+  {
+    dataIndex: 'workflowId',
+    ellipsis: true,
+    title: $t('business.message.workflowInstanceId'),
+    width: 260,
+  },
+  {
+    dataIndex: 'workflowName',
+    title: $t('business.message.workflowName'),
+    width: 180,
+  },
+  {
+    dataIndex: 'periodicName',
+    title: $t('business.message.periodicTaskName'),
+    width: 180,
+  },
+  {
+    dataIndex: 'status',
+    title: $t('business.message.workflowStatus'),
+    width: 110,
+  },
+  {
+    dataIndex: 'taskTotal',
+    title: $t('business.message.taskTotal'),
+    width: 100,
+  },
+  {
+    dataIndex: 'traceTotal',
+    title: $t('business.message.taskTraceTotalCount'),
+    width: 120,
+  },
+  {
+    dataIndex: 'durationMs',
+    title: $t('business.message.totalDuration'),
+    width: 120,
+  },
+  {
+    dataIndex: 'finishedAt',
+    title: $t('business.message.finishedAt'),
+    width: 190,
+  },
+  { key: 'action', title: $t('business.message.actions'), width: 90 },
+]);
+
+// loadWorkflowHistory 独立加载 DB 短期历史，失败不影响按 ID 查询 Redis 热状态。
+async function loadWorkflowHistory(options: { append?: boolean } = {}) {
+  if (workflowHistoryLoading.value) {
+    return;
+  }
+  const append = options.append === true;
+  const cursor = append ? workflowHistoryNextCursor.value : undefined;
+  if (append && !cursor) {
+    return;
+  }
+  if (!append) {
+    const end = new Date();
+    workflowHistoryEndTime.value = end.toISOString();
+    workflowHistoryStartTime.value = new Date(
+      end.getTime() - WORKFLOW_HISTORY_DAYS * 86_400_000,
+    ).toISOString();
+  }
+  const sourceSessionIdentity = currentSessionStateIdentity();
+  const requestSeq = workflowHistoryRequestSeq.value + 1;
+  workflowHistoryRequestSeq.value = requestSeq;
+  workflowHistoryLoading.value = true;
+  workflowHistoryLoadFailed.value = false;
+  try {
+    const result = await fetchTaskWorkflows({
+      cursor,
+      endTime: workflowHistoryEndTime.value,
+      pageSize: 20,
+      startTime: workflowHistoryStartTime.value,
+    });
+    if (
+      requestSeq !== workflowHistoryRequestSeq.value ||
+      sourceSessionIdentity !== currentSessionStateIdentity()
+    ) {
+      return;
+    }
+    const rows = result.items || [];
+    workflowHistoryRows.value = append
+      ? [...workflowHistoryRows.value, ...rows]
+      : rows;
+    workflowHistoryNextCursor.value = result.nextCursor || '';
+    workflowHistoryHasMore.value = Boolean(
+      result.hasMore && workflowHistoryNextCursor.value,
+    );
+  } catch {
+    if (requestSeq === workflowHistoryRequestSeq.value) {
+      workflowHistoryLoadFailed.value = true;
+    }
+  } finally {
+    if (requestSeq === workflowHistoryRequestSeq.value) {
+      workflowHistoryLoading.value = false;
+    }
+  }
+}
+
+// openWorkflowHistoryItem 复用现有单实例详情能力打开历史快照。
+async function openWorkflowHistoryItem(record: Record<string, any>) {
+  const item = record as TaskApi.TaskWorkflowHistoryItem;
+  workflowIdInput.value = item.workflowId;
+  await handleQueryWorkflowStatus();
 }
 
 // syncWorkflowStatusAutoRefresh 根据最新工作流状态启动或停止自动刷新。
@@ -400,6 +541,10 @@ const workflowSummaryRows = computed(() => {
       value: currentWorkflow.workflowName || '-',
     },
     {
+      label: $t('business.message.periodicTaskName'),
+      value: currentWorkflow.periodicName || '-',
+    },
+    {
       label: $t('business.message.workflowStatus'),
       value: currentWorkflow.status || '-',
     },
@@ -426,6 +571,14 @@ const workflowSummaryRows = computed(() => {
     {
       label: $t('business.message.grayPercent'),
       value: `${currentWorkflow.grayPercent || 0}%`,
+    },
+    {
+      label: $t('business.message.dataSource'),
+      value: currentWorkflow.dataSource || 'redis',
+    },
+    {
+      label: $t('business.message.historyPersistence'),
+      value: currentWorkflow.historyStatus || '-',
     },
     {
       label: $t('business.message.createdAt'),
@@ -771,6 +924,7 @@ async function handleOpenWorkflowStatusTasks() {
         currentWorkflow.workflowName,
         currentWorkflow.workflowId,
       ]),
+      workflowId: currentWorkflow.workflowId,
     },
   });
 }
@@ -987,6 +1141,7 @@ async function handleCopyWorkflowStatusReceipt() {
 }
 
 onMounted(() => {
+  void loadWorkflowHistory();
   void (async () => {
     const routeWorkflowId = await applyRouteQueryToWorkflowInput();
     if (routeWorkflowId && autoQueriedWorkflowId.value !== routeWorkflowId) {
@@ -1022,6 +1177,65 @@ watch(
   <div class="task-workflow-status-page">
     <Page :title="$t('business.message.workflowStatus')">
       <div class="space-y-2">
+        <Card
+          class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+          :title="$t('business.message.workflowHistory')"
+        >
+          <template #extra>
+            <Button
+              size="small"
+              :loading="workflowHistoryLoading"
+              @click="loadWorkflowHistory()"
+            >
+              {{ $t('business.message.refresh') }}
+            </Button>
+          </template>
+          <Alert
+            v-if="workflowHistoryLoadFailed"
+            class="mb-3"
+            show-icon
+            type="warning"
+            :message="$t('business.message.workflowHistoryLoadFailed')"
+          />
+          <Table
+            :columns="workflowHistoryColumns"
+            :data-source="workflowHistoryRows"
+            :loading="workflowHistoryLoading"
+            :pagination="false"
+            row-key="id"
+            :scroll="{ x: 1350 }"
+            size="small"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.dataIndex === 'status'">
+                <Tag :color="record.status === 'success' ? 'success' : 'error'">
+                  {{ record.status }}
+                </Tag>
+              </template>
+              <template v-else-if="column.dataIndex === 'durationMs'">
+                {{ formatDurationMs(record.durationMs) }}
+              </template>
+              <template v-else-if="column.key === 'action'">
+                <Button
+                  size="small"
+                  type="link"
+                  @click="openWorkflowHistoryItem(record)"
+                >
+                  {{ $t('business.message.view') }}
+                </Button>
+              </template>
+            </template>
+          </Table>
+          <div v-if="workflowHistoryHasMore" class="mt-3 text-center">
+            <Button
+              :loading="workflowHistoryLoading"
+              size="small"
+              @click="loadWorkflowHistory({ append: true })"
+            >
+              {{ $t('business.message.loadMoreHistory') }}
+            </Button>
+          </div>
+        </Card>
         <Card
           class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
           :title="$t('business.message.queryWorkflowInstanceStatus')"
@@ -1074,6 +1288,30 @@ watch(
             </VbenButton>
           </div>
           <template v-if="workflowStatus">
+            <Alert
+              class="workflow-status-notice"
+              show-icon
+              :type="
+                workflowStatus.dataSource === 'database' ? 'info' : 'success'
+              "
+              :message="
+                workflowStatus.dataSource === 'database'
+                  ? $t('business.message.workflowHistoricalSnapshot')
+                  : $t('business.message.workflowRealtimeSnapshot')
+              "
+            />
+            <Alert
+              v-if="
+                workflowStatus.dataSource === 'database' &&
+                workflowStatus.detailTruncated
+              "
+              class="workflow-status-notice"
+              show-icon
+              type="warning"
+              :message="
+                $t('business.message.workflowHistoricalDetailTruncated')
+              "
+            />
             <Alert
               v-if="workflowOperationGuide"
               class="workflow-status-notice"
@@ -1583,6 +1821,9 @@ watch(
                     }}</span>
                     <span>{{ $t('business.message.taskTraceSkipCount') }}</span>
                     <span>{{ $t('business.message.taskTraceDuration') }}</span>
+                    <span>{{
+                      $t('business.message.workflowTraceDetails')
+                    }}</span>
                   </div>
                   <div
                     v-for="node in workflowNodeTraceRows"
@@ -1610,6 +1851,22 @@ watch(
                     <span class="workflow-trace-number is-neutral">{{
                       formatDurationMs(node.executionTrace?.durationMs)
                     }}</span>
+                    <span class="workflow-trace-details">
+                      <span class="workflow-trace-details__summary">
+                        {{
+                          formatTaskTraceDetails(node.executionTrace?.details)
+                        }}
+                      </span>
+                      <Button
+                        v-if="hasTraceDetailRows(node.executionTrace?.details)"
+                        class="workflow-trace-details__button"
+                        size="small"
+                        type="link"
+                        @click="showWorkflowNodeTraceDetails(node)"
+                      >
+                        {{ $t('business.message.workflowTraceViewAll') }}
+                      </Button>
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1693,7 +1950,7 @@ watch(
                         class="workflow-trace-details__button"
                         size="small"
                         type="link"
-                        @click="showWorkflowTraceDetails(row)"
+                        @click="showWorkflowShardTraceDetails(row)"
                       >
                         {{ $t('business.message.workflowTraceViewAll') }}
                       </Button>
@@ -2135,7 +2392,7 @@ watch(
 }
 
 .workflow-trace-table {
-  min-width: 760px;
+  min-width: 940px;
   overflow: hidden;
   border: 1px solid var(--workflow-border-color);
   border-radius: 8px;
@@ -2145,7 +2402,7 @@ watch(
   display: grid;
   grid-template-columns:
     minmax(150px, 1.4fr) repeat(5, minmax(84px, 0.72fr))
-    minmax(92px, 0.78fr);
+    minmax(92px, 0.78fr) minmax(220px, 1.7fr);
   gap: 8px;
   align-items: center;
   padding: 10px 12px;

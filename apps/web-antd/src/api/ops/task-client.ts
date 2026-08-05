@@ -27,6 +27,29 @@ export async function getTaskWorkflowStatus(
   );
 }
 
+// fetchTaskWorkflows 查询短期工作流历史。
+export async function fetchTaskWorkflows(params: TaskApi.ListTaskWorkflowsReq) {
+  return requestClient.get<TaskApi.TaskWorkflowHistoryListResp>(
+    `${TASK_PREFIX}/workflows`,
+    { params },
+  );
+}
+
+// fetchTaskFailures 查询最终失败任务历史。
+export async function fetchTaskFailures(params: TaskApi.ListTaskFailuresReq) {
+  return requestClient.get<TaskApi.TaskFailureListResp>(
+    `${TASK_PREFIX}/failures`,
+    { params },
+  );
+}
+
+// fetchTaskObservability 查询 Redis 实时态和历史落库健康摘要。
+export async function fetchTaskObservability() {
+  return requestClient.get<TaskApi.TaskObservabilityResp>(
+    `${TASK_PREFIX}/observability`,
+  );
+}
+
 // getTaskInfo 查询单个任务详情。
 export async function getTaskInfo(params: TaskApi.GetTaskInfoReq) {
   return requestClient.get<TaskApi.TaskItem>(

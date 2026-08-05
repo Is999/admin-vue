@@ -66,6 +66,7 @@ import {
   formatShortChecksum,
   safePrettyJson,
   splitTextToItems,
+  utf8ByteLength,
 } from '../shared';
 import ArchiveProgressDrawerView from './components/archive-progress-drawer.vue';
 import CopyableTextCell from './components/copyable-text-cell.vue';
@@ -843,6 +844,28 @@ async function submitPeriodic() {
     message.warning(rt('periodicDeadlineInvalid'));
     return;
   }
+  const targets = splitTextToItems(periodicTargetsText.value);
+  const targetsBytes = targets.reduce(
+    (total, target) => total + utf8ByteLength(target),
+    0,
+  );
+  if (targetsBytes > TASK_API_LIMITS.workflowTargetsBytes) {
+    message.warning(
+      $t('business.message.workflowTargetsTooLarge', [
+        String(TASK_API_LIMITS.workflowTargetsBytes),
+      ]),
+    );
+    return;
+  }
+  const uniqueKey = String(periodicForm.uniqueKey || '').trim();
+  if (utf8ByteLength(uniqueKey) > TASK_API_LIMITS.uniqueKeyBytes) {
+    message.warning(
+      $t('business.message.uniqueKeyTooLarge', [
+        String(TASK_API_LIMITS.uniqueKeyBytes),
+      ]),
+    );
+    return;
+  }
   submitting.value = true;
   periodicDrawerApi.lock();
   try {
@@ -851,7 +874,8 @@ async function submitPeriodic() {
       cron: cron || undefined,
       deadline: deadline || undefined,
       everySeconds: everySeconds || undefined,
-      targets: splitTextToItems(periodicTargetsText.value),
+      targets,
+      uniqueKey,
     });
     periodicDrawerApi.close();
     clearDraftFeedback();
@@ -1840,7 +1864,10 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     :extra="rt('periodicUniqueKeyHelp')"
                     :label="rt('uniqueKey')"
                   >
-                    <Input v-model:value="periodicForm.uniqueKey" />
+                    <Input
+                      v-model:value="periodicForm.uniqueKey"
+                      :maxlength="TASK_API_LIMITS.uniqueKeyBytes"
+                    />
                   </Form.Item>
                   <Form.Item
                     name="uniqueTtlSeconds"
@@ -1850,6 +1877,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                     <InputNumber
                       v-model:value="periodicForm.uniqueTtlSeconds"
                       class="w-full"
+                      :max="TASK_API_LIMITS.uniqueTTLSeconds"
                       :min="0"
                     />
                   </Form.Item>
@@ -1877,6 +1905,7 @@ function runtimeActionSuccess(type: RuntimeActionType) {
                   >
                     <Textarea
                       v-model:value="periodicTargetsText"
+                      :maxlength="TASK_API_LIMITS.workflowTargetsBytes"
                       :rows="3"
                       :placeholder="rt('targetsPlaceholder')"
                     />

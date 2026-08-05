@@ -15,6 +15,8 @@ export const USER_TAG_FORM_LIMITS = {
   shardTotal: TASK_API_LIMITS.shardTotal,
   tagTypes: 500,
   timeoutSeconds: TASK_API_LIMITS.timeoutSeconds,
+  uniqueKeyBytes: TASK_API_LIMITS.uniqueKeyBytes,
+  uniqueTTLSeconds: TASK_API_LIMITS.uniqueTTLSeconds,
   uids: 10_000,
   workerCount: 64,
 } as const;
@@ -133,6 +135,7 @@ export function useUserTagWorkflowSchema(
       label: $t('business.message.uniqueKey'),
       componentProps: {
         allowClear: true,
+        maxLength: USER_TAG_FORM_LIMITS.uniqueKeyBytes,
         placeholder: $t('business.message.userTagUniqueKeyPlaceholder'),
       },
     },
@@ -141,6 +144,7 @@ export function useUserTagWorkflowSchema(
       fieldName: 'uniqueTTLSeconds',
       label: $t('business.message.uniqueTtlSeconds'),
       componentProps: {
+        max: USER_TAG_FORM_LIMITS.uniqueTTLSeconds,
         min: 1,
         addonAfter: $t('business.message.secondUnit'),
         style: { width: '100%' },
@@ -246,6 +250,7 @@ export function useUserTagRecalculateSchema(
       fieldName: 'uniqueTTLSeconds',
       label: $t('business.message.uniqueTtlSeconds'),
       componentProps: {
+        max: USER_TAG_FORM_LIMITS.uniqueTTLSeconds,
         min: 1,
         addonAfter: $t('business.message.secondUnit'),
         style: { width: '100%' },

@@ -2,9 +2,17 @@
 export const TASK_API_LIMITS = {
   // periodicEverySeconds 限制固定间隔周期任务的最小秒数。
   periodicEverySeconds: 5,
+  // payloadBytes 限制手工投递任务的 UTF-8 JSON 负载大小。
+  payloadBytes: 1_048_576,
   retry: 25,
+  scheduleDelaySeconds: 2_592_000,
   shardTotal: 128,
   timeoutSeconds: 86_400,
+  // workflowTargetsBytes 限制工作流目标文本的输入体积。
+  workflowTargetsBytes: 262_144,
+  // uniqueKeyBytes 限制工作流幂等键长度。
+  uniqueKeyBytes: 256,
+  uniqueTTLSeconds: 2_592_000,
 } as const;
 
 // TaskApi 定义运维任务系统相关接口的请求与响应结构。
@@ -420,6 +428,8 @@ export namespace TaskApi {
     workflowId: string;
     /** 工作流名称 */
     workflowName: string;
+    /** 周期任务名称 */
+    periodicName?: string;
     /** 工作流状态 */
     status: WorkflowStatus;
     /** 触发来源 */
@@ -448,6 +458,157 @@ export namespace TaskApi {
     executionTrace?: TaskExecutionTrace;
     /** 节点明细 */
     nodes: WorkflowNodeItem[];
+    /** 数据来源 */
+    dataSource?: 'database' | 'redis';
+    /** 历史快照明细层级 */
+    detailLevel?: 'node' | 'shard';
+    /** 分片或节点处理明细是否因历史容量上限被裁剪 */
+    detailTruncated?: boolean;
+    /** 历史落库状态 */
+    historyStatus?: 'failed' | 'pending' | 'persisted';
+    /** 历史落库时间 */
+    persistedAt?: string;
+  }
+
+  /** 工作流历史查询条件 */
+  export interface ListTaskWorkflowsReq {
+    workflowId?: string;
+    workflowName?: string;
+    periodicName?: string;
+    status?: 'failed' | 'success';
+    source?: string;
+    queue?: string;
+    startTime?: string;
+    endTime?: string;
+    cursor?: string;
+    pageSize?: number;
+  }
+
+  /** 工作流历史列表项 */
+  export interface TaskWorkflowHistoryItem {
+    id: number;
+    workflowId: string;
+    workflowName: string;
+    periodicName?: string;
+    status: 'failed' | 'success';
+    source: string;
+    queue: string;
+    nodeTotal: number;
+    taskTotal: number;
+    succeeded: number;
+    failed: number;
+    skipped: number;
+    traceTotal: number;
+    traceError: number;
+    durationMs: number;
+    errorMessage?: string;
+    createdAt: string;
+    finishedAt: string;
+    persistedAt: string;
+    dataSource: 'database';
+    historyStatus: 'persisted';
+  }
+
+  /** 工作流历史游标分页结果 */
+  export interface TaskWorkflowHistoryListResp {
+    items: TaskWorkflowHistoryItem[];
+    nextCursor?: string;
+    hasMore: boolean;
+    dataSource: 'database';
+  }
+
+  /** 失败历史查询条件 */
+  export interface ListTaskFailuresReq {
+    taskId?: string;
+    workflowId?: string;
+    taskType?: string;
+    queue?: string;
+    startTime?: string;
+    endTime?: string;
+    cursor?: string;
+    pageSize?: number;
+  }
+
+  /** 最终失败任务历史 */
+  export interface TaskFailureItem {
+    id: number;
+    taskId: string;
+    taskType: string;
+    taskName: string;
+    queue: string;
+    source?: string;
+    periodicName?: string;
+    workflowId?: string;
+    workflowName?: string;
+    workflowNode?: string;
+    retried: number;
+    maxRetry: number;
+    errorMessage: string;
+    traceId?: string;
+    failedAt: string;
+    rerunnable: boolean;
+    rerunExpireAt?: string;
+    dataSource: 'database';
+  }
+
+  /** 失败历史游标分页结果 */
+  export interface TaskFailureListResp {
+    items: TaskFailureItem[];
+    nextCursor?: string;
+    hasMore: boolean;
+    dataSource: 'database';
+    /** Redis 可重跑校验降级原因 */
+    rerunCheckError?: string;
+  }
+
+  /** 历史落库链路健康状态 */
+  export interface TaskHistoryHealth {
+    enabled: boolean;
+    status: 'delayed' | 'disabled' | 'error' | 'healthy';
+    pending: number;
+    /** 待落库事件载荷字节数 */
+    pendingBytes: number;
+    /** 待落库载荷硬上限字节数 */
+    pendingMaxBytes: number;
+    dropped: number;
+    oldestPendingAt?: string;
+    delaySeconds: number;
+    lastPersistedAt?: string;
+    lastFailureAt?: string;
+    lastError?: string;
+  }
+
+  /** 最近窗口工作流汇总 */
+  export interface TaskHistoryWindowSummary {
+    windowStart: string;
+    windowEnd: string;
+    total: number;
+    success: number;
+    failed: number;
+    successRate: number;
+    averageMs: number;
+    maxMs: number;
+    traceTotal: number;
+    traceError: number;
+  }
+
+  /** 任务 Redis 内存状态 */
+  export interface TaskRedisMemory {
+    usedBytes: number;
+    maxBytes: number;
+    usagePercent: number;
+    completedTTL: number;
+    archivedTTL: number;
+  }
+
+  /** 任务实时态和历史态独立降级观测摘要 */
+  export interface TaskObservabilityResp {
+    generatedAt: string;
+    redis: TaskRedisMemory;
+    history: TaskHistoryHealth;
+    last24Hours: TaskHistoryWindowSummary;
+    redisError?: string;
+    historyError?: string;
   }
 
   /** 已注册任务类型 */
@@ -606,6 +767,8 @@ export namespace TaskApi {
     servers?: TaskServerItem[];
     /** 周期调度器运行状态 */
     scheduler?: TaskSchedulerItem;
+    /** 聚合组超限时部分高成本指标是否已安全降级 */
+    metricsLimited?: boolean;
   }
 
   /** 配置热加载运行状态 */

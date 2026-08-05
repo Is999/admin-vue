@@ -29,7 +29,7 @@ import {
   Tooltip,
 } from 'ant-design-vue';
 
-import { fetchTaskItemsOverview } from '#/api/ops/task';
+import { fetchTaskItemsOverview, fetchTaskWorkflows } from '#/api/ops/task';
 import {
   hasAnyPermission,
   OPS_ACTION_PERMISSION_CODES,
@@ -53,6 +53,8 @@ type PeriodicTaskDetailDrawerData = {
 
 // PERIODIC_RECENT_TASK_LIMIT 限制详情抽屉单次读取量，避免频繁扫描历史任务。
 const PERIODIC_RECENT_TASK_LIMIT = 20;
+// PERIODIC_WORKFLOW_HISTORY_DAYS 与后端默认工作流历史保留期一致，覆盖低频周期任务。
+const PERIODIC_WORKFLOW_HISTORY_DAYS = 7;
 
 const rt = (key: string) => $t(`admin.runtimeConfig.${key}`);
 const router = useRouter();
@@ -63,12 +65,16 @@ const periodicTask = ref<null | RuntimeConfigApi.PeriodicTaskItem>(null);
 const activePeriodicTasks = ref<RuntimeConfigApi.PeriodicTaskItem[]>([]);
 // recentTasks 保存按周期任务名称定位到的最近执行记录。
 const recentTasks = ref<TaskApi.TaskItem[]>([]);
+// recentWorkflows 保存 DB 中按周期任务名称聚合的短期工作流历史。
+const recentWorkflows = ref<TaskApi.TaskWorkflowHistoryItem[]>([]);
 // recentTaskTotal 保存匹配该周期任务的任务总数。
 const recentTaskTotal = ref(0);
 // recentTasksLoading 控制最近执行记录加载状态。
 const recentTasksLoading = ref(false);
 // recentTasksLoadFailed 标记最近执行记录是否加载失败。
 const recentTasksLoadFailed = ref(false);
+// recentWorkflowsLoadFailed 独立标记历史库降级，不影响 Redis 近期任务展示。
+const recentWorkflowsLoadFailed = ref(false);
 // periodicDetailFullscreen 控制周期任务详情抽屉是否占满当前视口。
 const periodicDetailFullscreen = ref(false);
 // periodicDetailFullscreenLabel 返回当前全屏切换按钮的国际化文案。
@@ -162,6 +168,48 @@ const recentTaskColumns = computed(() => [
   { title: rt('action'), key: 'action', width: 88 },
 ]);
 
+// recentWorkflowColumns 定义终态工作流汇总列，不展示已丢弃的成功分片明细。
+const recentWorkflowColumns = computed(() => [
+  {
+    title: rt('workflowId'),
+    dataIndex: 'workflowId',
+    key: 'workflowId',
+    width: 240,
+  },
+  {
+    title: rt('workflow'),
+    dataIndex: 'workflowName',
+    key: 'workflowName',
+    width: 180,
+  },
+  { title: rt('status'), dataIndex: 'status', key: 'status', width: 110 },
+  {
+    title: rt('taskTotal'),
+    dataIndex: 'taskTotal',
+    key: 'taskTotal',
+    width: 100,
+  },
+  {
+    title: rt('taskTraceTotal'),
+    dataIndex: 'traceTotal',
+    key: 'traceTotal',
+    width: 110,
+  },
+  {
+    title: rt('taskDuration'),
+    dataIndex: 'durationMs',
+    key: 'durationMs',
+    width: 110,
+  },
+  {
+    title: rt('finishedAt'),
+    dataIndex: 'finishedAt',
+    key: 'finishedAt',
+    width: 180,
+  },
+  { title: rt('action'), key: 'action', width: 88 },
+]);
+
 // recentTaskScroll 仅在有数据时启用横向滚动，避免空表的固有宽度撑大抽屉。
 const recentTaskScroll = computed(() =>
   recentTasks.value.length > 0 ? { x: 1260 } : undefined,
@@ -180,8 +228,10 @@ const [Drawer, drawerApi] = useVbenDrawer({
     periodicTask.value = data.task || null;
     activePeriodicTasks.value = data.activeTasks || [];
     recentTasks.value = [];
+    recentWorkflows.value = [];
     recentTaskTotal.value = 0;
     recentTasksLoadFailed.value = false;
+    recentWorkflowsLoadFailed.value = false;
     void loadRecentTasks();
   },
   showConfirmButton: false,
@@ -192,11 +242,15 @@ const unregisterPeriodicTaskSessionCleanup = registerSessionStateCleanup(
   resetPeriodicTaskDetail,
 );
 
-// loadRecentTasks 按 active 配置名称和队列读取最近执行记录。
+// loadRecentTasks 并行读取 Redis 近期任务和 DB 工作流历史，任一数据源异常可独立降级。
 async function loadRecentTasks() {
   const task = effectivePeriodicTask.value;
   const name = String(task?.name || '').trim();
-  if (!name || !canOpenTaskList.value || recentTasksLoading.value) {
+  if (
+    !name ||
+    (!canOpenTaskList.value && !canOpenWorkflowStatus.value) ||
+    recentTasksLoading.value
+  ) {
     return;
   }
   const sourceSessionIdentity = currentSessionStateIdentity();
@@ -204,28 +258,49 @@ async function loadRecentTasks() {
   recentTasksRequestSeq.value = requestSeq;
   recentTasksLoading.value = true;
   recentTasksLoadFailed.value = false;
+  recentWorkflowsLoadFailed.value = false;
   try {
-    const result = await fetchTaskItemsOverview({
-      includeAggregating: false,
-      page: 1,
-      pageSize: PERIODIC_RECENT_TASK_LIMIT,
-      queue: String(task?.queue || '').trim() || undefined,
-      taskName: name,
-    });
+    const queue = String(task?.queue || '').trim() || undefined;
+    const historyEnd = new Date();
+    const historyStart = new Date(
+      historyEnd.getTime() - PERIODIC_WORKFLOW_HISTORY_DAYS * 86_400_000,
+    );
+    const [taskResult, workflowResult] = await Promise.allSettled([
+      canOpenTaskList.value
+        ? fetchTaskItemsOverview({
+            includeAggregating: false,
+            page: 1,
+            pageSize: PERIODIC_RECENT_TASK_LIMIT,
+            queue,
+            taskName: name,
+          })
+        : Promise.resolve(null),
+      canOpenWorkflowStatus.value
+        ? fetchTaskWorkflows({
+            endTime: historyEnd.toISOString(),
+            pageSize: PERIODIC_RECENT_TASK_LIMIT,
+            periodicName: name,
+            queue,
+            startTime: historyStart.toISOString(),
+          })
+        : Promise.resolve(null),
+    ]);
     if (
       requestSeq !== recentTasksRequestSeq.value ||
       sourceSessionIdentity !== currentSessionStateIdentity()
     ) {
       return;
     }
-    recentTasks.value = result.tasks || [];
-    recentTaskTotal.value = result.total || 0;
-  } catch {
-    if (
-      requestSeq === recentTasksRequestSeq.value &&
-      sourceSessionIdentity === currentSessionStateIdentity()
-    ) {
+    if (taskResult.status === 'fulfilled' && taskResult.value) {
+      recentTasks.value = taskResult.value.tasks || [];
+      recentTaskTotal.value = taskResult.value.total || 0;
+    } else if (taskResult.status === 'rejected') {
       recentTasksLoadFailed.value = true;
+    }
+    if (workflowResult.status === 'fulfilled' && workflowResult.value) {
+      recentWorkflows.value = workflowResult.value.items || [];
+    } else if (workflowResult.status === 'rejected') {
+      recentWorkflowsLoadFailed.value = true;
     }
   } finally {
     if (requestSeq === recentTasksRequestSeq.value) {
@@ -240,7 +315,9 @@ function resetPeriodicTaskDetail() {
   periodicDetailFullscreen.value = false;
   recentTasksLoading.value = false;
   recentTasksLoadFailed.value = false;
+  recentWorkflowsLoadFailed.value = false;
   recentTasks.value = [];
+  recentWorkflows.value = [];
   recentTaskTotal.value = 0;
   periodicTask.value = null;
   activePeriodicTasks.value = [];
@@ -323,7 +400,7 @@ async function openTaskList(taskId = '') {
 }
 
 // openWorkflowStatus 跳转指定任务的工作流状态页。
-async function openWorkflowStatus(task: Partial<TaskApi.TaskItem>) {
+async function openWorkflowStatus(task: { workflowId?: string }) {
   const workflowId = String(task.workflowId || '').trim();
   if (!workflowId || !canOpenWorkflowStatus.value) {
     return;
@@ -415,18 +492,25 @@ onBeforeUnmount(() => {
       </Card>
 
       <Alert
-        v-if="!canOpenTaskList"
+        v-if="!canOpenTaskList && !canOpenWorkflowStatus"
         show-icon
         type="warning"
         :message="rt('periodicTaskPermissionRequired')"
         :description="rt('periodicTaskPermissionRequiredDesc')"
       />
       <Alert
-        v-else-if="recentTasksLoadFailed"
+        v-if="recentTasksLoadFailed"
         show-icon
         type="error"
         :message="rt('periodicRecentLoadFailed')"
         :description="rt('periodicRecentLoadFailedDesc')"
+      />
+      <Alert
+        v-if="recentWorkflowsLoadFailed"
+        show-icon
+        type="warning"
+        :message="rt('periodicWorkflowHistoryLoadFailed')"
+        :description="rt('periodicWorkflowHistoryLoadFailedDesc')"
       />
 
       <Card size="small">
@@ -521,6 +605,59 @@ onBeforeUnmount(() => {
                     </Button>
                   </Tooltip>
                 </Space>
+              </template>
+            </template>
+          </Table>
+        </Spin>
+      </Card>
+
+      <Card v-if="canOpenWorkflowStatus" size="small">
+        <template #title>
+          {{ rt('periodicWorkflowHistory') }}
+          <Tag>{{ recentWorkflows.length }}</Tag>
+        </template>
+        <Spin :spinning="recentTasksLoading">
+          <Table
+            class="runtime-detail-table"
+            :columns="recentWorkflowColumns"
+            :data-source="recentWorkflows"
+            :pagination="false"
+            row-key="id"
+            :scroll="recentWorkflows.length > 0 ? { x: 1118 } : undefined"
+            size="small"
+          >
+            <template #emptyText>
+              <Empty :description="rt('periodicWorkflowHistoryEmpty')" />
+            </template>
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'workflowId'">
+                <CopyableTextCell
+                  :copy-label="$t('business.message.copyWorkflowId')"
+                  :copied-message="$t('business.message.workflowIdCopied')"
+                  :empty-message="$t('business.message.noWorkflowIdToCopy')"
+                  :text="record.workflowId"
+                />
+              </template>
+              <template v-else-if="column.key === 'status'">
+                <Tag :color="record.status === 'success' ? 'success' : 'error'">
+                  {{ record.status }}
+                </Tag>
+              </template>
+              <template v-else-if="column.key === 'durationMs'">
+                {{ formatDurationMs(record.durationMs) }}
+              </template>
+              <template v-else-if="column.key === 'action'">
+                <Tooltip :title="rt('workflowStatus')">
+                  <Button
+                    class="runtime-detail-action"
+                    size="small"
+                    type="link"
+                    :aria-label="rt('workflowStatus')"
+                    @click="openWorkflowStatus(record)"
+                  >
+                    <template #icon><BranchesOutlined /></template>
+                  </Button>
+                </Tooltip>
               </template>
             </template>
           </Table>

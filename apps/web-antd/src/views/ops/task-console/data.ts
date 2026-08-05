@@ -35,6 +35,7 @@ export function useTriggerWorkflowSchema(
       fieldName: 'targetsText',
       label: $t('business.message.executionTargets'),
       componentProps: {
+        maxLength: TASK_API_LIMITS.workflowTargetsBytes,
         rows: 4,
         placeholder: $t('business.message.executionTargetsPlaceholder'),
       },
@@ -80,6 +81,7 @@ export function useTriggerWorkflowSchema(
       label: $t('business.message.uniqueKey'),
       componentProps: {
         allowClear: true,
+        maxLength: TASK_API_LIMITS.uniqueKeyBytes,
         placeholder: $t('business.message.uniqueKeyPlaceholder'),
       },
     },
@@ -89,6 +91,7 @@ export function useTriggerWorkflowSchema(
       label: $t('business.message.uniqueTTLSeconds'),
       defaultValue: taskConsoleDefaults.uniqueTTLSeconds,
       componentProps: {
+        max: TASK_API_LIMITS.uniqueTTLSeconds,
         min: 1,
         addonAfter: $t('business.message.secondsUnit'),
         style: { width: '100%' },
@@ -133,6 +136,7 @@ export function useTriggerWorkflowSchema(
       label: $t('business.message.delayRunSeconds'),
       defaultValue: taskConsoleDefaults.processInSeconds,
       componentProps: {
+        max: TASK_API_LIMITS.scheduleDelaySeconds,
         min: 0,
         addonAfter: $t('business.message.secondsUnit'),
         style: { width: '100%' },
@@ -176,6 +180,7 @@ export function useEnqueueTaskSchema(
       label: $t('business.message.taskPayload'),
       rules: 'required',
       componentProps: {
+        maxLength: TASK_API_LIMITS.payloadBytes,
         rows: 6,
         placeholder: '{\n  "appId": "203"\n}',
       },
@@ -240,6 +245,7 @@ export function useEnqueueTaskSchema(
       label: $t('business.message.delayRunSeconds'),
       defaultValue: taskConsoleDefaults.processInSeconds,
       componentProps: {
+        max: TASK_API_LIMITS.scheduleDelaySeconds,
         min: 0,
         addonAfter: $t('business.message.secondsUnit'),
         style: { width: '100%' },
@@ -260,6 +266,7 @@ export function useEnqueueTaskSchema(
       label: $t('business.message.uniqueTTLSeconds'),
       defaultValue: taskConsoleDefaults.uniqueTTLSeconds,
       componentProps: {
+        max: TASK_API_LIMITS.uniqueTTLSeconds,
         min: 1,
         addonAfter: $t('business.message.secondsUnit'),
         style: { width: '100%' },

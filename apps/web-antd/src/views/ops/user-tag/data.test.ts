@@ -43,5 +43,19 @@ describe('user tag form schema', () => {
     expect(findSchema(schemas, 'workerCount')?.componentProps).toMatchObject({
       max: USER_TAG_FORM_LIMITS.workerCount,
     });
+    expect(
+      findSchema(schemas, 'uniqueTTLSeconds')?.componentProps,
+    ).toMatchObject({
+      max: USER_TAG_FORM_LIMITS.uniqueTTLSeconds,
+      min: 1,
+    });
+  });
+
+  it('keeps workflow unique key aligned with backend limit', () => {
+    expect(
+      findSchema(useUserTagWorkflowSchema(), 'uniqueKey')?.componentProps,
+    ).toMatchObject({
+      maxLength: USER_TAG_FORM_LIMITS.uniqueKeyBytes,
+    });
   });
 });

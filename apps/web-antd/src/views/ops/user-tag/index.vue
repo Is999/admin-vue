@@ -12,6 +12,7 @@ import { Alert, Button, Card, message, Modal, Space } from 'ant-design-vue';
 
 import { useVbenForm } from '#/adapter/form';
 import { fetchTaskQueues } from '#/api/ops/task';
+import { TASK_API_LIMITS } from '#/api/ops/task-types';
 import {
   recalculateUserTagByTypes,
   releaseUserTagWorkflowLease,
@@ -32,6 +33,7 @@ import {
   safePrettyJson,
   splitTextToItems,
   splitTextToNumberItems,
+  utf8ByteLength,
 } from '../shared';
 import {
   USER_TAG_FORM_LIMITS,
@@ -716,6 +718,14 @@ async function handleTriggerUserTagWorkflow() {
     if (!validateWorkflowModeInput(mode, tagTypes, uids)) {
       return;
     }
+    const uniqueKey = String(values.uniqueKey || '').trim();
+    if (utf8ByteLength(uniqueKey) > TASK_API_LIMITS.uniqueKeyBytes) {
+      throw new Error(
+        $t('business.message.uniqueKeyTooLarge', [
+          String(TASK_API_LIMITS.uniqueKeyBytes),
+        ]),
+      );
+    }
     const requestPayload: UserTagApi.TriggerWorkflowReq = {
       mode,
       tagTypes:
@@ -726,7 +736,7 @@ async function handleTriggerUserTagWorkflow() {
       batchSize: normalizeOptionalNumber(values.batchSize),
       workerCount: normalizeOptionalNumber(values.workerCount),
       dryRun: true,
-      uniqueKey: values.uniqueKey || undefined,
+      uniqueKey: uniqueKey || undefined,
       uniqueTTLSeconds: normalizeOptionalNumber(values.uniqueTTLSeconds),
       retry: normalizeOptionalNumber(values.retry),
       timeoutSeconds: normalizeOptionalNumber(values.timeoutSeconds),
