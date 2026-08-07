@@ -43,6 +43,21 @@ export async function fetchTaskFailures(params: TaskApi.ListTaskFailuresReq) {
   );
 }
 
+// fetchTaskRuns 查询全部实际任务的短期终态历史。
+export async function fetchTaskRuns(params: TaskApi.ListTaskRunsReq) {
+  return requestClient.get<TaskApi.TaskRunHistoryListResp>(
+    `${TASK_PREFIX}/history`,
+    { params },
+  );
+}
+
+// getTaskRunHistory 查询任务终态详情和有界处理明细。
+export async function getTaskRunHistory(id: number) {
+  return requestClient.get<TaskApi.TaskRunHistoryItem>(
+    `${TASK_PREFIX}/history/${encodeURIComponent(id)}`,
+  );
+}
+
 // fetchTaskObservability 查询 Redis 实时态和历史落库健康摘要。
 export async function fetchTaskObservability() {
   return requestClient.get<TaskApi.TaskObservabilityResp>(
@@ -50,12 +65,22 @@ export async function fetchTaskObservability() {
   );
 }
 
+// GetTaskInfoOptions 控制任务详情探测是否交由调用页面处理错误。
+type GetTaskInfoOptions = {
+  // silent 表示不弹全局错误；用于 Redis 未命中后继续回退 DB 历史的预期路径。
+  silent?: boolean;
+};
+
 // getTaskInfo 查询单个任务详情。
-export async function getTaskInfo(params: TaskApi.GetTaskInfoReq) {
+export async function getTaskInfo(
+  params: TaskApi.GetTaskInfoReq,
+  options: GetTaskInfoOptions = {},
+) {
   return requestClient.get<TaskApi.TaskItem>(
     `${TASK_PREFIX}/${encodeURIComponent(params.taskId)}`,
     {
       params: { queue: params.queue },
+      skipGlobalErrorMessage: options.silent,
     },
   );
 }

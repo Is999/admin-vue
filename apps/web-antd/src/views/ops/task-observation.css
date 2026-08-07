@@ -1,0 +1,114 @@
+/* 任务观测页沿用现有运维页面的紧凑卡片间距。 */
+.task-observation-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 独立观测卡片使用与任务主表一致的紧凑内容边距，保持标题和表格左对齐。 */
+.task-observation-card .ant-card-head {
+  padding-inline: 8px;
+}
+
+.task-observation-card .ant-card-body {
+  padding: 8px;
+}
+
+/* 工作流快链滚动到详情卡时保留与卡片栈一致的顶部间距。 */
+.workflow-detail-section {
+  scroll-margin-top: 8px;
+}
+
+/* 历史筛选栏在桌面端保持单行，窄屏时按可用宽度收敛，避免输入框纵向占满卡片。 */
+.task-history-filter-bar {
+  display: grid;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.task-history-filter-bar--workflow {
+  grid-template-columns:
+    minmax(240px, 1.3fr) minmax(180px, 0.9fr) minmax(200px, 1fr)
+    minmax(300px, 1.2fr) auto;
+}
+
+.task-history-filter-bar--task {
+  grid-template-columns:
+    minmax(220px, 1fr) minmax(220px, 1fr) minmax(220px, 1fr)
+    minmax(300px, 1.2fr) auto;
+}
+
+.task-history-filter-bar--task-failure {
+  grid-template-columns:
+    minmax(220px, 1fr) minmax(220px, 1fr) minmax(220px, 1fr)
+    minmax(300px, 1.2fr) auto;
+}
+
+.task-history-filter-actions {
+  display: flex;
+  grid-column: -2 / -1;
+  gap: 8px;
+  justify-self: end;
+}
+
+@media (max-width: 1100px) {
+  .task-history-filter-bar--workflow,
+  .task-history-filter-bar--task,
+  .task-history-filter-bar--task-failure {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .task-history-filter-actions {
+    grid-column: auto;
+    justify-self: start;
+  }
+}
+
+@media (max-width: 640px) {
+  .task-history-filter-bar--workflow,
+  .task-history-filter-bar--task,
+  .task-history-filter-bar--task-failure {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 任务观测页统一使用与运行配置一致的表格层次，避免历史表在暗色主题下出现纯黑表头。 */
+.task-observation-table {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.task-observation-table .ant-table {
+  color: hsl(var(--foreground));
+  background: transparent;
+}
+
+.task-observation-table .ant-table-container {
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+}
+
+.task-observation-table .ant-table-thead > tr > th {
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  background: hsl(var(--accent));
+  border-bottom-color: hsl(var(--border));
+}
+
+.task-observation-table .ant-table-thead > tr > th::before {
+  background-color: hsl(var(--heavy));
+}
+
+.task-observation-table .ant-table-tbody > tr > td {
+  color: hsl(var(--foreground));
+  background: hsl(var(--card));
+  border-bottom-color: hsl(var(--border));
+}
+
+.task-observation-table .ant-table-tbody > tr:hover > td {
+  background: hsl(var(--accent-hover));
+}

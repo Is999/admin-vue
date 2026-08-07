@@ -36,21 +36,36 @@ const TASK_TRACE_ACTIONS = new Set([
   'upsert',
 ]);
 
+// hasPositiveTraceCount 判断处理量是否为需要展示的正数，零值不占用观测空间。
+function hasPositiveTraceCount(value?: unknown) {
+  const count = Number(value || 0);
+  return Number.isFinite(count) && count > 0;
+}
+
+// hasVisibleTraceMetric 判断指标是否包含有效值，兼容格式化后的耗时文本。
+function hasVisibleTraceMetric(value?: number | string) {
+  if (typeof value === 'number') {
+    return hasPositiveTraceCount(value);
+  }
+  return Boolean(value && value !== '-');
+}
+
 // hasTaskExecutionTrace 判断执行追踪是否包含可展示的数据。
 export function hasTaskExecutionTrace(trace?: TaskApi.TaskExecutionTrace) {
   if (!trace) {
     return false;
   }
   return (
-    Number(trace.totalCount || 0) > 0 ||
-    Number(trace.readCount || 0) > 0 ||
-    Number(trace.insertCount || 0) > 0 ||
-    Number(trace.updateCount || 0) > 0 ||
-    Number(trace.deleteCount || 0) > 0 ||
-    Number(trace.upsertCount || 0) > 0 ||
-    Number(trace.skipCount || 0) > 0 ||
-    Number(trace.errorCount || 0) > 0 ||
-    (trace.details || []).length > 0
+    hasPositiveTraceCount(trace.totalCount) ||
+    hasPositiveTraceCount(trace.readCount) ||
+    hasPositiveTraceCount(trace.insertCount) ||
+    hasPositiveTraceCount(trace.updateCount) ||
+    hasPositiveTraceCount(trace.deleteCount) ||
+    hasPositiveTraceCount(trace.upsertCount) ||
+    hasPositiveTraceCount(trace.skipCount) ||
+    hasPositiveTraceCount(trace.errorCount) ||
+    hasPositiveTraceCount(trace.durationMs) ||
+    buildTaskTraceDetailRows(trace).length > 0
   );
 }
 
@@ -99,7 +114,7 @@ export function taskTraceActionColor(action?: string) {
 export function buildTaskTraceMetricItems(
   trace?: TaskApi.TaskExecutionTrace,
 ): TaskTraceMetricItem[] {
-  return [
+  const items: TaskTraceMetricItem[] = [
     {
       label: $t('business.message.taskTraceTotalCount'),
       tone: 'primary',
@@ -146,13 +161,14 @@ export function buildTaskTraceMetricItems(
       value: formatDurationMs(trace?.durationMs),
     },
   ];
+  return items.filter((item) => hasVisibleTraceMetric(item.value));
 }
 
 // buildTaskTraceSummaryRows 生成任务详情弹窗中的处理量摘要。
 export function buildTaskTraceSummaryRows(
   trace: TaskApi.TaskExecutionTrace,
 ): TaskTraceSummaryRow[] {
-  return [
+  const rows: TaskTraceSummaryRow[] = [
     [$t('business.message.taskTraceTotalCount'), trace.totalCount, 'primary'],
     [$t('business.message.taskTraceReadCount'), trace.readCount, 'info'],
     [$t('business.message.taskTraceInsertCount'), trace.insertCount, 'success'],
@@ -168,15 +184,18 @@ export function buildTaskTraceSummaryRows(
     ],
     [
       $t('business.message.taskTraceDetailCount'),
-      (trace.details || []).length,
+      buildTaskTraceDetailRows(trace).length,
       'default',
     ],
   ];
+  return rows.filter((row) => hasVisibleTraceMetric(row[1]));
 }
 
-// buildTaskTraceDetailRows 返回完整处理量明细。
+// buildTaskTraceDetailRows 返回处理量大于零的明细，避免无效零值淹没有效数据。
 export function buildTaskTraceDetailRows(trace: TaskApi.TaskExecutionTrace) {
-  return trace.details || [];
+  return (trace.details || []).filter((detail) =>
+    hasPositiveTraceCount(detail.count),
+  );
 }
 
 // formatTaskTraceDetails 生成处理量明细摘要文本。
@@ -184,7 +203,10 @@ export function formatTaskTraceDetails(
   details?: TaskApi.TaskExecutionTraceDetail[],
   limit = 4,
 ) {
-  const rows = (details || []).slice(0, limit);
+  const visibleDetails = (details || []).filter((detail) =>
+    hasPositiveTraceCount(detail.count),
+  );
+  const rows = visibleDetails.slice(0, limit);
   if (rows.length === 0) {
     return '-';
   }
@@ -196,7 +218,7 @@ export function formatTaskTraceDetails(
         )}`,
     )
     .join(' / ');
-  if ((details || []).length > rows.length) {
+  if (visibleDetails.length > rows.length) {
     return `${text} ...`;
   }
   return text;

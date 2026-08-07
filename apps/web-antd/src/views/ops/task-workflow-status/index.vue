@@ -1,13 +1,26 @@
 <script lang="ts" setup>
 // ================= 类型与依赖引入 =================
+import type { Dayjs } from 'dayjs';
+
 import type { TaskApi } from '#/api/ops/task';
 
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { Page, VbenButton } from '@vben/common-ui';
 
-import { CopyOutlined, QuestionCircleOutlined } from '@ant-design/icons-vue';
+import {
+  BranchesOutlined,
+  CopyOutlined,
+  QuestionCircleOutlined,
+} from '@ant-design/icons-vue';
 import {
   Alert,
   Button,
@@ -19,6 +32,7 @@ import {
   Tag,
   Tooltip,
 } from 'ant-design-vue';
+import { RangePicker } from 'ant-design-vue/es/date-picker';
 
 import { fetchTaskWorkflows, getTaskWorkflowStatus } from '#/api/ops/task';
 import {
@@ -33,6 +47,7 @@ import {
 } from '#/utils/session-state-gate';
 
 import JsonDetailViewer from '../../system/components/json-detail-viewer.vue';
+import CopyableTextCell from '../runtime-config/components/copyable-text-cell.vue';
 import {
   formatDurationMs,
   formatProgressPercent,
@@ -42,12 +57,15 @@ import {
   safePrettyJson,
 } from '../shared';
 import {
+  buildTaskTraceDetailRows,
   buildTaskTraceMetricItems,
   formatTaskTraceAction,
   formatTaskTraceDetails,
   hasTaskExecutionTrace,
   normalizeTaskTraceAction,
 } from '../task-trace';
+
+import '../task-observation.css';
 
 // ================= 页面状态 =================
 // WORKFLOW_STATUS_AUTO_REFRESH_INTERVAL_MS 表示工作流运行态自动刷新间隔，与后端指标心跳保持一致。
@@ -99,6 +117,25 @@ const workflowHistoryNextCursor = ref('');
 const workflowHistoryHasMore = ref(false);
 const workflowHistoryStartTime = ref('');
 const workflowHistoryEndTime = ref('');
+// workflowHistoryWorkflowID 精确筛选 DB 中的工作流实例。
+const workflowHistoryWorkflowID = ref('');
+// workflowHistoryWorkflowName 精确筛选 DB 中的工作流名称。
+const workflowHistoryWorkflowName = ref('');
+// workflowHistoryPeriodicName 精确筛选 DB 中的周期任务名称。
+const workflowHistoryPeriodicName = ref('');
+// workflowHistoryTimeRange 保存 DB 工作流历史的独立时间筛选。
+const workflowHistoryTimeRange = ref<[Dayjs, Dayjs] | undefined>();
+// vWorkflowHistoryTimeRangeIdentifiers 为历史时间范围补充独立表单标识。
+const vWorkflowHistoryTimeRangeIdentifiers = {
+  mounted(element: HTMLElement) {
+    const [startInput, endInput] =
+      element.querySelectorAll<HTMLInputElement>('input');
+    startInput?.setAttribute('id', 'workflow-history-time-range-start');
+    startInput?.setAttribute('name', 'workflow-history-time-range-start');
+    endInput?.setAttribute('id', 'workflow-history-time-range-end');
+    endInput?.setAttribute('name', 'workflow-history-time-range-end');
+  },
+};
 // autoQueriedWorkflowId 防止同一个路由 workflowId 被 watch 重复自动查询。
 const autoQueriedWorkflowId = ref('');
 // showWorkflowStatusRaw 控制原始 JSON 回执是否展开。
@@ -250,7 +287,7 @@ function buildNodeTraceMiniMetrics(trace?: TaskApi.TaskExecutionTrace) {
 
 // hasTraceDetailRows 判断分片是否存在可展开的完整处理明细。
 function hasTraceDetailRows(details?: TaskApi.TaskExecutionTraceDetail[]) {
-  return (details || []).length > 0;
+  return buildTaskTraceDetailRows({ details }).length > 0;
 }
 
 // openWorkflowTraceDetails 打开节点或分片处理明细弹窗。
@@ -259,7 +296,7 @@ function openWorkflowTraceDetails(
   details?: TaskApi.TaskExecutionTraceDetail[],
 ) {
   workflowTraceDetailsModalTitle.value = title || '-';
-  workflowTraceDetailsModalRows.value = [...(details || [])];
+  workflowTraceDetailsModalRows.value = buildTaskTraceDetailRows({ details });
   workflowTraceDetailsModalOpen.value = true;
 }
 
@@ -321,6 +358,10 @@ function resetWorkflowStatusSessionState() {
   workflowHistoryHasMore.value = false;
   workflowHistoryStartTime.value = '';
   workflowHistoryEndTime.value = '';
+  workflowHistoryWorkflowID.value = '';
+  workflowHistoryWorkflowName.value = '';
+  workflowHistoryPeriodicName.value = '';
+  workflowHistoryTimeRange.value = undefined;
 }
 
 // workflowHistoryColumns 定义短期历史列表最小观测字段。
@@ -333,11 +374,13 @@ const workflowHistoryColumns = computed(() => [
   },
   {
     dataIndex: 'workflowName',
+    ellipsis: true,
     title: $t('business.message.workflowName'),
     width: 180,
   },
   {
     dataIndex: 'periodicName',
+    ellipsis: true,
     title: $t('business.message.periodicTaskName'),
     width: 180,
   },
@@ -380,11 +423,17 @@ async function loadWorkflowHistory(options: { append?: boolean } = {}) {
     return;
   }
   if (!append) {
-    const end = new Date();
-    workflowHistoryEndTime.value = end.toISOString();
-    workflowHistoryStartTime.value = new Date(
-      end.getTime() - WORKFLOW_HISTORY_DAYS * 86_400_000,
-    ).toISOString();
+    const [startAt, endAt] = workflowHistoryTimeRange.value || [];
+    if (startAt && endAt) {
+      workflowHistoryStartTime.value = startAt.toDate().toISOString();
+      workflowHistoryEndTime.value = endAt.toDate().toISOString();
+    } else {
+      const end = new Date();
+      workflowHistoryEndTime.value = end.toISOString();
+      workflowHistoryStartTime.value = new Date(
+        end.getTime() - WORKFLOW_HISTORY_DAYS * 86_400_000,
+      ).toISOString();
+    }
   }
   const sourceSessionIdentity = currentSessionStateIdentity();
   const requestSeq = workflowHistoryRequestSeq.value + 1;
@@ -396,7 +445,10 @@ async function loadWorkflowHistory(options: { append?: boolean } = {}) {
       cursor,
       endTime: workflowHistoryEndTime.value,
       pageSize: 20,
+      periodicName: workflowHistoryPeriodicName.value.trim() || undefined,
       startTime: workflowHistoryStartTime.value,
+      workflowId: workflowHistoryWorkflowID.value.trim() || undefined,
+      workflowName: workflowHistoryWorkflowName.value.trim() || undefined,
     });
     if (
       requestSeq !== workflowHistoryRequestSeq.value ||
@@ -423,11 +475,35 @@ async function loadWorkflowHistory(options: { append?: boolean } = {}) {
   }
 }
 
+// handleWorkflowHistorySearch 按有索引的等值条件重新查询工作流历史。
+async function handleWorkflowHistorySearch() {
+  await loadWorkflowHistory();
+}
+
+// handleWorkflowHistoryReset 清空历史筛选并恢复默认时间窗口。
+async function handleWorkflowHistoryReset() {
+  workflowHistoryWorkflowID.value = '';
+  workflowHistoryWorkflowName.value = '';
+  workflowHistoryPeriodicName.value = '';
+  workflowHistoryTimeRange.value = undefined;
+  await loadWorkflowHistory();
+}
+
+// scrollToWorkflowDetail 把单实例查询区滚动到可视窗口，并为页面固定区域保留顶部间距。
+async function scrollToWorkflowDetail() {
+  await nextTick();
+  document.querySelector('#workflow-detail-section')?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'start',
+  });
+}
+
 // openWorkflowHistoryItem 复用现有单实例详情能力打开历史快照。
 async function openWorkflowHistoryItem(record: Record<string, any>) {
   const item = record as TaskApi.TaskWorkflowHistoryItem;
   workflowIdInput.value = item.workflowId;
   await handleQueryWorkflowStatus();
+  await scrollToWorkflowDetail();
 }
 
 // syncWorkflowStatusAutoRefresh 根据最新工作流状态启动或停止自动刷新。
@@ -597,6 +673,16 @@ const workflowSummaryRows = computed(() => {
 
 // workflowNodeRows 便于模板直接展示节点明细。
 const workflowNodeRows = computed(() => workflowStatus.value?.nodes || []);
+
+// canOpenWorkflowTaskLinks 仅在 Redis 热状态或可能仍有 archived 记录的失败历史中展示任务跳转。
+const canOpenWorkflowTaskLinks = computed(() => {
+  const currentWorkflow = workflowStatus.value;
+  return Boolean(
+    currentWorkflow &&
+    (currentWorkflow.dataSource !== 'database' ||
+      currentWorkflow.status === 'failed'),
+  );
+});
 
 // workflowProgressSummaryRows 展示工作流执行进度汇总。
 const workflowProgressSummaryRows = computed(() =>
@@ -1147,6 +1233,7 @@ onMounted(() => {
     if (routeWorkflowId && autoQueriedWorkflowId.value !== routeWorkflowId) {
       autoQueriedWorkflowId.value = routeWorkflowId;
       await handleQueryWorkflowStatus();
+      await scrollToWorkflowDetail();
     }
   })();
 });
@@ -1169,6 +1256,7 @@ watch(
     }
     autoQueriedWorkflowId.value = routeWorkflowId;
     await handleQueryWorkflowStatus();
+    await scrollToWorkflowDetail();
   },
 );
 </script>
@@ -1176,9 +1264,9 @@ watch(
 <template>
   <div class="task-workflow-status-page">
     <Page :title="$t('business.message.workflowStatus')">
-      <div class="space-y-2">
+      <div class="task-observation-stack">
         <Card
-          class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+          class="task-observation-card border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
           :title="$t('business.message.workflowHistory')"
         >
           <template #extra>
@@ -1197,7 +1285,72 @@ watch(
             type="warning"
             :message="$t('business.message.workflowHistoryLoadFailed')"
           />
+          <div
+            class="task-history-filter-bar task-history-filter-bar--workflow"
+          >
+            <Input
+              v-model:value="workflowHistoryWorkflowID"
+              allow-clear
+              autocomplete="off"
+              id="workflow-history-workflow-id"
+              name="workflow-history-workflow-id"
+              :placeholder="
+                $t('business.message.workflowHistoryWorkflowIdPlaceholder')
+              "
+              @press-enter="handleWorkflowHistorySearch"
+            />
+            <Input
+              v-model:value="workflowHistoryWorkflowName"
+              allow-clear
+              autocomplete="off"
+              id="workflow-history-workflow-name"
+              name="workflow-history-workflow-name"
+              :placeholder="
+                $t('business.message.workflowHistoryWorkflowNamePlaceholder')
+              "
+              @press-enter="handleWorkflowHistorySearch"
+            />
+            <Input
+              v-model:value="workflowHistoryPeriodicName"
+              allow-clear
+              autocomplete="off"
+              id="workflow-history-periodic-name"
+              name="workflow-history-periodic-name"
+              :placeholder="
+                $t('business.message.workflowHistoryPeriodicNamePlaceholder')
+              "
+              @press-enter="handleWorkflowHistorySearch"
+            />
+            <div v-workflow-history-time-range-identifiers class="min-w-0">
+              <RangePicker
+                v-model:value="workflowHistoryTimeRange"
+                class="w-full"
+                format="YYYY-MM-DD HH:mm:ss"
+                :placeholder="[
+                  $t('business.message.startTime'),
+                  $t('business.message.endTime'),
+                ]"
+                show-time
+              />
+            </div>
+            <div class="task-history-filter-actions">
+              <Button
+                type="primary"
+                :loading="workflowHistoryLoading"
+                @click="handleWorkflowHistorySearch"
+              >
+                {{ $t('business.message.search') }}
+              </Button>
+              <Button
+                :disabled="workflowHistoryLoading"
+                @click="handleWorkflowHistoryReset"
+              >
+                {{ $t('business.message.reset') }}
+              </Button>
+            </div>
+          </div>
           <Table
+            class="task-observation-table"
             :columns="workflowHistoryColumns"
             :data-source="workflowHistoryRows"
             :loading="workflowHistoryLoading"
@@ -1207,7 +1360,70 @@ watch(
             size="small"
           >
             <template #bodyCell="{ column, record }">
-              <template v-if="column.dataIndex === 'status'">
+              <template v-if="column.dataIndex === 'workflowId'">
+                <div class="flex min-w-0 items-center gap-1">
+                  <div class="min-w-0 flex-1">
+                    <CopyableTextCell
+                      :copied-message="$t('business.message.workflowIdCopied')"
+                      :copy-label="$t('business.message.copyWorkflowId')"
+                      :empty-message="$t('business.message.noWorkflowIdToCopy')"
+                      :text="record.workflowId"
+                    />
+                  </div>
+                  <Tooltip :title="$t('business.message.viewWorkflowStatus')">
+                    <Button
+                      class="h-7! w-7! shrink-0 p-0!"
+                      size="small"
+                      type="link"
+                      :aria-label="$t('business.message.viewWorkflowStatus')"
+                      @click.stop="openWorkflowHistoryItem(record)"
+                    >
+                      <template #icon><BranchesOutlined /></template>
+                    </Button>
+                  </Tooltip>
+                </div>
+              </template>
+              <template v-else-if="column.dataIndex === 'workflowName'">
+                <CopyableTextCell
+                  :copied-message="
+                    $t('business.message.valueCopiedToClipboard', [
+                      $t('business.message.workflowName'),
+                    ])
+                  "
+                  :copy-label="
+                    $t('business.message.copyValueLabel', [
+                      $t('business.message.workflowName'),
+                    ])
+                  "
+                  :empty-message="
+                    $t('business.message.noValueToCopy', [
+                      $t('business.message.workflowName'),
+                    ])
+                  "
+                  :text="record.workflowName"
+                />
+              </template>
+              <template v-else-if="column.dataIndex === 'periodicName'">
+                <CopyableTextCell
+                  :copied-message="
+                    $t('business.message.valueCopiedToClipboard', [
+                      $t('business.message.periodicTaskName'),
+                    ])
+                  "
+                  :copy-label="
+                    $t('business.message.copyValueLabel', [
+                      $t('business.message.periodicTaskName'),
+                    ])
+                  "
+                  :empty-message="
+                    $t('business.message.noValueToCopy', [
+                      $t('business.message.periodicTaskName'),
+                    ])
+                  "
+                  :text="record.periodicName"
+                />
+              </template>
+              <template v-else-if="column.dataIndex === 'status'">
                 <Tag :color="record.status === 'success' ? 'success' : 'error'">
                   {{ record.status }}
                 </Tag>
@@ -1237,7 +1453,8 @@ watch(
           </div>
         </Card>
         <Card
-          class="border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+          id="workflow-detail-section"
+          class="task-observation-card workflow-detail-section border border-slate-200/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70"
           :title="$t('business.message.queryWorkflowInstanceStatus')"
         >
           <div class="workflow-query-row">
@@ -1338,6 +1555,7 @@ watch(
             </Alert>
             <div class="workflow-status-actions">
               <Button
+                v-if="canOpenWorkflowTaskLinks"
                 size="small"
                 type="primary"
                 @click="handleOpenWorkflowStatusTasks"
@@ -1678,6 +1896,7 @@ watch(
                         </div>
 
                         <Button
+                          v-if="canOpenWorkflowTaskLinks"
                           class="workflow-node-action"
                           size="small"
                           @click="handleOpenWorkflowNodeTasks(node)"

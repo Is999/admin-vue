@@ -1125,11 +1125,11 @@ function onRenewAll() {
 <template>
   <Page
     class="min-w-0 max-w-full overflow-x-hidden"
-    content-class="flex min-w-0 max-w-full flex-col gap-4"
+    content-class="flex min-w-0 max-w-full flex-col gap-2"
   >
     <TemplateKeysDrawerView @refreshed="reloadCachePage" />
     <div
-      class="grid min-w-0 max-w-full gap-4 xl:grid-cols-[minmax(360px,420px)_minmax(0,1fr)]"
+      class="grid min-w-0 max-w-full gap-2 xl:grid-cols-[minmax(360px,420px)_minmax(0,1fr)]"
     >
       <Card
         class="min-w-0"
@@ -1586,5 +1586,31 @@ function onRenewAll() {
   overflow: hidden;
   border: 1px solid hsl(var(--border));
   border-radius: 6px;
+}
+
+.cache-metrics-table :deep(.ant-table) {
+  color: hsl(var(--foreground));
+  background: transparent;
+}
+
+.cache-metrics-table :deep(.ant-table-thead > tr > th) {
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  background: hsl(var(--accent));
+  border-bottom-color: hsl(var(--border));
+}
+
+.cache-metrics-table :deep(.ant-table-thead > tr > th::before) {
+  background-color: hsl(var(--heavy));
+}
+
+.cache-metrics-table :deep(.ant-table-tbody > tr > td) {
+  color: hsl(var(--foreground));
+  background: hsl(var(--card));
+  border-bottom-color: hsl(var(--border));
+}
+
+.cache-metrics-table :deep(.ant-table-tbody > tr:hover > td) {
+  background: hsl(var(--accent-hover));
 }
 </style>

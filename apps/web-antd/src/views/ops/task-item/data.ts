@@ -4,29 +4,37 @@ import type { TaskApi } from '#/api/ops/task';
 
 import { h } from 'vue';
 
-import { CopyOutlined, LinkOutlined } from '@ant-design/icons-vue';
-import { Button, Tooltip } from 'ant-design-vue';
-
 import { buildClampTextColumn } from '#/adapter/vxe-table';
 import {
   asActionPermission,
   OPS_ACTION_PERMISSION_CODES,
 } from '#/constants/permission-codes';
 import { $t } from '#/locales';
-import { copyTextToClipboard } from '#/utils/security/password';
 
 import {
-  formatDurationMs,
   formatTraceCount as formatSharedTraceCount,
   getTaskQueueOptions,
 } from '../shared';
 import { latencyTagMeta, taskQueueTagMap } from '../table-tags';
-import { hasTaskExecutionTrace } from '../task-trace';
+import {
+  buildTaskTraceSummaryRows,
+  hasTaskExecutionTrace,
+} from '../task-trace';
+import WorkflowIdCell from './components/workflow-id-cell.vue';
 
 // TableActionHandler 定义表格操作列点击事件签名。
 type TableActionHandler<T = any> = (params: { code: string; row: T }) => void;
 
+// TASK_ID_EXACT_PATTERN 匹配系统生成的 UUID 任务 ID 及工作流分片稳定任务 ID。
+const TASK_ID_EXACT_PATTERN =
+  /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}(?::[^\s]+:\d+)?$/i;
+
 export { formatSharedTraceCount as formatTraceCount };
+
+// isExactTaskID 判断输入是否可安全走队列内任务 ID 精确查询。
+export function isExactTaskID(taskID: string) {
+  return TASK_ID_EXACT_PATTERN.test(String(taskID || '').trim());
+}
 
 // getTaskExecutionTrace 获取任务运行指标摘要。
 export function getTaskExecutionTrace(task: TaskApi.TaskItem) {
@@ -41,122 +49,10 @@ export function getTaskWorkflowId(task: TaskApi.TaskItem) {
 // renderWorkflowIdLink 渲染可直达工作流状态页的任务列表链接。
 function renderWorkflowIdLink<T>(row: T, onActionClick: TableActionHandler<T>) {
   const workflowID = getTaskWorkflowId(row as TaskApi.TaskItem);
-  if (!workflowID) {
-    return h(
-      'span',
-      {
-        style: {
-          alignItems: 'center',
-          display: 'inline-flex',
-          height: '32px',
-        },
-      },
-      '-',
-    );
-  }
-  return h(
-    'div',
-    {
-      style: {
-        alignItems: 'center',
-        display: 'flex',
-        gap: '4px',
-        height: '32px',
-        maxWidth: '100%',
-        minWidth: 0,
-      },
-    },
-    [
-      h(
-        Tooltip,
-        {
-          placement: 'topLeft',
-          title: workflowID,
-        },
-        {
-          default: () =>
-            h(
-              Button,
-              {
-                size: 'small',
-                style: {
-                  alignItems: 'center',
-                  display: 'inline-flex',
-                  flex: '1 1 auto',
-                  gap: '4px',
-                  height: '32px',
-                  justifyContent: 'flex-start',
-                  lineHeight: '32px',
-                  minWidth: 0,
-                  padding: 0,
-                },
-                type: 'link',
-                onClick: (event: MouseEvent) => {
-                  event.stopPropagation();
-                  onActionClick({ code: 'workflowStatus', row });
-                },
-              },
-              () => [
-                h(LinkOutlined, {
-                  style: {
-                    flex: '0 0 auto',
-                    lineHeight: 1,
-                  },
-                }),
-                h(
-                  'span',
-                  {
-                    style: {
-                      display: 'block',
-                      minWidth: 0,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    },
-                  },
-                  workflowID,
-                ),
-              ],
-            ),
-        },
-      ),
-      h(
-        Tooltip,
-        {
-          title: $t('business.message.copyWorkflowId'),
-        },
-        {
-          default: () =>
-            h(
-              Button,
-              {
-                size: 'small',
-                style: {
-                  alignItems: 'center',
-                  display: 'inline-flex',
-                  flex: '0 0 auto',
-                  height: '32px',
-                  justifyContent: 'center',
-                  lineHeight: '32px',
-                  padding: 0,
-                  width: '24px',
-                },
-                type: 'link',
-                onClick: (event: MouseEvent) => {
-                  event.stopPropagation();
-                  void copyTextToClipboard(
-                    workflowID,
-                    $t('business.message.workflowIdCopied'),
-                    $t('business.message.noWorkflowIdToCopy'),
-                  );
-                },
-              },
-              () => h(CopyOutlined),
-            ),
-        },
-      ),
-    ],
-  );
+  return h(WorkflowIdCell, {
+    text: workflowID,
+    onOpen: () => onActionClick({ code: 'workflowStatus', row }),
+  });
 }
 
 // formatTaskTraceMetric 把单个运行指标格式化为 label: value 文本。
@@ -167,76 +63,41 @@ function formatTaskTraceMetric(label: string, value?: number | string) {
 }
 
 // formatTaskTraceOverview 生成任务列表运行指标摘要，悬浮后可查看完整参数。
-function formatTaskTraceOverview(task: TaskApi.TaskItem) {
+export function formatTaskTraceOverview(task: TaskApi.TaskItem) {
   const trace = getTaskExecutionTrace(task);
   if (!hasTaskExecutionTrace(trace)) {
     return '-';
   }
   const currentTrace = trace as TaskApi.TaskExecutionTrace;
-  return [
-    [
-      formatTaskTraceMetric(
-        $t('business.message.taskTraceTotalCount'),
-        currentTrace.totalCount,
-      ),
-      formatTaskTraceMetric(
-        $t('business.message.taskTraceReadCount'),
-        currentTrace.readCount,
-      ),
-      formatTaskTraceMetric(
-        $t('business.message.taskTraceInsertCount'),
-        currentTrace.insertCount,
-      ),
-      formatTaskTraceMetric(
-        $t('business.message.taskTraceUpdateCount'),
-        currentTrace.updateCount,
-      ),
-    ].join(' / '),
-    [
-      formatTaskTraceMetric(
-        $t('business.message.taskTraceDeleteCount'),
-        currentTrace.deleteCount,
-      ),
-      formatTaskTraceMetric(
-        $t('business.message.taskTraceUpsertCount'),
-        currentTrace.upsertCount,
-      ),
-      formatTaskTraceMetric(
-        $t('business.message.taskTraceSkipCount'),
-        currentTrace.skipCount,
-      ),
-      formatTaskTraceMetric(
-        $t('business.message.taskTraceErrorCount'),
-        currentTrace.errorCount,
-      ),
-    ].join(' / '),
-    [
-      formatTaskTraceMetric(
-        $t('business.message.taskTraceDuration'),
-        formatDurationMs(currentTrace.durationMs),
-      ),
-      formatTaskTraceMetric(
-        $t('business.message.taskTraceDetailCount'),
-        (currentTrace.details || []).length,
-      ),
-    ].join(' / '),
-  ].join('\n');
+  const metrics = buildTaskTraceSummaryRows(currentTrace).map(
+    ([label, value]) => formatTaskTraceMetric(label, value),
+  );
+  const lines: string[] = [];
+  for (let index = 0; index < metrics.length; index += 4) {
+    lines.push(metrics.slice(index, index + 4).join(' / '));
+  }
+  return lines.join('\n') || '-';
 }
 
-// TASK_STATE_OPTIONS 定义任务列表支持的状态选项，便于页面统一复用。
-export const TASK_STATE_OPTIONS: Array<{
+// getTaskStateOptions 按当前语言生成任务状态选项，避免模块初始化时固化翻译。
+export function getTaskStateOptions(): Array<{
   label: string;
   value: '' | TaskApi.ListTaskItemsReq['state'];
-}> = [
-  { label: $t('business.message.allStates'), value: '' },
-  { label: $t('business.message.taskStatePending'), value: 'pending' },
-  { label: $t('business.message.taskStateActive'), value: 'active' },
-  { label: $t('business.message.taskStateScheduled'), value: 'scheduled' },
-  { label: $t('business.message.taskStateRetry'), value: 'retry' },
-  { label: $t('business.message.taskStateArchived'), value: 'archived' },
-  { label: $t('business.message.taskStateCompleted'), value: 'completed' },
-  { label: $t('business.message.taskStateAggregating'), value: 'aggregating' },
-];
+}> {
+  return [
+    { label: $t('business.message.allStates'), value: '' },
+    { label: $t('business.message.taskStatePending'), value: 'pending' },
+    { label: $t('business.message.taskStateActive'), value: 'active' },
+    { label: $t('business.message.taskStateScheduled'), value: 'scheduled' },
+    { label: $t('business.message.taskStateRetry'), value: 'retry' },
+    { label: $t('business.message.taskStateArchived'), value: 'archived' },
+    { label: $t('business.message.taskStateCompleted'), value: 'completed' },
+    {
+      label: $t('business.message.taskStateAggregating'),
+      value: 'aggregating',
+    },
+  ];
+}
 
 // useGridFormSchema 返回任务列表查询表单配置。
 export function useGridFormSchema(): VbenFormSchema[] {
@@ -258,7 +119,7 @@ export function useGridFormSchema(): VbenFormSchema[] {
       label: $t('business.message.taskStatus'),
       defaultValue: '',
       componentProps: {
-        options: TASK_STATE_OPTIONS,
+        options: getTaskStateOptions(),
         placeholder: $t('business.message.taskStatusAllPlaceholder'),
       },
     },

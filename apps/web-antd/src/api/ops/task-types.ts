@@ -120,6 +120,8 @@ export namespace TaskApi {
     pageSize?: number;
     /** 状态为空时是否纳入 aggregating 探测 */
     includeAggregating?: boolean;
+    /** 状态为空时是否只查询 Redis 调度生命周期内的热状态 */
+    liveOnly?: boolean;
   }
 
   /** 单任务操作请求 */
@@ -346,6 +348,8 @@ export namespace TaskApi {
     pageSize: number;
     /** 任务总数 */
     total: number;
+    /** 是否仅返回受控扫描窗口内的匹配结果 */
+    scanLimited?: boolean;
     /** 任务列表 */
     tasks: TaskItem[];
   }
@@ -378,6 +382,8 @@ export namespace TaskApi {
     total: number;
     /** 是否为聚合查询 */
     aggregateMode: boolean;
+    /** 是否有状态仅返回受控扫描窗口内的匹配结果 */
+    scanLimited?: boolean;
     /** 实际参与查询的队列列表 */
     queues?: string[];
     /** 各任务状态的队列级总数，用于展示可切换状态入口 */
@@ -517,11 +523,68 @@ export namespace TaskApi {
     dataSource: 'database';
   }
 
+  /** 全部实际任务终态历史查询条件 */
+  export interface ListTaskRunsReq {
+    taskId?: string;
+    workflowId?: string;
+    taskType?: string;
+    taskName?: string;
+    periodicName?: string;
+    queue?: string;
+    status?: 'failed' | 'success';
+    startTime?: string;
+    endTime?: string;
+    cursor?: string;
+    pageSize?: number;
+  }
+
+  /** 单个实际任务的短期终态摘要 */
+  export interface TaskRunHistoryItem {
+    id: number;
+    taskId: string;
+    taskType: string;
+    taskName: string;
+    queue: string;
+    source?: string;
+    periodicName?: string;
+    workflowId?: string;
+    workflowName?: string;
+    workflowNode?: string;
+    shardIndex: number;
+    shardTotal: number;
+    status: 'failed' | 'success';
+    retried: number;
+    maxRetry: number;
+    traceId?: string;
+    traceTotal: number;
+    traceRead: number;
+    traceWrite: number;
+    traceDelete: number;
+    traceError: number;
+    durationMs: number;
+    errorMessage?: string;
+    executionTrace?: TaskExecutionTrace;
+    startedAt: string;
+    finishedAt: string;
+    persistedAt?: string;
+    dataSource: 'database';
+  }
+
+  /** 全部任务终态历史游标分页结果 */
+  export interface TaskRunHistoryListResp {
+    items: TaskRunHistoryItem[];
+    nextCursor?: string;
+    hasMore: boolean;
+    dataSource: 'database';
+  }
+
   /** 失败历史查询条件 */
   export interface ListTaskFailuresReq {
     taskId?: string;
     workflowId?: string;
     taskType?: string;
+    taskName?: string;
+    periodicName?: string;
     queue?: string;
     startTime?: string;
     endTime?: string;

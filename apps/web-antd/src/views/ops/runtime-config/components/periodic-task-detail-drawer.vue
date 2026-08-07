@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import type { PeriodicRecentTask } from './periodic-task-detail-data';
+
 import type { RuntimeConfigApi } from '#/api/ops/runtime-config';
 import type { TaskApi } from '#/api/ops/task';
 
@@ -29,7 +31,11 @@ import {
   Tooltip,
 } from 'ant-design-vue';
 
-import { fetchTaskItemsOverview, fetchTaskWorkflows } from '#/api/ops/task';
+import {
+  fetchTaskItemsOverview,
+  fetchTaskRuns,
+  fetchTaskWorkflows,
+} from '#/api/ops/task';
 import {
   hasAnyPermission,
   OPS_ACTION_PERMISSION_CODES,
@@ -43,6 +49,7 @@ import {
 
 import { formatDurationMs } from '../../shared';
 import CopyableTextCell from './copyable-text-cell.vue';
+import { mergePeriodicRecentTasks } from './periodic-task-detail-data';
 
 type PeriodicTaskDetailDrawerData = {
   // activeTasks 是当前 active release 中的周期任务配置。
@@ -63,16 +70,16 @@ const accessStore = useAccessStore();
 const periodicTask = ref<null | RuntimeConfigApi.PeriodicTaskItem>(null);
 // activePeriodicTasks 保存当前 active release 中的周期任务配置。
 const activePeriodicTasks = ref<RuntimeConfigApi.PeriodicTaskItem[]>([]);
-// recentTasks 保存按周期任务名称定位到的最近执行记录。
-const recentTasks = ref<TaskApi.TaskItem[]>([]);
+// recentTasks 保存 Redis 热状态与 DB 终态合并后的最近执行记录。
+const recentTasks = ref<PeriodicRecentTask[]>([]);
 // recentWorkflows 保存 DB 中按周期任务名称聚合的短期工作流历史。
 const recentWorkflows = ref<TaskApi.TaskWorkflowHistoryItem[]>([]);
-// recentTaskTotal 保存匹配该周期任务的任务总数。
-const recentTaskTotal = ref(0);
 // recentTasksLoading 控制最近执行记录加载状态。
 const recentTasksLoading = ref(false);
-// recentTasksLoadFailed 标记最近执行记录是否加载失败。
-const recentTasksLoadFailed = ref(false);
+// recentLiveTasksLoadFailed 标记 Redis 热状态是否加载失败。
+const recentLiveTasksLoadFailed = ref(false);
+// recentTaskHistoryLoadFailed 标记 DB 任务终态历史是否加载失败。
+const recentTaskHistoryLoadFailed = ref(false);
 // recentWorkflowsLoadFailed 独立标记历史库降级，不影响 Redis 近期任务展示。
 const recentWorkflowsLoadFailed = ref(false);
 // periodicDetailFullscreen 控制周期任务详情抽屉是否占满当前视口。
@@ -153,7 +160,7 @@ const periodicRuntimeAlert = computed(() => {
 
 // recentTaskColumns 定义周期任务最近执行记录列。
 const recentTaskColumns = computed(() => [
-  { title: rt('taskId'), dataIndex: 'id', key: 'id', width: 240 },
+  { title: rt('taskId'), dataIndex: 'id', key: 'id', width: 190 },
   { title: rt('status'), dataIndex: 'state', key: 'state', width: 110 },
   { title: rt('taskType'), dataIndex: 'taskType', key: 'taskType', width: 170 },
   { title: rt('queue'), dataIndex: 'queue', key: 'queue', width: 120 },
@@ -164,7 +171,14 @@ const recentTaskColumns = computed(() => [
     width: 240,
   },
   { title: rt('taskActivityAt'), key: 'activityAt', width: 180 },
-  { title: rt('taskDuration'), key: 'duration', width: 110 },
+  {
+    title: rt('taskTraceTotal'),
+    dataIndex: 'traceTotal',
+    key: 'traceTotal',
+    width: 110,
+  },
+  { title: rt('taskDuration'), key: 'duration', width: 120 },
+  { title: $t('business.message.dataSource'), key: 'dataSource', width: 90 },
   { title: rt('action'), key: 'action', width: 88 },
 ]);
 
@@ -212,7 +226,7 @@ const recentWorkflowColumns = computed(() => [
 
 // recentTaskScroll 仅在有数据时启用横向滚动，避免空表的固有宽度撑大抽屉。
 const recentTaskScroll = computed(() =>
-  recentTasks.value.length > 0 ? { x: 1260 } : undefined,
+  recentTasks.value.length > 0 ? { x: 1420 } : undefined,
 );
 
 // Drawer 承载周期任务运行态匹配和最近执行记录。
@@ -229,8 +243,8 @@ const [Drawer, drawerApi] = useVbenDrawer({
     activePeriodicTasks.value = data.activeTasks || [];
     recentTasks.value = [];
     recentWorkflows.value = [];
-    recentTaskTotal.value = 0;
-    recentTasksLoadFailed.value = false;
+    recentLiveTasksLoadFailed.value = false;
+    recentTaskHistoryLoadFailed.value = false;
     recentWorkflowsLoadFailed.value = false;
     void loadRecentTasks();
   },
@@ -242,7 +256,7 @@ const unregisterPeriodicTaskSessionCleanup = registerSessionStateCleanup(
   resetPeriodicTaskDetail,
 );
 
-// loadRecentTasks 并行读取 Redis 近期任务和 DB 工作流历史，任一数据源异常可独立降级。
+// loadRecentTasks 并行读取 Redis 热状态、DB 任务终态和工作流历史，任一数据源异常可独立降级。
 async function loadRecentTasks() {
   const task = effectivePeriodicTask.value;
   const name = String(task?.name || '').trim();
@@ -257,7 +271,8 @@ async function loadRecentTasks() {
   const requestSeq = recentTasksRequestSeq.value + 1;
   recentTasksRequestSeq.value = requestSeq;
   recentTasksLoading.value = true;
-  recentTasksLoadFailed.value = false;
+  recentLiveTasksLoadFailed.value = false;
+  recentTaskHistoryLoadFailed.value = false;
   recentWorkflowsLoadFailed.value = false;
   try {
     const queue = String(task?.queue || '').trim() || undefined;
@@ -265,38 +280,58 @@ async function loadRecentTasks() {
     const historyStart = new Date(
       historyEnd.getTime() - PERIODIC_WORKFLOW_HISTORY_DAYS * 86_400_000,
     );
-    const [taskResult, workflowResult] = await Promise.allSettled([
-      canOpenTaskList.value
-        ? fetchTaskItemsOverview({
-            includeAggregating: false,
-            page: 1,
-            pageSize: PERIODIC_RECENT_TASK_LIMIT,
-            queue,
-            taskName: name,
-          })
-        : Promise.resolve(null),
-      canOpenWorkflowStatus.value
-        ? fetchTaskWorkflows({
-            endTime: historyEnd.toISOString(),
-            pageSize: PERIODIC_RECENT_TASK_LIMIT,
-            periodicName: name,
-            queue,
-            startTime: historyStart.toISOString(),
-          })
-        : Promise.resolve(null),
-    ]);
+    const [liveTaskResult, taskHistoryResult, workflowResult] =
+      await Promise.allSettled([
+        canOpenTaskList.value
+          ? fetchTaskItemsOverview({
+              includeAggregating: false,
+              liveOnly: true,
+              page: 1,
+              pageSize: PERIODIC_RECENT_TASK_LIMIT,
+              queue,
+              taskName: name,
+            })
+          : Promise.resolve(null),
+        canOpenTaskList.value
+          ? fetchTaskRuns({
+              endTime: historyEnd.toISOString(),
+              pageSize: PERIODIC_RECENT_TASK_LIMIT,
+              periodicName: name,
+              queue,
+              startTime: historyStart.toISOString(),
+            })
+          : Promise.resolve(null),
+        canOpenWorkflowStatus.value
+          ? fetchTaskWorkflows({
+              endTime: historyEnd.toISOString(),
+              pageSize: PERIODIC_RECENT_TASK_LIMIT,
+              periodicName: name,
+              queue,
+              startTime: historyStart.toISOString(),
+            })
+          : Promise.resolve(null),
+      ]);
     if (
       requestSeq !== recentTasksRequestSeq.value ||
       sourceSessionIdentity !== currentSessionStateIdentity()
     ) {
       return;
     }
-    if (taskResult.status === 'fulfilled' && taskResult.value) {
-      recentTasks.value = taskResult.value.tasks || [];
-      recentTaskTotal.value = taskResult.value.total || 0;
-    } else if (taskResult.status === 'rejected') {
-      recentTasksLoadFailed.value = true;
-    }
+    const liveTasks =
+      liveTaskResult.status === 'fulfilled' && liveTaskResult.value
+        ? liveTaskResult.value.tasks || []
+        : [];
+    const taskRuns =
+      taskHistoryResult.status === 'fulfilled' && taskHistoryResult.value
+        ? taskHistoryResult.value.items || []
+        : [];
+    recentTasks.value = mergePeriodicRecentTasks(
+      liveTasks,
+      taskRuns,
+      PERIODIC_RECENT_TASK_LIMIT,
+    );
+    recentLiveTasksLoadFailed.value = liveTaskResult.status === 'rejected';
+    recentTaskHistoryLoadFailed.value = taskHistoryResult.status === 'rejected';
     if (workflowResult.status === 'fulfilled' && workflowResult.value) {
       recentWorkflows.value = workflowResult.value.items || [];
     } else if (workflowResult.status === 'rejected') {
@@ -314,11 +349,11 @@ function resetPeriodicTaskDetail() {
   recentTasksRequestSeq.value += 1;
   periodicDetailFullscreen.value = false;
   recentTasksLoading.value = false;
-  recentTasksLoadFailed.value = false;
+  recentLiveTasksLoadFailed.value = false;
+  recentTaskHistoryLoadFailed.value = false;
   recentWorkflowsLoadFailed.value = false;
   recentTasks.value = [];
   recentWorkflows.value = [];
-  recentTaskTotal.value = 0;
   periodicTask.value = null;
   activePeriodicTasks.value = [];
   drawerApi.close();
@@ -367,7 +402,7 @@ function taskStateColor(state?: string) {
 }
 
 // taskActivityAt 返回任务当前状态下最有意义的最近活动时间。
-function taskActivityAt(task: Partial<TaskApi.TaskItem>) {
+function taskActivityAt(task: Partial<PeriodicRecentTask>) {
   return (
     task.completedAt ||
     task.lastFailedAt ||
@@ -379,7 +414,7 @@ function taskActivityAt(task: Partial<TaskApi.TaskItem>) {
 }
 
 // openTaskList 跳转任务列表，并保留周期任务名称和运行队列筛选。
-async function openTaskList(taskId = '') {
+async function openTaskList(record?: Partial<PeriodicRecentTask>) {
   const task = effectivePeriodicTask.value;
   if (!task || !canOpenTaskList.value) {
     return;
@@ -392,8 +427,10 @@ async function openTaskList(taskId = '') {
   if (queue) {
     query.queue = queue;
   }
-  if (taskId) {
-    query.taskId = taskId;
+  if (record?.dataSource === 'database' && Number(record.historyId) > 0) {
+    query.historyId = String(record.historyId);
+  } else if (record?.id) {
+    query.taskId = record.id;
   }
   drawerApi.close();
   await router.push({ name: 'OpsTaskItem', query });
@@ -416,7 +453,7 @@ async function openWorkflowStatus(task: { workflowId?: string }) {
 }
 
 // formatTaskDuration 返回任务执行耗时；尚未开始时不展示伪造的零值。
-function formatTaskDuration(task: Partial<TaskApi.TaskItem>) {
+function formatTaskDuration(task: Partial<PeriodicRecentTask>) {
   return task.durationMs === undefined
     ? '-'
     : formatDurationMs(task.durationMs);
@@ -499,11 +536,18 @@ onBeforeUnmount(() => {
         :description="rt('periodicTaskPermissionRequiredDesc')"
       />
       <Alert
-        v-if="recentTasksLoadFailed"
+        v-if="recentLiveTasksLoadFailed"
         show-icon
-        type="error"
+        type="warning"
         :message="rt('periodicRecentLoadFailed')"
         :description="rt('periodicRecentLoadFailedDesc')"
+      />
+      <Alert
+        v-if="recentTaskHistoryLoadFailed"
+        show-icon
+        type="warning"
+        :message="rt('periodicTaskHistoryLoadFailed')"
+        :description="rt('periodicTaskHistoryLoadFailedDesc')"
       />
       <Alert
         v-if="recentWorkflowsLoadFailed"
@@ -516,7 +560,7 @@ onBeforeUnmount(() => {
       <Card size="small">
         <template #title>
           {{ rt('periodicRecentTasks') }}
-          <Tag>{{ recentTaskTotal }}</Tag>
+          <Tag>{{ recentTasks.length }}</Tag>
         </template>
         <template #extra>
           <Space>
@@ -577,6 +621,11 @@ onBeforeUnmount(() => {
               <template v-else-if="column.key === 'duration'">
                 {{ formatTaskDuration(record) }}
               </template>
+              <template v-else-if="column.key === 'dataSource'">
+                <Tag :color="record.dataSource === 'redis' ? 'blue' : 'green'">
+                  {{ record.dataSource === 'redis' ? 'Redis' : 'DB' }}
+                </Tag>
+              </template>
               <template v-else-if="column.key === 'action'">
                 <Space :size="0">
                   <Tooltip v-if="canOpenTaskDetail" :title="rt('taskDetail')">
@@ -585,7 +634,7 @@ onBeforeUnmount(() => {
                       size="small"
                       type="link"
                       :aria-label="rt('taskDetail')"
-                      @click="openTaskList(record.id)"
+                      @click="openTaskList(record)"
                     >
                       <template #icon><EyeOutlined /></template>
                     </Button>
@@ -699,6 +748,7 @@ onBeforeUnmount(() => {
 .runtime-detail-table :deep(.ant-table-thead > tr > th) {
   font-weight: 600;
   color: hsl(var(--foreground));
+  white-space: nowrap;
   background: hsl(var(--accent));
   border-bottom-color: hsl(var(--border));
 }
